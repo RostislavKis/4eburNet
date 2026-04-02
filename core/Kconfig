@@ -1,0 +1,31 @@
+# Флаги компиляции phoenix-core
+
+config PHOENIX_SHADOWSOCKS
+    bool "Поддержка Shadowsocks"
+    default y
+    help
+      Протокол Shadowsocks с AEAD шифрованием.
+
+config PHOENIX_VLESS
+    bool "Поддержка VLESS"
+    default y
+    help
+      Протокол VLESS (без шифрования на уровне протокола, TLS обязателен).
+
+config PHOENIX_TROJAN
+    bool "Поддержка Trojan"
+    default y
+    help
+      Протокол Trojan, маскировка под HTTPS-трафик.
+
+config PHOENIX_ADBLOCK
+    bool "Блокировка рекламы"
+    default y
+    help
+      Встроенный DNS-фильтр рекламных доменов.
+
+config PHOENIX_REALITY
+    bool "Поддержка REALITY"
+    default y
+    help
+      REALITY TLS — маскировка под легитимный сайт.
