@@ -1,0 +1,25 @@
+# Артефакты сборки
+build/
+*.o
+*.a
+*.so
+*.ipk
+
+# OpenWrt SDK
+staging_dir/
+dl/
+feeds/
+tmp/
+.config
+.config.old
+
+# Редакторы
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Системные
+.DS_Store
+Thumbs.db

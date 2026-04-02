@@ -1,0 +1,26 @@
+msgid "Phoenix Router"
+msgstr "Phoenix Router"
+
+msgid "Servers"
+msgstr "Серверы"
+
+msgid "Routing"
+msgstr "Маршрутизация"
+
+msgid "DNS Settings"
+msgstr "Настройки DNS"
+
+msgid "Statistics"
+msgstr "Статистика"
+
+msgid "Enable"
+msgstr "Включить"
+
+msgid "Server Address"
+msgstr "Адрес сервера"
+
+msgid "Port"
+msgstr "Порт"
+
+msgid "Protocol"
+msgstr "Протокол"
