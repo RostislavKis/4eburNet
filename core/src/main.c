@@ -3,6 +3,7 @@
 #include "config.h"
 #include "ipc.h"
 #include "routing/nftables.h"
+#include "routing/policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -255,6 +256,18 @@ int main(int argc, char *argv[])
             nft_mode_set_rules();
     }
 
+    /* Политика маршрутизации — ip rule и ip route */
+    policy_check_conflicts();
+    if (strcmp(cfg.mode, "tun") == 0) {
+        policy_init_tun("tun0");
+    } else if (strcmp(cfg.mode, "direct") == 0) {
+        /* в direct режиме правила маршрутизации не нужны */
+    } else {
+        /* rules и global используют TPROXY */
+        policy_init_tproxy();
+    }
+    policy_dump();
+
     /* Установка обработчиков сигналов */
     struct sigaction sa_shutdown = { .sa_handler = handle_shutdown };
     struct sigaction sa_reload   = { .sa_handler = handle_reload };
@@ -307,6 +320,7 @@ int main(int argc, char *argv[])
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    policy_cleanup();
     nft_cleanup();
     ipc_cleanup(state.ipc_fd);
     config_free(&cfg);
