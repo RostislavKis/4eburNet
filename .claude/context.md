@@ -59,4 +59,18 @@
 - QMP снапшоты работают (socat установлен, wsl -u root)
 - passwordless sudo настроен для WSL
 - Бинарник: 131 KB (x86_64, не stripped)
-Коммиты: (после коммита)
+Коммиты: 3f946fb
+
+## Сессия 006 — 2026-04-04
+Статус: завершена
+Сделано:
+- Реализован proxy/tproxy.c (370 строк)
+- Неблокирующий TCP+UDP сервер, epoll edge-triggered, timeout=0
+- SO_ORIGINAL_DST для TCP, IP_ORIGDSTADDR cmsg для UDP
+- IPv4 + IPv6, 4 сокета, rcvbuf по профилю (64K/256K/1MB)
+- format_addr DEBUG лог в tproxy_accept_tcp
+- dispatcher.c: логирует src→dst, закрывает fd (временно до 1.5)
+- DEC-013: DeviceProfile вынести в device.h (технический долг)
+- tproxy_state отдельная static в main.c (circular dep fix)
+- Тест: 4 сокета на :7893, перехват подтверждён, cleanup чистый
+Бинарник: 136 KB
