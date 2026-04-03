@@ -34,6 +34,12 @@ fi
 
 . "$CONF"
 
+# === РЕЖИМ VM ===
+VM_MODE=false
+if [ "$ROUTER_PORT" = "2222" ] && [ "$ROUTER_IP" = "localhost" ]; then
+    VM_MODE=true
+fi
+
 # === ЗАЩИТА ОТ ДЕПЛОЯ НА БОЕВОЙ РОУТЕР ===
 if [ "$ROUTER_IP" = "192.168.1.1" ]; then
     printf "\n${RED}██████████████████████████████████████████████████${NC}\n"
