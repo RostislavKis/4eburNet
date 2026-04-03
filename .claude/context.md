@@ -74,3 +74,20 @@
 - tproxy_state отдельная static в main.c (circular dep fix)
 - Тест: 4 сокета на :7893, перехват подтверждён, cleanup чистый
 Бинарник: 136 KB
+Коммиты: 4ff083b
+
+## Сессия 007 — 2026-04-04
+Статус: завершена
+Сделано:
+- Полная перезапись proxy/dispatcher.c (637 строк)
+- Неблокирующий relay через epoll, timeout=0
+- DEC-014: отдельный epoll для relay
+- DEC-015: epoll data.ptr → O(1) поиск relay
+- splice() zero-copy с fallback read/write
+- upstream_connect() через inet_pton (без getaddrinfo)
+- proxy_protocol_t интерфейс: direct реализован, vless/ss/trojan в 1.6
+- Исправлен баг: relay_alloc устанавливает RELAY_CONNECTING сразу
+- Таймаут зависших соединений 60 сек
+- Тест: relay 127.0.0.1:7893 → 127.0.0.1:9999 (echo), 12 байт прошли
+- half-close (out:0) — ограничение v1, DEC-016 для 1.6
+- Бинарник: 145 KB
