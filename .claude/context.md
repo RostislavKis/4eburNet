@@ -43,5 +43,20 @@
 - Добавлен log_flush() перед cleanup
 - QMP снапшоты: snapshot.sh и start-vm.sh обновлены
 - Полный цикл: init → режим rules → stop → cleanup работает
-Коммиты этой сессии: (будут после коммита)
+Коммиты этой сессии: 3dc7b9b, da4ce46
 Размер бинарника: 123 KB (x86_64, не stripped)
+
+## Сессия 005 — 2026-04-04
+Статус: завершена
+Сделано:
+- Реализован routing/policy.c (ip subprocess, DEC-012)
+- IPv4+IPv6 симметричны: rule_exists/route_exists с параметром ipv6
+- TPROXY цепочка полная: nftables fwmark → ip rule → ip route → loopback
+- TUN заготовка готова (policy_init_tun)
+- policy_check_conflicts: проверка таблиц 100/200 на чужие маршруты
+- policy_dump: вывод ip rule + ip route table 100/200 в лог DEBUG
+- Полный цикл init+cleanup подтверждён в VM
+- QMP снапшоты работают (socat установлен, wsl -u root)
+- passwordless sudo настроен для WSL
+- Бинарник: 131 KB (x86_64, не stripped)
+Коммиты: (после коммита)
