@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "routing/nftables.h"
 #include "routing/policy.h"
+#include "proxy/tproxy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 
 /* Глобальное состояние — доступно из обработчиков сигналов */
 static PhoenixState state;
+static tproxy_state_t tproxy_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -268,6 +270,13 @@ int main(int argc, char *argv[])
     }
     policy_dump();
 
+    /* Запуск TPROXY сервера */
+    if (tproxy_init(&tproxy_state, NFT_TPROXY_PORT,
+                    state.profile) < 0) {
+        log_msg(LOG_WARN,
+            "TPROXY недоступен, перехват трафика отключён");
+    }
+
     /* Установка обработчиков сигналов */
     struct sigaction sa_shutdown = { .sa_handler = handle_shutdown };
     struct sigaction sa_reload   = { .sa_handler = handle_reload };
@@ -293,6 +302,9 @@ int main(int argc, char *argv[])
     log_msg(LOG_INFO, "Главный цикл запущен");
 
     while (state.running) {
+        /* Обработка сетевых событий (первым — приоритет) */
+        tproxy_process(&tproxy_state);
+
         /* Обработка IPC запросов */
         ipc_process(state.ipc_fd, &state);
 
@@ -320,6 +332,7 @@ int main(int argc, char *argv[])
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    tproxy_cleanup(&tproxy_state);
     policy_cleanup();
     nft_cleanup();
     ipc_cleanup(state.ipc_fd);
