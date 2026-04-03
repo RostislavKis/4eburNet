@@ -4,7 +4,7 @@ INCLUDES = -Iinclude
 SRCDIR = src
 BUILDDIR = ../../build
 SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c \
-          $(SRCDIR)/routing/nftables.c
+          $(SRCDIR)/routing/nftables.c $(SRCDIR)/routing/policy.c
 TARGET = $(BUILDDIR)/phoenixd
 
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
