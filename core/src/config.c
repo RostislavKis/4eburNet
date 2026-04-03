@@ -1,27 +1,263 @@
-/*
- * Парсер конфигурации UCI
- *
- * Читает /etc/config/phoenix и заполняет внутренние структуры.
- * UCI — стандартный формат конфигов в OpenWrt.
- */
-
 #include "config.h"
-#include <stdio.h>
 
-int phoenix_config_load(const char *path)
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+/* Максимальная длина строки в конфиге */
+#define MAX_LINE 1024
+
+/* Максимальное количество серверов */
+#define MAX_SERVERS 64
+
+/* Тип текущей секции */
+typedef enum {
+    SECTION_NONE,
+    SECTION_PHOENIX,
+    SECTION_SERVER,
+} section_type_t;
+
+/* Удаление окружающих кавычек из строки */
+static void strip_quotes(char *s)
 {
-    /* TODO: подключить libuci и прочитать секции:
-     * - phoenix.global    (общие настройки)
-     * - phoenix.server    (список прокси-серверов)
-     * - phoenix.routing   (правила маршрутизации)
-     * - phoenix.dns       (настройки DNS)
-     */
-    printf("Загрузка конфига: %s\n", path);
+    size_t len = strlen(s);
+    if (len < 2)
+        return;
+
+    if ((s[0] == '\'' && s[len - 1] == '\'') ||
+        (s[0] == '"'  && s[len - 1] == '"')) {
+        memmove(s, s + 1, len - 2);
+        s[len - 2] = '\0';
+    }
+}
+
+/* Пропуск пробелов в начале строки */
+static char *skip_whitespace(char *s)
+{
+    while (*s && (*s == ' ' || *s == '\t'))
+        s++;
+    return s;
+}
+
+/* Извлечение следующего токена, разделённого пробелами/табами */
+static char *next_token(char **cursor)
+{
+    char *s = skip_whitespace(*cursor);
+    if (*s == '\0')
+        return NULL;
+
+    char *start = s;
+
+    /* Если токен начинается с кавычки — ищем закрывающую */
+    if (*s == '\'' || *s == '"') {
+        char quote = *s;
+        s++;
+        while (*s && *s != quote)
+            s++;
+        if (*s == quote)
+            s++;
+    } else {
+        while (*s && *s != ' ' && *s != '\t' && *s != '\n' && *s != '\r')
+            s++;
+    }
+
+    if (*s) {
+        *s = '\0';
+        *cursor = s + 1;
+    } else {
+        *cursor = s;
+    }
+    return start;
+}
+
+/* Применение опции к секции phoenix */
+static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char *value)
+{
+    if (strcmp(key, "enabled") == 0) {
+        cfg->enabled = (strcmp(value, "1") == 0);
+    } else if (strcmp(key, "log_level") == 0) {
+        strncpy(cfg->log_level, value, sizeof(cfg->log_level) - 1);
+        cfg->log_level[sizeof(cfg->log_level) - 1] = '\0';
+    } else if (strcmp(key, "mode") == 0) {
+        strncpy(cfg->mode, value, sizeof(cfg->mode) - 1);
+        cfg->mode[sizeof(cfg->mode) - 1] = '\0';
+    } else {
+        log_msg(LOG_WARN, "Неизвестная опция phoenix: %s", key);
+    }
+}
+
+/* Применение опции к текущему серверу */
+static void apply_server_option(ServerConfig *srv, const char *key, const char *value)
+{
+    if (strcmp(key, "enabled") == 0) {
+        srv->enabled = (strcmp(value, "1") == 0);
+    } else if (strcmp(key, "protocol") == 0) {
+        strncpy(srv->protocol, value, sizeof(srv->protocol) - 1);
+        srv->protocol[sizeof(srv->protocol) - 1] = '\0';
+    } else if (strcmp(key, "address") == 0) {
+        strncpy(srv->address, value, sizeof(srv->address) - 1);
+        srv->address[sizeof(srv->address) - 1] = '\0';
+    } else if (strcmp(key, "port") == 0) {
+        srv->port = (uint16_t)atoi(value);
+    } else if (strcmp(key, "uuid") == 0) {
+        strncpy(srv->uuid, value, sizeof(srv->uuid) - 1);
+        srv->uuid[sizeof(srv->uuid) - 1] = '\0';
+    } else if (strcmp(key, "password") == 0) {
+        strncpy(srv->password, value, sizeof(srv->password) - 1);
+        srv->password[sizeof(srv->password) - 1] = '\0';
+    } else {
+        log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
+    }
+}
+
+int config_load(const char *path, PhoenixConfig *cfg)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        log_msg(LOG_ERROR, "Не удалось открыть конфиг: %s", path);
+        return -1;
+    }
+
+    /* Инициализация структуры */
+    memset(cfg, 0, sizeof(*cfg));
+    cfg->enabled = false;
+    strcpy(cfg->log_level, "info");
+    strcpy(cfg->mode, "rules");
+
+    /* Временный массив серверов */
+    ServerConfig servers[MAX_SERVERS];
+    int srv_count = 0;
+
+    section_type_t section = SECTION_NONE;
+    char line[MAX_LINE];
+    int line_num = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        line_num++;
+
+        /* Убираем перенос строки */
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+
+        char *cursor = skip_whitespace(line);
+
+        /* Пустая строка или комментарий */
+        if (*cursor == '\0' || *cursor == '#')
+            continue;
+
+        char *keyword = next_token(&cursor);
+        if (!keyword)
+            continue;
+
+        if (strcmp(keyword, "config") == 0) {
+            /* Начало секции: config TYPE 'NAME' */
+            char *type = next_token(&cursor);
+            char *name = next_token(&cursor);
+            if (!type) {
+                log_msg(LOG_ERROR, "Ошибка в строке %d: нет типа секции", line_num);
+                fclose(f);
+                return -1;
+            }
+
+            if (name)
+                strip_quotes(name);
+
+            if (strcmp(type, "phoenix") == 0) {
+                section = SECTION_PHOENIX;
+            } else if (strcmp(type, "server") == 0) {
+                if (srv_count >= MAX_SERVERS) {
+                    log_msg(LOG_ERROR, "Строка %d: превышен лимит серверов (%d)",
+                            line_num, MAX_SERVERS);
+                    fclose(f);
+                    return -1;
+                }
+                section = SECTION_SERVER;
+                memset(&servers[srv_count], 0, sizeof(ServerConfig));
+                if (name) {
+                    strncpy(servers[srv_count].name, name,
+                            sizeof(servers[srv_count].name) - 1);
+                }
+                srv_count++;
+            } else {
+                log_msg(LOG_WARN, "Строка %d: неизвестный тип секции '%s'",
+                        line_num, type);
+                section = SECTION_NONE;
+            }
+        } else if (strcmp(keyword, "option") == 0) {
+            /* Параметр: option KEY 'VALUE' */
+            char *key   = next_token(&cursor);
+            char *value = next_token(&cursor);
+
+            if (!key || !value) {
+                log_msg(LOG_ERROR, "Строка %d: неполная опция", line_num);
+                fclose(f);
+                return -1;
+            }
+
+            strip_quotes(key);
+            strip_quotes(value);
+
+            switch (section) {
+            case SECTION_PHOENIX:
+                apply_phoenix_option(cfg, key, value);
+                break;
+            case SECTION_SERVER:
+                if (srv_count > 0)
+                    apply_server_option(&servers[srv_count - 1], key, value);
+                break;
+            case SECTION_NONE:
+                log_msg(LOG_WARN, "Строка %d: опция вне секции", line_num);
+                break;
+            }
+        } else if (strcmp(keyword, "list") == 0) {
+            /* Списки пока не поддержаны */
+            log_msg(LOG_DEBUG, "Строка %d: 'list' пропущен (не поддержан)", line_num);
+        } else {
+            log_msg(LOG_WARN, "Строка %d: неизвестное ключевое слово '%s'",
+                    line_num, keyword);
+        }
+    }
+
+    fclose(f);
+
+    /* Копируем серверы в динамический массив */
+    if (srv_count > 0) {
+        cfg->servers = malloc((size_t)srv_count * sizeof(ServerConfig));
+        if (!cfg->servers) {
+            log_msg(LOG_ERROR, "Не удалось выделить память для серверов");
+            return -1;
+        }
+        memcpy(cfg->servers, servers, (size_t)srv_count * sizeof(ServerConfig));
+    }
+    cfg->server_count = srv_count;
+
+    log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d)", path, srv_count);
     return 0;
 }
 
-int phoenix_config_reload(void)
+void config_free(PhoenixConfig *cfg)
 {
-    /* TODO: перечитать конфиг по сигналу SIGHUP */
-    return 0;
+    if (cfg->servers) {
+        free(cfg->servers);
+        cfg->servers = NULL;
+    }
+    cfg->server_count = 0;
+}
+
+void config_dump(const PhoenixConfig *cfg)
+{
+    log_msg(LOG_DEBUG, "=== Конфигурация ===");
+    log_msg(LOG_DEBUG, "  enabled:   %s", cfg->enabled ? "да" : "нет");
+    log_msg(LOG_DEBUG, "  log_level: %s", cfg->log_level);
+    log_msg(LOG_DEBUG, "  mode:      %s", cfg->mode);
+    log_msg(LOG_DEBUG, "  серверов:  %d", cfg->server_count);
+
+    for (int i = 0; i < cfg->server_count; i++) {
+        const ServerConfig *s = &cfg->servers[i];
+        log_msg(LOG_DEBUG, "  [%d] name=%s enabled=%d proto=%s addr=%s:%u",
+                i, s->name, s->enabled, s->protocol, s->address, s->port);
+    }
+    log_msg(LOG_DEBUG, "====================");
 }

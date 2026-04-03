@@ -1,14 +1,198 @@
-/*
- * Межпроцессное взаимодействие
- *
- * Unix-сокет для связи между phoenix-core и LuCI.
- * Через него LuCI получает статистику и отправляет команды.
- */
+#include "ipc.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <time.h>
 
-int ipc_server_start(const char *socket_path)
+/* Размер буфера для ответов */
+#define IPC_RESPONSE_MAX 512
+
+/* Отправка строки в подключённый сокет */
+static void ipc_respond(int client_fd, const char *json)
 {
-    /* TODO: создать unix domain socket */
+    ipc_header_t resp = {
+        .version    = PHOENIX_IPC_VERSION,
+        .command    = 0,
+        .length     = (uint16_t)strlen(json),
+        .request_id = 0,
+    };
+
+    /* Отправляем заголовок, затем тело */
+    if (write(client_fd, &resp, sizeof(resp)) < 0)
+        return;
+    if (write(client_fd, json, resp.length) < 0)
+        return;
+}
+
+int ipc_init(void)
+{
+    /* Удаляем старый сокет, если остался */
+    unlink(PHOENIX_IPC_SOCKET);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        log_msg(LOG_ERROR, "Не удалось создать Unix-сокет");
+        return -1;
+    }
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, PHOENIX_IPC_SOCKET, sizeof(addr.sun_path) - 1);
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        log_msg(LOG_ERROR, "Не удалось привязать сокет: %s", PHOENIX_IPC_SOCKET);
+        close(fd);
+        return -1;
+    }
+
+    /* Права доступа: владелец + группа */
+    chmod(PHOENIX_IPC_SOCKET, 0660);
+
+    if (listen(fd, 5) < 0) {
+        log_msg(LOG_ERROR, "listen() не удался");
+        close(fd);
+        unlink(PHOENIX_IPC_SOCKET);
+        return -1;
+    }
+
+    /* Неблокирующий режим */
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    log_msg(LOG_INFO, "IPC сокет создан: %s", PHOENIX_IPC_SOCKET);
+    return fd;
+}
+
+void ipc_process(int server_fd, PhoenixState *state)
+{
+    /* Неблокирующий accept — если нет соединений, сразу выходим */
+    int client_fd = accept(server_fd, NULL, NULL);
+    if (client_fd < 0)
+        return;
+
+    /* Читаем заголовок команды */
+    ipc_header_t hdr;
+    ssize_t n = read(client_fd, &hdr, sizeof(hdr));
+    if (n != sizeof(hdr)) {
+        log_msg(LOG_WARN, "IPC: неполный заголовок (%zd байт)", n);
+        close(client_fd);
+        return;
+    }
+
+    /* Проверка версии протокола */
+    if (hdr.version != PHOENIX_IPC_VERSION) {
+        log_msg(LOG_WARN, "IPC: неизвестная версия протокола %u", hdr.version);
+        ipc_respond(client_fd, "{\"error\":\"version mismatch\"}");
+        close(client_fd);
+        return;
+    }
+
+    char buf[IPC_RESPONSE_MAX];
+
+    switch ((ipc_command_t)hdr.command) {
+    case IPC_CMD_STATUS: {
+        time_t uptime = time(NULL) - state->start_time;
+        const char *profile = "unknown";
+        switch (state->profile) {
+        case DEVICE_MICRO:  profile = "MICRO";  break;
+        case DEVICE_NORMAL: profile = "NORMAL"; break;
+        case DEVICE_FULL:   profile = "FULL";   break;
+        }
+        snprintf(buf, sizeof(buf),
+                 "{\"status\":\"running\",\"profile\":\"%s\",\"uptime\":%ld}",
+                 profile, (long)uptime);
+        ipc_respond(client_fd, buf);
+        break;
+    }
+
+    case IPC_CMD_RELOAD:
+        state->reload = true;
+        ipc_respond(client_fd, "{\"status\":\"ok\"}");
+        log_msg(LOG_INFO, "IPC: запрошена перезагрузка конфига");
+        break;
+
+    case IPC_CMD_STOP:
+        state->running = false;
+        ipc_respond(client_fd, "{\"status\":\"stopping\"}");
+        log_msg(LOG_INFO, "IPC: запрошена остановка");
+        break;
+
+    case IPC_CMD_STATS:
+        snprintf(buf, sizeof(buf),
+                 "{\"connections\":%lu,\"bytes_in\":0,\"bytes_out\":0}",
+                 (unsigned long)state->connections_total);
+        ipc_respond(client_fd, buf);
+        break;
+
+    default:
+        log_msg(LOG_WARN, "IPC: неизвестная команда %u", hdr.command);
+        ipc_respond(client_fd, "{\"error\":\"unknown command\"}");
+        break;
+    }
+
+    close(client_fd);
+}
+
+void ipc_cleanup(int server_fd)
+{
+    if (server_fd >= 0) {
+        close(server_fd);
+        unlink(PHOENIX_IPC_SOCKET);
+        log_msg(LOG_INFO, "IPC сокет закрыт");
+    }
+}
+
+int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, PHOENIX_IPC_SOCKET, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    /* Отправляем запрос */
+    ipc_header_t hdr = {
+        .version    = PHOENIX_IPC_VERSION,
+        .command    = (uint8_t)cmd,
+        .length     = 0,
+        .request_id = 1,
+    };
+    if (write(fd, &hdr, sizeof(hdr)) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    /* Читаем ответ: заголовок + тело */
+    ipc_header_t resp;
+    ssize_t rn = read(fd, &resp, sizeof(resp));
+    if (rn != sizeof(resp)) {
+        close(fd);
+        return -1;
+    }
+
+    if (resp.length > 0 && resp.length < buf_size) {
+        rn = read(fd, buf, resp.length);
+        if (rn > 0)
+            buf[rn] = '\0';
+    } else {
+        buf[0] = '\0';
+    }
+
+    close(fd);
     return 0;
 }
