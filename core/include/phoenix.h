@@ -92,6 +92,7 @@ typedef struct {
 void log_init(const char *path, log_level_t min_level);
 void log_msg(log_level_t level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+void log_flush(void);
 void log_close(void);
 
 #endif /* PHOENIX_H */
