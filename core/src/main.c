@@ -2,6 +2,7 @@
 #include "resource_manager.h"
 #include "config.h"
 #include "ipc.h"
+#include "routing/nftables.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -241,6 +242,19 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    /* Инициализация таблиц маршрутизации */
+    if (nft_init() != NFT_OK) {
+        log_msg(LOG_WARN,
+            "nftables недоступен, маршрутизация отключена");
+    } else {
+        if (strcmp(cfg.mode, "global") == 0)
+            nft_mode_set_global();
+        else if (strcmp(cfg.mode, "direct") == 0)
+            nft_mode_set_direct();
+        else
+            nft_mode_set_rules();
+    }
+
     /* Установка обработчиков сигналов */
     struct sigaction sa_shutdown = { .sa_handler = handle_shutdown };
     struct sigaction sa_reload   = { .sa_handler = handle_reload };
@@ -248,7 +262,14 @@ int main(int argc, char *argv[])
     sigemptyset(&sa_reload.sa_mask);
     sigaction(SIGTERM, &sa_shutdown, NULL);
     sigaction(SIGINT,  &sa_shutdown, NULL);
-    sigaction(SIGHUP,  &sa_reload, NULL);
+
+    if (!daemon_mode) {
+        /* Без демонизации: SIGHUP = завершение (SSH disconnect) */
+        sigaction(SIGHUP, &sa_shutdown, NULL);
+    } else {
+        /* Демон: SIGHUP = перечитка конфига */
+        sigaction(SIGHUP, &sa_reload, NULL);
+    }
 
     /* Главный цикл */
     state.running    = true;
@@ -284,7 +305,9 @@ int main(int argc, char *argv[])
 
     /* Завершение работы */
     log_msg(LOG_INFO, "Завершение работы...");
+    log_flush();
 
+    nft_cleanup();
     ipc_cleanup(state.ipc_fd);
     config_free(&cfg);
     unlink(PHOENIX_PID_FILE);

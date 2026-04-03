@@ -3,7 +3,8 @@ CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -pipe -D_GNU_SOURCE -static
 INCLUDES = -Iinclude
 SRCDIR = src
 BUILDDIR = ../../build
-SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c
+SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c \
+          $(SRCDIR)/routing/nftables.c
 TARGET = $(BUILDDIR)/phoenixd
 
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
