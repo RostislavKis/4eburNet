@@ -85,6 +85,12 @@ void log_msg(log_level_t level, const char *fmt, ...)
     }
 }
 
+void log_flush(void)
+{
+    if (log_file)
+        fflush(log_file);
+}
+
 void log_close(void)
 {
     if (log_file) {
