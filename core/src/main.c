@@ -5,6 +5,7 @@
 #include "routing/nftables.h"
 #include "routing/policy.h"
 #include "proxy/tproxy.h"
+#include "proxy/dispatcher.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@
 /* Глобальное состояние — доступно из обработчиков сигналов */
 static PhoenixState state;
 static tproxy_state_t tproxy_state;
+static dispatcher_state_t dispatcher_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -277,6 +279,13 @@ int main(int argc, char *argv[])
             "TPROXY недоступен, перехват трафика отключён");
     }
 
+    /* Инициализация диспетчера relay */
+    if (dispatcher_init(&dispatcher_state, state.profile) < 0) {
+        log_msg(LOG_WARN, "Диспетчер не запущен");
+    } else {
+        dispatcher_set_context(&dispatcher_state, &cfg);
+    }
+
     /* Установка обработчиков сигналов */
     struct sigaction sa_shutdown = { .sa_handler = handle_shutdown };
     struct sigaction sa_reload   = { .sa_handler = handle_reload };
@@ -304,6 +313,7 @@ int main(int argc, char *argv[])
     while (state.running) {
         /* Обработка сетевых событий (первым — приоритет) */
         tproxy_process(&tproxy_state);
+        dispatcher_tick(&dispatcher_state);
 
         /* Обработка IPC запросов */
         ipc_process(state.ipc_fd, &state);
@@ -317,6 +327,7 @@ int main(int argc, char *argv[])
                 cfg = new_cfg;
                 state.config = &cfg;
                 config_dump(&cfg);
+                dispatcher_set_context(&dispatcher_state, &cfg);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
@@ -332,6 +343,7 @@ int main(int argc, char *argv[])
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    dispatcher_cleanup(&dispatcher_state);
     tproxy_cleanup(&tproxy_state);
     policy_cleanup();
     nft_cleanup();
