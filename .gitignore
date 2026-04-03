@@ -26,3 +26,8 @@ Thumbs.db
 
 # Локальный конфиг деплоя (содержит IP/пароли)
 scripts/deploy.conf
+
+# VM — образы и состояние (только скрипты версионируются)
+dev/openwrt-dev.qcow2
+dev/images/
+dev/vm.pid
