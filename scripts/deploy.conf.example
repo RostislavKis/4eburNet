@@ -4,9 +4,25 @@
 #
 # ВНИМАНИЕ: deploy.conf добавлен в .gitignore — не коммитить!
 
-ROUTER_IP=192.168.2.1
-ROUTER_PORT=22
+# === Режим разработки (QEMU VM) ===
+ROUTER_IP=localhost
+ROUTER_PORT=2222
 ROUTER_USER=root
-ROUTER_ARCH=mipsel_24kc
-SDK_PATH=~/phoenix-router-dev/sdk/mipsel-mt7621/sdk-mipsel-mt7621
+ROUTER_ARCH=x86_64
+LUCI_PORT=8080
+SDK_PATH=~/phoenix-router-dev/sdk/aarch64/sdk-aarch64
 BUILD_DIR=~/phoenix-router-dev/project/phoenix-router/build
+
+# === Реальный роутер EC330 (раскомментировать после восстановления) ===
+# ROUTER_IP=192.168.2.1
+# ROUTER_PORT=22
+# ROUTER_USER=root
+# ROUTER_ARCH=mipsel_24kc
+# SDK_PATH=~/phoenix-router-dev/sdk/mipsel-mt7621/sdk-mipsel-mt7621
+# BUILD_DIR=~/phoenix-router-dev/project/phoenix-router/build
+
+# === Flint 2 (когда придёт время) ===
+# ROUTER_IP=192.168.1.1
+# ROUTER_PORT=22
+# ROUTER_USER=root
+# ROUTER_ARCH=aarch64
