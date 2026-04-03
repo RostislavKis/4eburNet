@@ -1,0 +1,29 @@
+CC = musl-gcc
+CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -pipe -D_GNU_SOURCE -static
+INCLUDES = -Iinclude
+SRCDIR = src
+BUILDDIR = ../../build
+SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c
+TARGET = $(BUILDDIR)/phoenixd
+
+SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCES) include/*.h
+	mkdir -p $(BUILDDIR)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(SOURCES)
+	@ls -lh $@
+
+clean:
+	rm -f $(TARGET)
+
+run: $(TARGET)
+	$(TARGET) -c ../../qemu/test-config/phoenix
+
+install-vm: $(TARGET)
+	cat $(TARGET) | $(SSH) "cat > /usr/sbin/phoenixd && chmod +x /usr/sbin/phoenixd"
+	cat ../../qemu/test-config/phoenix | $(SSH) "cat > /etc/config/phoenix"
+	@echo "Деплой завершён. Запусти: ssh -p 2222 root@localhost \"phoenixd -d\""
+
+.PHONY: all clean run install-vm
