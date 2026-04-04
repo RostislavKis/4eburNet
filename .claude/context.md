@@ -150,3 +150,4 @@
 - Тест: "relay: half-close (client EOF)" подтверждён, 16 байт прошли
 - Бинарник: 918 KB (без изменений)
 - FIXED C-08: SIGPIPE → signal(SIGPIPE, SIG_IGN) в main.c
+- FIXED C-05: splice отключён в dispatcher_init() (data corruption)

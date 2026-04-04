@@ -140,32 +140,8 @@ static const proxy_protocol_t *protocol_find(const char *name)
     return &proto_direct;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Проверка поддержки splice()                                        */
-/* ------------------------------------------------------------------ */
-
-static bool check_splice_support(void)
-{
-    int p[2];
-    if (pipe(p) < 0)
-        return false;
-
-    /* Пробуем splice из /dev/null в pipe */
-    int devnull = open("/dev/null", O_RDONLY);
-    if (devnull < 0) {
-        close(p[0]); close(p[1]);
-        return false;
-    }
-
-    ssize_t rc = splice(devnull, NULL, p[1], NULL, 1,
-                        SPLICE_F_NONBLOCK);
-    close(devnull);
-    close(p[0]);
-    close(p[1]);
-
-    /* splice возвращает 0 (нет данных) или -1 с EAGAIN — оба значат поддержку */
-    return (rc >= 0 || errno == EAGAIN);
-}
+/* check_splice_support удалён — аудит C-05: один pipe на все relay
+   давал data corruption при partial write */
 
 /* ------------------------------------------------------------------ */
 /*  relay_alloc / relay_free                                           */
@@ -513,24 +489,19 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
         return -1;
     }
 
-    /* Проверка splice */
-    ds->has_splice = check_splice_support();
-    if (ds->has_splice) {
-        if (pipe(ds->splice_pipe) < 0) {
-            ds->has_splice = false;
-            log_msg(LOG_WARN, "relay: pipe для splice не создан: %s",
-                    strerror(errno));
-        } else {
-            /* Неблокирующий pipe */
-            fcntl(ds->splice_pipe[0], F_SETFL, O_NONBLOCK);
-            fcntl(ds->splice_pipe[1], F_SETFL, O_NONBLOCK);
-        }
-    }
+    /*
+     * splice отключён — один pipe на всех даёт data corruption
+     * при partial write (аудит C-05). TLS relay (основной путь)
+     * использует tls_send/recv через userspace буфер.
+     */
+    ds->has_splice = false;
+    ds->splice_pipe[0] = -1;
+    ds->splice_pipe[1] = -1;
+    log_msg(LOG_DEBUG,
+        "splice отключён (data corruption fix, аудит C-05)");
 
-    log_msg(LOG_INFO, "Диспетчер запущен (макс. %d соединений, splice: %s, "
-            "буфер: %zu)",
-            ds->conns_max, ds->has_splice ? "да" : "нет",
-            ds->relay_buf_size);
+    log_msg(LOG_INFO, "Диспетчер запущен (макс. %d соединений, буфер: %zu)",
+            ds->conns_max, ds->relay_buf_size);
     return 0;
 }
 
