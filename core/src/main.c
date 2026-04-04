@@ -9,6 +9,8 @@
 #include "ntp_bootstrap.h"
 #include "routing/rules_loader.h"
 #include "crypto/tls.h"
+#include "dns/dns_server.h"
+#include "dns/dns_rules.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +27,7 @@ static PhoenixState state;
 static tproxy_state_t tproxy_state;
 static dispatcher_state_t dispatcher_state;
 static rules_manager_t rules_state;
+static dns_server_t dns_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -304,6 +307,12 @@ int main(int argc, char *argv[])
     rules_add_source(&rules_state, proxy_file,  RULES_PROXY);
     rules_load_all(&rules_state);
 
+    /* DNS демон — init (register_epoll после master_epoll) */
+    if (cfg.dns.enabled) {
+        dns_rules_init(&cfg);
+        dns_server_init(&dns_state, &cfg);
+    }
+
     /* Политика маршрутизации — ip rule и ip route */
     policy_check_conflicts();
     if (strcmp(cfg.mode, "tun") == 0) {
@@ -369,6 +378,10 @@ int main(int argc, char *argv[])
         epoll_ctl(master_epoll, EPOLL_CTL_ADD, listen_fds[i], &mev);
     }
 
+    /* DNS fd в master epoll */
+    if (cfg.dns.enabled && dns_state.udp_fd >= 0)
+        dns_server_register_epoll(&dns_state, master_epoll);
+
     /* Главный цикл */
     state.running    = true;
     state.reload     = false;
@@ -386,6 +399,8 @@ int main(int argc, char *argv[])
             int fd = events[i].data.fd;
             if (fd == state.ipc_fd)
                 ipc_process(state.ipc_fd, &state);
+            else if (fd == dns_state.udp_fd || fd == dns_state.tcp_fd)
+                dns_server_handle_event(&dns_state, fd);
             else
                 tproxy_handle_event(&tproxy_state, fd);
         }
@@ -404,6 +419,8 @@ int main(int argc, char *argv[])
                 config_dump(&cfg);
                 dispatcher_set_context(&dispatcher_state, &cfg);
                 rules_check_update(&rules_state);
+                if (cfg.dns.enabled)
+                    dns_rules_init(&cfg);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
@@ -419,6 +436,10 @@ cleanup:
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    if (cfg.dns.enabled) {
+        dns_server_cleanup(&dns_state);
+        dns_rules_free();
+    }
     rules_cleanup(&rules_state);
     dispatcher_cleanup(&dispatcher_state);
     tproxy_cleanup(&tproxy_state);

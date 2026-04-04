@@ -14,7 +14,10 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/proxy/protocols/trojan.c \
           $(SRCDIR)/proxy/protocols/shadowsocks.c \
           $(SRCDIR)/crypto/blake3.c \
-          $(SRCDIR)/net_utils.c
+          $(SRCDIR)/net_utils.c \
+          $(SRCDIR)/dns/dns_packet.c $(SRCDIR)/dns/dns_cache.c \
+          $(SRCDIR)/dns/dns_rules.c $(SRCDIR)/dns/dns_upstream.c \
+          $(SRCDIR)/dns/dns_server.c
 TARGET = $(BUILDDIR)/phoenixd
 
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
