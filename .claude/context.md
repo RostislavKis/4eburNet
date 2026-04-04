@@ -227,3 +227,17 @@
 - Тест: 63 байт handshake (32 salt + 15 header + 16 tag) — корректно
 - 4 протокола работают: VLESS, XHTTP, Trojan, SS 2022
 - Бинарник: 936 KB
+
+## Сессия 016 — 2026-04-04
+Статус: завершена
+Сделано:
+- dns/dns_packet.c: парсер DNS запросов, NXDOMAIN builder, TTL extract
+- dns/dns_cache.c: LRU кэш djb2 hash, TTL expiry
+- dns/dns_rules.c: wildcard/exact matcher, файловая загрузка
+- dns/dns_upstream.c: UDP resolver, DoT (RFC 7858), DoH (RFC 8484)
+- dns/dns_server.c: UDP+TCP listener, split DNS, master epoll интеграция
+- config.h/c: DnsConfig + DnsRule парсинг из UCI
+- DEC-026: DoQ реализовать вместе с QUIC стеком (после AWG)
+- Бинарник: 949 KB
+- Тест: google.com→default, doubleclick→NXDOMAIN, yandex.ru→bypass, кэш
+- Никакого хардкода — все upstream/правила/порты из конфига
