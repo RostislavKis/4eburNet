@@ -121,3 +121,18 @@
 - DEC-024: wolfSSL без OpenSSL compat, ошибки через get_error
 - Бинарник: 914 KB (wolfSSL +752KB, в лимите 4MB)
 - Тест: wolfSSL v5.9.0 инициализирован, TCP connect к google:443 работает
+Коммиты: 46ac2ce
+
+## Сессия 010 — 2026-04-04
+Статус: завершена
+Сделано:
+- proxy/protocols/vless.c: UUID парсинг, build_request, read_response, handshake
+- dispatcher.c: relay_conn_t расширен (tls_conn_t + use_tls)
+- dispatcher.c: relay_transfer рефакторинг — TLS путь при use_tls
+- dispatcher.c: vless_protocol_connect — tls_connect + vless_handshake
+- tls.c: select retry loop для wolfSSL_connect на NONBLOCK сокете
+- vless.c: select retry loop для vless_read_response (5 сек таймаут)
+- relay_free(): tls_close при use_tls
+- Бинарник: 918 KB
+- Тест: TLS установлен (TLSv1.2 Chrome120), VLESS header отправлен,
+         таймаут 5 сек при отсутствии VLESS сервера — корректно

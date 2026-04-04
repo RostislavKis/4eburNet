@@ -9,6 +9,8 @@
  */
 
 #include "proxy/dispatcher.h"
+#include "proxy/protocols/vless.h"
+#include "crypto/tls.h"
 #include "phoenix.h"
 #include "resource_manager.h"
 
@@ -75,11 +77,11 @@ static void fmt_addr(const struct sockaddr_storage *ss,
 /*  Протокол "direct" — relay без шифрования (для тестов)               */
 /* ------------------------------------------------------------------ */
 
-static int protocol_direct_connect(int upstream_fd,
+static int protocol_direct_connect(relay_conn_t *relay,
                                    const struct sockaddr_storage *dst,
                                    const ServerConfig *server)
 {
-    (void)upstream_fd;
+    (void)relay;
     (void)dst;
     (void)server;
     return 0;
@@ -91,14 +93,46 @@ static const proxy_protocol_t proto_direct = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Протокол VLESS — TLS + VLESS header                                */
+/* ------------------------------------------------------------------ */
+
+static int vless_protocol_connect(relay_conn_t *relay,
+                                  const struct sockaddr_storage *dst,
+                                  const ServerConfig *server)
+{
+    tls_config_t cfg = {
+        .sni         = server->address,
+        .fingerprint = TLS_FP_CHROME120,
+        .verify_cert = false,
+    };
+
+    if (tls_connect(&relay->tls, relay->upstream_fd, &cfg) < 0)
+        return -1;
+
+    if (vless_handshake(&relay->tls, dst, server->uuid) < 0) {
+        tls_close(&relay->tls);
+        return -1;
+    }
+
+    relay->use_tls = true;
+    return 0;
+}
+
+static const proxy_protocol_t proto_vless = {
+    .name    = "vless",
+    .connect = vless_protocol_connect,
+};
+
+/* ------------------------------------------------------------------ */
 /*  Выбор протокола по имени из конфига                                 */
 /* ------------------------------------------------------------------ */
 
 static const proxy_protocol_t *protocol_find(const char *name)
 {
-    /* Пока только direct, остальные — шаг 1.6 */
     if (strcmp(name, "direct") == 0)
         return &proto_direct;
+    if (strcmp(name, "vless") == 0)
+        return &proto_vless;
 
     /* Неизвестный протокол — используем direct как fallback */
     log_msg(LOG_WARN, "relay: протокол '%s' не поддержан, используется direct",
@@ -162,6 +196,11 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
 
 static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 {
+    if (r->use_tls) {
+        tls_close(&r->tls);
+        r->use_tls = false;
+    }
+
     if (r->client_fd >= 0) {
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->client_fd, NULL);
         close(r->client_fd);
@@ -251,45 +290,81 @@ static int upstream_connect(dispatcher_state_t *ds,
 /* ------------------------------------------------------------------ */
 
 static ssize_t relay_transfer(dispatcher_state_t *ds,
-                              int from_fd, int to_fd)
+                              relay_conn_t *r, bool from_client)
 {
-    if (ds->has_splice) {
-        /* Zero-copy через pipe */
-        ssize_t n = splice(from_fd, NULL, ds->splice_pipe[1], NULL,
-                           SPLICE_PIPE_SIZE, SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
+    ssize_t n;
+
+    if (from_client) {
+        /*
+         * Клиент → upstream
+         * Читаем из client_fd (всегда plain TCP)
+         */
+        if (!r->use_tls && ds->has_splice) {
+            /* splice: client → pipe → upstream (zero-copy) */
+            n = splice(r->client_fd, NULL, ds->splice_pipe[1], NULL,
+                       SPLICE_PIPE_SIZE, SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
+            if (n <= 0)
+                return n;
+            ssize_t written = 0;
+            while (written < n) {
+                ssize_t w = splice(ds->splice_pipe[0], NULL,
+                                   r->upstream_fd, NULL,
+                                   n - written,
+                                   SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
+                if (w < 0) {
+                    if (errno == EAGAIN) break;
+                    return -1;
+                }
+                written += w;
+            }
+            return written;
+        }
+
+        /* read/write (или TLS upstream) */
+        n = read(r->client_fd, ds->relay_buf, ds->relay_buf_size);
+        if (n <= 0)
+            return n;
+
+        if (r->use_tls)
+            return tls_send(&r->tls, ds->relay_buf, n);
+
+        ssize_t written = 0;
+        while (written < n) {
+            ssize_t w = write(r->upstream_fd,
+                              ds->relay_buf + written, n - written);
+            if (w < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                return -1;
+            }
+            written += w;
+        }
+        return written;
+
+    } else {
+        /*
+         * Upstream → клиент
+         * Пишем в client_fd (всегда plain TCP)
+         */
+        if (r->use_tls)
+            n = tls_recv(&r->tls, ds->relay_buf, ds->relay_buf_size);
+        else
+            n = read(r->upstream_fd, ds->relay_buf, ds->relay_buf_size);
+
         if (n <= 0)
             return n;
 
         ssize_t written = 0;
         while (written < n) {
-            ssize_t w = splice(ds->splice_pipe[0], NULL, to_fd, NULL,
-                               n - written, SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
+            ssize_t w = write(r->client_fd,
+                              ds->relay_buf + written, n - written);
             if (w < 0) {
-                if (errno == EAGAIN)
-                    break;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
                 return -1;
             }
             written += w;
         }
         return written;
     }
-
-    /* Fallback: read/write через буфер */
-    ssize_t n = read(from_fd, ds->relay_buf, ds->relay_buf_size);
-    if (n <= 0)
-        return n;
-
-    ssize_t written = 0;
-    while (written < n) {
-        ssize_t w = write(to_fd, ds->relay_buf + written, n - written);
-        if (w < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-                break;
-            return -1;
-        }
-        written += w;
-    }
-    return written;
 }
 
 /* ------------------------------------------------------------------ */
@@ -506,8 +581,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 if (server) {
                     const proxy_protocol_t *proto =
                         protocol_find(server->protocol);
-                    if (proto->connect(r->upstream_fd, &r->dst,
-                                       server) < 0) {
+                    if (proto->connect(r, &r->dst, server) < 0) {
                         log_msg(LOG_WARN,
                             "relay: протокольное рукопожатие провалилось");
                         relay_free(ds, r);
@@ -525,7 +599,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 /* Данные от клиента → upstream */
                 for (;;) {
                     ssize_t transferred = relay_transfer(
-                        ds, r->client_fd, r->upstream_fd);
+                        ds, r, true);
                     if (transferred > 0) {
                         r->bytes_in += transferred;
                         continue;
@@ -544,7 +618,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 /* Данные от upstream → клиент */
                 for (;;) {
                     ssize_t transferred = relay_transfer(
-                        ds, r->upstream_fd, r->client_fd);
+                        ds, r, false);
                     if (transferred > 0) {
                         r->bytes_out += transferred;
                         continue;
