@@ -432,10 +432,10 @@ pre {
 </tr>
 <tr>
   <td>C-06</td>
-  <td><span class="badge badge-critical">CRITICAL</span></td>
-  <td><code>main.c:362-368</code></td>
+  <td><span class="badge badge-critical">ИСПРАВЛЕНА</span></td>
+  <td><code>tls.h, tls.c, dispatcher.c</code></td>
   <td>Use-after-free: config reload освобождает servers[], но активные TLS хранят указатель на server-&gt;address как SNI.</td>
-  <td>strdup() для SNI в tls_connect(), или отложенный free старого конфига.</td>
+  <td>tls_config_t.sni изменён с const char* на char[256]. tls_connect() копирует строку через snprintf. Защищает от dangling pointer при reload конфига.</td>
 </tr>
 <tr>
   <td>C-07</td>

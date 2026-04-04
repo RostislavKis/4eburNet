@@ -147,7 +147,18 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
 {
     memset(conn, 0, sizeof(*conn));
     conn->fd = fd;
-    conn->config = *config;
+    conn->config.fingerprint    = config->fingerprint;
+    conn->config.verify_cert    = config->verify_cert;
+    conn->config.reality_key    = config->reality_key;
+    conn->config.reality_key_len = config->reality_key_len;
+    conn->config.reality_short_id = config->reality_short_id;
+
+    /* Копируем SNI — защита от dangling pointer при reload конфига */
+    if (config->sni[0])
+        snprintf(conn->config.sni, sizeof(conn->config.sni),
+                 "%s", config->sni);
+    else
+        conn->config.sni[0] = '\0';
 
     /* Контекст: TLS 1.2 + 1.3 (Reality требует 1.3, fallback 1.2) */
     WOLFSSL_CTX *ctx = wolfSSL_CTX_new(wolfSSLv23_client_method());
@@ -176,9 +187,10 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
     wolfSSL_set_fd(ssl, fd);
 
     /* SNI */
-    if (config->sni && config->sni[0]) {
+    if (conn->config.sni[0]) {
         int ret = wolfSSL_UseSNI(ssl, WOLFSSL_SNI_HOST_NAME,
-                                 config->sni, (unsigned short)strlen(config->sni));
+                                 conn->config.sni,
+                                 (unsigned short)strlen(conn->config.sni));
         if (ret != WOLFSSL_SUCCESS)
             log_msg(LOG_WARN, "TLS: UseSNI провалился: %d", ret);
     }

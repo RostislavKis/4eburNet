@@ -16,7 +16,7 @@ typedef enum {
 
 /* Параметры TLS соединения */
 typedef struct {
-    const char         *sni;              /* Server Name Indication */
+    char                sni[256];         /* SNI — собственная копия */
     tls_fingerprint_t   fingerprint;      /* fingerprint профиль */
     bool                verify_cert;      /* проверять сертификат? (false для Reality) */
     const uint8_t      *reality_key;      /* x25519 публичный ключ сервера */
