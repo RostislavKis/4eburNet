@@ -40,14 +40,19 @@ static time_t file_mtime(const char *path)
     return st.st_mtime;
 }
 
-/* Создать директорию рекурсивно (аналог mkdir -p) */
+/* Создать директорию рекурсивно без fork/exec (M-05) */
 static void ensure_dir(const char *path)
 {
     char tmp[256];
-    snprintf(tmp, sizeof(tmp), "mkdir -p %s 2>/dev/null", path);
-    FILE *fp = popen(tmp, "r");
-    if (fp)
-        pclose(fp);
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(tmp, 0755);
+            *p = '/';
+        }
+    }
+    mkdir(tmp, 0755);
 }
 
 /* ------------------------------------------------------------------ */

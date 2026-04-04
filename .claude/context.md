@@ -171,3 +171,11 @@
 - FIXED H-01: master epoll вместо usleep + 3 epoll
 - FIXED H-02: accept4(SOCK_NONBLOCK) + recv(MSG_DONTWAIT)
 - FIXED H-10: tproxy + ipc fd в master epoll
+- FIXED M-01: net_utils.c — единая net_format_addr
+- FIXED M-04: _XOPEN_SOURCE 700 до всех include
+- FIXED M-05: mkdir() без popen
+- FIXED M-06: комментарий к static tls_err_buf
+- FIXED M-08: NFT_ATOMIC_MAX 16384
+- FIXED M-10: IPC truncation fix
+- FIXED L-02: комментарий HEAD запроса
+- FIXED L-03: pid_t в check_pid_file

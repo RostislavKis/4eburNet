@@ -186,10 +186,16 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
         return -1;
     }
 
-    if (resp.length > 0 && resp.length < buf_size) {
-        rn = read(fd, buf, resp.length);
+    if (resp.length > 0) {
+        /* Читаем не больше чем buf_size - 1 (M-10) */
+        size_t to_read = resp.length;
+        if (to_read >= buf_size)
+            to_read = buf_size - 1;
+        rn = read(fd, buf, to_read);
         if (rn > 0)
             buf[rn] = '\0';
+        else
+            buf[0] = '\0';
     } else {
         buf[0] = '\0';
     }
