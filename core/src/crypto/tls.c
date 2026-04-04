@@ -16,6 +16,7 @@
 
 #include <string.h>
 #include <errno.h>
+#include <sys/select.h>
 
 /* Буфер для строки ошибки */
 static char tls_err_buf[256];
@@ -185,8 +186,33 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
     /* Fingerprint профиль */
     apply_fingerprint(ctx, ssl, config->fingerprint);
 
-    /* TLS handshake */
-    int ret = wolfSSL_connect(ssl);
+    /* TLS handshake (retry при WANT_READ/WANT_WRITE на неблокирующем fd) */
+    int ret;
+    int max_attempts = 50;  /* 50 × 100мс = 5 сек макс */
+    while (max_attempts-- > 0) {
+        ret = wolfSSL_connect(ssl);
+        if (ret == WOLFSSL_SUCCESS)
+            break;
+
+        int err = wolfSSL_get_error(ssl, ret);
+        if (err == WOLFSSL_ERROR_WANT_READ ||
+            err == WOLFSSL_ERROR_WANT_WRITE) {
+            fd_set fds;
+            FD_ZERO(&fds);
+            FD_SET(fd, &fds);
+            struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+            fd_set *rset = (err == WOLFSSL_ERROR_WANT_READ)  ? &fds : NULL;
+            fd_set *wset = (err == WOLFSSL_ERROR_WANT_WRITE) ? &fds : NULL;
+            int rc = select(fd + 1, rset, wset, NULL, &tv);
+            if (rc < 0) {
+                log_msg(LOG_WARN, "TLS: select: %s", strerror(errno));
+                break;
+            }
+            continue;
+        }
+        break;
+    }
+
     if (ret != WOLFSSL_SUCCESS) {
         int err = wolfSSL_get_error(ssl, ret);
         wolfSSL_ERR_error_string(err, tls_err_buf);
