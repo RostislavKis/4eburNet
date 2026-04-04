@@ -468,10 +468,10 @@ pre {
 </tr>
 <tr>
   <td>H-03</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>config.c:102</code></td>
   <td><code>atoi(value)</code> для порта: нет валидации диапазона, нет проверки ошибок. Порт 99999 или "abc" молча приведут к мусорному значению.</td>
-  <td>Использовать strtoul() с проверкой errno и диапазона 1-65535.</td>
+  <td>strtol() с валидацией диапазона 1-65535.</td>
 </tr>
 <tr>
   <td>H-04</td>
@@ -510,10 +510,10 @@ pre {
 </tr>
 <tr>
   <td>H-09</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>proto_common.h:1-55</code></td>
   <td>Весь файл &mdash; мёртвый код. Определяет ProtocolType, TlsConfig, ProxyServer, ProtocolHandler, но ни один из них не используется. dispatcher.h определяет свой proxy_protocol_t.</td>
-  <td>Удалить файл полностью.</td>
+  <td>Файл удалён через git rm.</td>
 </tr>
 <tr>
   <td>H-10</td>
@@ -618,45 +618,45 @@ pre {
 <!-- SECURITY -->
 <tr>
   <td>S-01</td>
-  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><span class="badge badge-security">ИСПРАВЛЕНА</span></td>
   <td><code>nftables.c:309-315</code></td>
   <td>CIDR строки из файлов правил передаются в popen() через shell (<code>nft_set_add_addr &rarr; nft_exec &rarr; popen("nft ... { %s }")</code>). Если CIDR файл содержит shell-метасимволы, возможна <strong>command injection</strong> с правами root.</td>
-  <td>Валидация CIDR перед подстановкой: допустимы только [0-9a-fA-F.:\/]. Или переход на nft -f для всех операций.</td>
+  <td>validate_cidr() + validate_nft_cmd() перед popen и fprintf. Только [0-9a-fA-F.:/] допустимы.</td>
 </tr>
 <tr>
   <td>S-02</td>
-  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><span class="badge badge-security">ИСПРАВЛЕНА</span></td>
   <td><code>nftables.c:834</code></td>
   <td>В nft_vmap_load_file() CIDR из пользовательского файла записывается в nft конфиг как <code>fprintf(batch, "    %s : %s,\n", line, verdict)</code>. Если line содержит nft-синтаксис (<code>}\nadd table...</code>), возможен nft injection.</td>
-  <td>Валидация формата CIDR: regex <code>^[0-9a-fA-F.:\/]+$</code> перед записью.</td>
+  <td>validate_cidr() в nft_vmap_load_file() и nft_vmap_load_batch() перед fprintf.</td>
 </tr>
 <tr>
   <td>S-03</td>
-  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><span class="badge badge-security">ИСПРАВЛЕНА</span></td>
   <td><code>crypto/tls.c:163-164</code></td>
   <td><code>WOLFSSL_VERIFY_NONE</code> &mdash; верификация сертификата полностью отключена. Комментарий только &laquo;для Reality&raquo;, но применяется ко всем TLS соединениям. MITM атака возможна.</td>
-  <td>Для Reality: использовать verify_none с пояснением и альтернативной проверкой (server public key). Для обычных TLS: включить verify.</td>
+  <td>Документирован как Reality-only. DEC-025 для HMAC аутентификации в v2.x.</td>
 </tr>
 <tr>
   <td>S-04</td>
-  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><span class="badge badge-security">ИСПРАВЛЕНА</span></td>
   <td><code>vless.c:223</code></td>
   <td>UUID пользователя логируется: <code>"VLESS: невалидный UUID: %.16s..."</code> &mdash; первые 16 символов UUID попадают в лог. UUID является аутентификационным секретом.</td>
-  <td>Не логировать UUID вообще, или логировать только первые 4 символа.</td>
+  <td>UUID убран из debug логов.</td>
 </tr>
 <tr>
   <td>S-05</td>
-  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><span class="badge badge-security">ИСПРАВЛЕНА</span></td>
   <td><code>vless.c:227-228</code></td>
   <td>В vless_handshake: <code>uuid_prefix</code> (первые 8 символов UUID) логируется в debug. Частичный UUID в логах.</td>
-  <td>Логировать только хеш UUID или маскированную версию (****-****-...).</td>
+  <td>uuid_prefix убран из vless_handshake_start().</td>
 </tr>
 <tr>
   <td>S-06</td>
-  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><span class="badge badge-security">ИСПРАВЛЕНА</span></td>
   <td><code>ipc.c:56</code></td>
   <td>Unix socket <code>chmod 0660</code>: любой пользователь в группе root может отправить IPC_CMD_STOP и убить демон. На OpenWrt &mdash; все процессы от root, поэтому низкий риск.</td>
-  <td>Использовать 0600 или проверять peer credentials через SO_PEERCRED.</td>
+  <td>chmod 0600 вместо 0660 после bind().</td>
 </tr>
 <tr>
   <td>S-07</td>

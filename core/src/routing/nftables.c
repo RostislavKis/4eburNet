@@ -33,8 +33,39 @@
 /*  nft_exec — выполнить одиночную команду nft                        */
 /* ------------------------------------------------------------------ */
 
+/* Валидация CIDR строки — только безопасные символы (S-02) */
+static bool validate_cidr(const char *cidr)
+{
+    if (!cidr || !cidr[0])
+        return false;
+    for (const char *p = cidr; *p; p++) {
+        char c = *p;
+        if (!((c >= '0' && c <= '9') ||
+              (c >= 'a' && c <= 'f') ||
+              (c >= 'A' && c <= 'F') ||
+              c == '.' || c == ':' || c == '/'))
+            return false;
+    }
+    return strpbrk(cidr, "0123456789") != NULL;
+}
+
+/* Валидация nft команды — запрет shell-метасимволов (S-01) */
+static bool validate_nft_cmd(const char *cmd)
+{
+    const char *forbidden = "|&;`$()<>";
+    for (const char *p = forbidden; *p; p++)
+        if (strchr(cmd, *p))
+            return false;
+    return true;
+}
+
 nft_result_t nft_exec(const char *cmd)
 {
+    if (!validate_nft_cmd(cmd)) {
+        log_msg(LOG_ERROR, "nft: опасные символы в команде");
+        return NFT_ERR_EXEC;
+    }
+
     char full_cmd[NFT_CMD_MAX];
     int n = snprintf(full_cmd, sizeof(full_cmd), "nft %s 2>&1", cmd);
     if (n < 0 || (size_t)n >= sizeof(full_cmd)) {
@@ -728,6 +759,10 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
                 if (result) result->skipped++;
                 continue;
             }
+            if (!validate_cidr(cidr)) {
+                if (result) result->skipped++;
+                continue;
+            }
             fprintf(f, "    %s : %s,\n", cidr, verdict);
             written++;
         }
@@ -829,6 +864,12 @@ nft_result_t nft_vmap_load_file(const char *map_name,
                 total_errors++;
                 continue;
             }
+        }
+
+        /* Валидация CIDR — защита от nft injection (S-02) */
+        if (!validate_cidr(line)) {
+            total_errors++;
+            continue;
         }
 
         fprintf(batch, "    %s : %s,\n", line, verdict);

@@ -220,19 +220,14 @@ int vless_handshake(tls_conn_t *tls,
     /* Парсинг UUID */
     vless_uuid_t uuid;
     if (vless_uuid_parse(uuid_str, &uuid) < 0) {
-        log_msg(LOG_ERROR, "VLESS: невалидный UUID: %.16s...", uuid_str);
+        log_msg(LOG_ERROR, "VLESS: невалидный UUID");
         return -1;
     }
-
-    char uuid_prefix[9];
-    strncpy(uuid_prefix, uuid_str, 8);
-    uuid_prefix[8] = '\0';
 
     char dst_str[64];
     vless_fmt_addr(dst, dst_str, sizeof(dst_str));
 
-    log_msg(LOG_DEBUG, "VLESS handshake: UUID %s..., dst: %s",
-            uuid_prefix, dst_str);
+    log_msg(LOG_DEBUG, "VLESS handshake: dst: %s", dst_str);
 
     /* Построить VLESS request header */
     uint8_t header[VLESS_HEADER_MAX];
@@ -272,19 +267,14 @@ int vless_handshake_start(tls_conn_t *tls,
     /* Парсинг UUID */
     vless_uuid_t uuid;
     if (vless_uuid_parse(uuid_str, &uuid) < 0) {
-        log_msg(LOG_ERROR, "VLESS: невалидный UUID: %.16s...", uuid_str);
+        log_msg(LOG_ERROR, "VLESS: невалидный UUID");
         return -1;
     }
-
-    char uuid_prefix[9];
-    strncpy(uuid_prefix, uuid_str, 8);
-    uuid_prefix[8] = '\0';
 
     char dst_str[64];
     vless_fmt_addr(dst, dst_str, sizeof(dst_str));
 
-    log_msg(LOG_DEBUG, "VLESS handshake start: UUID %s..., dst: %s",
-            uuid_prefix, dst_str);
+    log_msg(LOG_DEBUG, "VLESS handshake start: dst: %s", dst_str);
 
     /* Построить и отправить VLESS request header */
     uint8_t header[VLESS_HEADER_MAX];

@@ -170,6 +170,12 @@ int tls_connect_start(tls_conn_t *conn, int fd,
 
     wolfSSL_CTX_SetMinVersion(ctx, WOLFSSL_TLSV1_2);
 
+    /*
+     * S-03: verify_cert=false отключает проверку сертификата.
+     * Допустимо ТОЛЬКО для Reality (аутентификация через UUID+HMAC).
+     * Для обычного TLS verify_cert должен быть true.
+     * DEC-025: Reality HMAC аутентификация — v2.x
+     */
     if (!config->verify_cert)
         wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, NULL);
 
