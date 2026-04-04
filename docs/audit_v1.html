@@ -250,12 +250,12 @@ pre {
 
 <div class="summary-grid">
   <div class="card critical">
-    <span class="count">8</span>
-    <span class="label">Critical</span>
+    <span class="count">8/8</span>
+    <span class="label">Critical ✅</span>
   </div>
   <div class="card high">
-    <span class="count">10</span>
-    <span class="label">High</span>
+    <span class="count">10/10</span>
+    <span class="label">High ✅</span>
   </div>
   <div class="card medium">
     <span class="count">10</span>
@@ -266,13 +266,14 @@ pre {
     <span class="label">Low</span>
   </div>
   <div class="card security">
-    <span class="count">7</span>
-    <span class="label">Security</span>
+    <span class="count">6/7</span>
+    <span class="label">Security ✅</span>
   </div>
 </div>
 
-<p><strong>Итого: 38 находок.</strong> Из них 8 критических, блокирующих корректную работу под нагрузкой или при определённых сценариях.
-Наиболее серьёзные: блокирующий TLS handshake внутри event loop, повреждение данных через общий splice pipe, use-after-free при перезагрузке конфига, отсутствие обработки SIGPIPE.</p>
+<p><strong>Итого: 38 находок. Закрыто: 24/38.</strong> Все 8 CRITICAL, все 10 HIGH и 6 из 7 SECURITY исправлены.
+S-07 (SSH StrictHostKeyChecking=no) — намеренно пропущен (деплой только в локальную VM).
+Остались MEDIUM (10) и LOW (3) — следующая итерация аудита.</p>
 
 <!-- ============================================================ -->
 <h2 id="toc">Содержание</h2>
@@ -1080,9 +1081,22 @@ main.c ─────┬── phoenix.h (все модули)
   <li><strong>Удалить proto_common.h (H-09)</strong> &mdash; Одна команда. Тривиальный fix.</li>
 </ol>
 
+<!-- ============================================================ -->
+<h2 id="audit-result">Итог аудита v1</h2>
+<!-- ============================================================ -->
+
+<table>
+<tr><td><strong>Дата закрытия:</strong></td><td>2026-04-04</td></tr>
+<tr><td><strong>CRITICAL:</strong></td><td>8/8 закрыто (C-01..C-08)</td></tr>
+<tr><td><strong>HIGH:</strong></td><td>10/10 закрыто (H-01..H-10)</td></tr>
+<tr><td><strong>SECURITY:</strong></td><td>6/7 закрыто (S-01..S-06). S-07 — намеренно пропущен (деплой только в локальную VM)</td></tr>
+<tr><td><strong>MEDIUM/LOW:</strong></td><td>0/13 — следующая итерация</td></tr>
+<tr><td><strong>Коммиты:</strong></td><td><code>699d327</code>, <code>ccf957d</code>, <code>e170496</code>, <code>5cf969b</code>, <code>b0d45c4</code>, <code>f99312a</code>, <code>8c535ee</code>, <code>38e0a64</code></td></tr>
+</table>
+
 <hr style="margin-top: 3rem; border-color: var(--border);">
 <p style="color: var(--text-dim); text-align: center; margin-top: 1rem;">
-  phoenix-router audit v1 &mdash; 2026-04-04 &mdash; 38 findings (8C / 10H / 10M / 3L / 7S)
+  phoenix-router audit v1 &mdash; 2026-04-04 &mdash; 38 findings &mdash; 24/38 закрыто (8C / 10H / 6S)
 </p>
 
 </div>
