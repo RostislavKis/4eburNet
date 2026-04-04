@@ -462,6 +462,18 @@ void tproxy_process(tproxy_state_t *ts)
 }
 
 /* ------------------------------------------------------------------ */
+/*  tproxy_handle_event — обработка одного fd (master epoll, H-10)     */
+/* ------------------------------------------------------------------ */
+
+void tproxy_handle_event(tproxy_state_t *ts, int fd)
+{
+    if      (fd == ts->tcp4_fd) tproxy_accept_tcp(ts, fd, AF_INET);
+    else if (fd == ts->tcp6_fd) tproxy_accept_tcp(ts, fd, AF_INET6);
+    else if (fd == ts->udp4_fd) tproxy_recv_udp(ts, fd, AF_INET);
+    else if (fd == ts->udp6_fd) tproxy_recv_udp(ts, fd, AF_INET6);
+}
+
+/* ------------------------------------------------------------------ */
 /*  tproxy_cleanup                                                     */
 /* ------------------------------------------------------------------ */
 

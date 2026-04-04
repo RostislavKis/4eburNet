@@ -16,7 +16,9 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/epoll.h>
 #include <fcntl.h>
+#include <errno.h>
 
 /* Глобальное состояние — доступно из обработчиков сигналов */
 static PhoenixState state;
@@ -345,21 +347,51 @@ int main(int argc, char *argv[])
         sigaction(SIGHUP, &sa_reload, NULL);
     }
 
+    /* Master epoll: один epoll_wait вместо 3 отдельных + usleep (H-01/H-10) */
+    int master_epoll = epoll_create1(EPOLL_CLOEXEC);
+    if (master_epoll < 0) {
+        log_msg(LOG_ERROR, "epoll_create1: %s", strerror(errno));
+        /* fallback невозможен — завершаем */
+        goto cleanup;
+    }
+
+    /* Регистрируем listen fd в master epoll */
+    struct epoll_event mev = {0};
+    int listen_fds[] = {
+        tproxy_state.tcp4_fd, tproxy_state.tcp6_fd,
+        tproxy_state.udp4_fd, tproxy_state.udp6_fd,
+        state.ipc_fd
+    };
+    for (int i = 0; i < 5; i++) {
+        if (listen_fds[i] < 0) continue;
+        mev.events  = EPOLLIN;
+        mev.data.fd = listen_fds[i];
+        epoll_ctl(master_epoll, EPOLL_CTL_ADD, listen_fds[i], &mev);
+    }
+
     /* Главный цикл */
     state.running    = true;
     state.reload     = false;
     state.start_time = time(NULL);
     state.connections_total = 0;
 
-    log_msg(LOG_INFO, "Главный цикл запущен");
+    log_msg(LOG_INFO, "Главный цикл запущен (master epoll)");
 
     while (state.running) {
-        /* Обработка сетевых событий (первым — приоритет) */
-        tproxy_process(&tproxy_state);
-        dispatcher_tick(&dispatcher_state);
+        /* Единственный blocking wait — 10мс таймаут */
+        struct epoll_event events[32];
+        int n = epoll_wait(master_epoll, events, 32, 10);
 
-        /* Обработка IPC запросов */
-        ipc_process(state.ipc_fd, &state);
+        for (int i = 0; i < n; i++) {
+            int fd = events[i].data.fd;
+            if (fd == state.ipc_fd)
+                ipc_process(state.ipc_fd, &state);
+            else
+                tproxy_handle_event(&tproxy_state, fd);
+        }
+
+        /* Relay события в своём epoll — timeout=0, не блокирует */
+        dispatcher_tick(&dispatcher_state);
 
         /* Перезагрузка конфига по сигналу или IPC команде */
         if (state.reload) {
@@ -378,10 +410,10 @@ int main(int argc, char *argv[])
             }
             state.reload = false;
         }
-
-        /* Пауза 10мс — снижение нагрузки на CPU */
-        usleep(10000);
     }
+
+    close(master_epoll);
+cleanup:
 
     /* Завершение работы */
     log_msg(LOG_INFO, "Завершение работы...");

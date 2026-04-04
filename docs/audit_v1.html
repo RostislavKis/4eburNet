@@ -454,17 +454,17 @@ pre {
 <!-- HIGH -->
 <tr>
   <td>H-01</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>main.c:377</code></td>
   <td><code>usleep(10000)</code> в главном цикле: 10мс latency floor для всех операций, лишние пробуждения в idle. Poll-sleep вместо event-driven.</td>
-  <td>Заменить на блокирующий epoll_wait с таймаутом 10мс. Или объединить оба epoll в один.</td>
+  <td>Master epoll в main.c. Один epoll_wait(10ms) вместо 3 epoll_wait(0) + usleep(10000).</td>
 </tr>
 <tr>
   <td>H-02</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>ipc.c:76-87</code></td>
   <td>client_fd из accept() &mdash; блокирующий. read() заголовка IPC может зависнуть навечно если клиент подключился но не отправляет данные. Блокирует главный цикл.</td>
-  <td>Установить O_NONBLOCK на client_fd после accept, или добавить SO_RCVTIMEO.</td>
+  <td>accept4(SOCK_NONBLOCK) + recv(MSG_DONTWAIT) в ipc_process().</td>
 </tr>
 <tr>
   <td>H-03</td>
@@ -517,10 +517,10 @@ pre {
 </tr>
 <tr>
   <td>H-10</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>main.c:350-378</code></td>
   <td>Два отдельных epoll: tproxy_state.epoll_fd и dispatcher_state.epoll_fd. Оба поллятся с timeout=0, затем usleep. Двойной syscall overhead, лишняя задержка.</td>
-  <td>Объединить в один epoll fd, использовать блокирующий epoll_wait.</td>
+  <td>tproxy listen fd + ipc_fd в master epoll. dispatcher сохраняет свой epoll для relay.</td>
 </tr>
 <!-- MEDIUM -->
 <tr>

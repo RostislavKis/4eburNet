@@ -41,6 +41,9 @@ int  tproxy_init(tproxy_state_t *ts, uint16_t port,
 /* Обработка: принять все ожидающие соединения (неблокирующий) */
 void tproxy_process(tproxy_state_t *ts);
 
+/* Обработать событие на конкретном fd (для master epoll) */
+void tproxy_handle_event(tproxy_state_t *ts, int fd);
+
 /* Очистка: закрыть все дескрипторы */
 void tproxy_cleanup(tproxy_state_t *ts);
 
