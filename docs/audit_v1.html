@@ -397,17 +397,17 @@ pre {
 <!-- CRITICAL -->
 <tr>
   <td>C-01</td>
-  <td><span class="badge badge-critical">CRITICAL</span></td>
-  <td><code>main.c:22-32</code></td>
+  <td><span class="badge badge-critical">ИСПРАВЛЕНА</span></td>
+  <td><code>phoenix.h:85-86</code></td>
   <td><code>volatile bool running/reload</code> в signal handler. Стандарт C требует <code>volatile sig_atomic_t</code>. На некоторых архитектурах запись в bool не атомарна.</td>
-  <td>Заменить <code>volatile bool</code> на <code>volatile sig_atomic_t</code> в PhoenixState (phoenix.h:84-85).</td>
+  <td>volatile sig_atomic_t в phoenix.h. Добавлен #include &lt;signal.h&gt;.</td>
 </tr>
 <tr>
   <td>C-02</td>
-  <td><span class="badge badge-critical">CRITICAL</span></td>
-  <td><code>main.c:119-121</code></td>
+  <td><span class="badge badge-critical">ИСПРАВЛЕНА</span></td>
+  <td><code>main.c daemonize()</code></td>
   <td><code>daemonize()</code>: три <code>open("/dev/null")</code> без проверки возвращаемого значения. Если первый open() не получит fd=0, последующие получат неверные fd. fprintf(stderr) будет писать в неизвестный fd.</td>
-  <td>Проверять возвращаемые значения open(). Использовать dup2() для явного назначения fd 0/1/2.</td>
+  <td>dup2() для явного назначения fd 0/1/2. Один open(O_RDWR) + три dup2().</td>
 </tr>
 <tr>
   <td>C-03</td>
@@ -439,10 +439,10 @@ pre {
 </tr>
 <tr>
   <td>C-07</td>
-  <td><span class="badge badge-critical">CRITICAL</span></td>
-  <td><code>main.c:232-236</code></td>
+  <td><span class="badge badge-critical">ИСПРАВЛЕНА</span></td>
+  <td><code>main.c</code></td>
   <td>tls_global_init() вызван на строке 217, но при раннем выходе (ошибка конфига, строка 234, или disabled, строка 248) tls_global_cleanup() не вызывается. Утечка ресурсов wolfSSL.</td>
-  <td>Добавить tls_global_cleanup() во все ранние exit-пути после строки 217.</td>
+  <td>tls_global_cleanup() добавлен во все 3 ранних exit-пути: config_load fail, cfg.enabled=false, ipc_init fail.</td>
 </tr>
 <tr>
   <td>C-08</td>

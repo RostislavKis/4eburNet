@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <time.h>
 
 #define PHOENIX_VERSION "0.1.0"
@@ -81,8 +82,8 @@ struct PhoenixConfig;
 typedef struct {
     DeviceProfile        profile;
     struct PhoenixConfig *config;
-    volatile bool        running;      /* флаг главного цикла */
-    volatile bool        reload;       /* флаг перечитки конфига */
+    volatile sig_atomic_t running;      /* флаг главного цикла */
+    volatile sig_atomic_t reload;      /* флаг перечитки конфига */
     int                  ipc_fd;
     time_t               start_time;
     uint64_t             connections_total;
