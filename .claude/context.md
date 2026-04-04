@@ -149,3 +149,4 @@
 - Periodic health reset каждые 3000 тиков (~30 сек)
 - Тест: "relay: half-close (client EOF)" подтверждён, 16 байт прошли
 - Бинарник: 918 KB (без изменений)
+- FIXED C-08: SIGPIPE → signal(SIGPIPE, SIG_IGN) в main.c

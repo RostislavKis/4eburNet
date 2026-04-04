@@ -330,6 +330,7 @@ int main(int argc, char *argv[])
     sigemptyset(&sa_reload.sa_mask);
     sigaction(SIGTERM, &sa_shutdown, NULL);
     sigaction(SIGINT,  &sa_shutdown, NULL);
+    signal(SIGPIPE, SIG_IGN);  /* запись в закрытый сокет — игнорировать */
 
     if (!daemon_mode) {
         /* Без демонизации: SIGHUP = завершение (SSH disconnect) */
