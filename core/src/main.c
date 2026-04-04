@@ -6,6 +6,8 @@
 #include "routing/policy.h"
 #include "proxy/tproxy.h"
 #include "proxy/dispatcher.h"
+#include "ntp_bootstrap.h"
+#include "routing/rules_loader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +21,7 @@
 static PhoenixState state;
 static tproxy_state_t tproxy_state;
 static dispatcher_state_t dispatcher_state;
+static rules_manager_t rules_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -202,6 +205,13 @@ int main(int argc, char *argv[])
     log_init(PHOENIX_LOG_FILE, LOG_INFO);
     log_msg(LOG_INFO, "%s %s запускается", PHOENIX_NAME, PHOENIX_VERSION);
 
+    /* Установка времени до инициализации TLS (DEC-019) */
+    if (!ntp_time_is_valid()) {
+        log_msg(LOG_INFO,
+            "Системное время некорректно, запуск HTTP bootstrap...");
+        ntp_bootstrap();
+    }
+
     /* Определение профиля устройства */
     state.profile = rm_detect_profile();
     log_msg(LOG_INFO, "Профиль: %s (макс. соединений: %u, буфер: %zu)",
@@ -259,6 +269,28 @@ int main(int argc, char *argv[])
         else
             nft_mode_set_rules();
     }
+
+    /* Verdict Maps для масштабируемой маршрутизации (DEC-017) */
+    nft_vmap_create();
+
+    /* HW Offload bypass (DEC-018) */
+    nft_offload_bypass_init();
+
+    /* Менеджер правил маршрутизации */
+    rules_init(&rules_state);
+
+    char bypass_file[256], proxy_file[256];
+    snprintf(bypass_file, sizeof(bypass_file),
+             "%s/bypass.cidr", PHOENIX_RULES_DIR);
+    snprintf(proxy_file, sizeof(proxy_file),
+             "%s/proxy.cidr", PHOENIX_RULES_DIR);
+
+    rules_create_test_file(bypass_file, RULES_BYPASS);
+    rules_create_test_file(proxy_file,  RULES_PROXY);
+
+    rules_add_source(&rules_state, bypass_file, RULES_BYPASS);
+    rules_add_source(&rules_state, proxy_file,  RULES_PROXY);
+    rules_load_all(&rules_state);
 
     /* Политика маршрутизации — ip rule и ip route */
     policy_check_conflicts();
@@ -328,6 +360,7 @@ int main(int argc, char *argv[])
                 state.config = &cfg;
                 config_dump(&cfg);
                 dispatcher_set_context(&dispatcher_state, &cfg);
+                rules_check_update(&rules_state);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
@@ -343,6 +376,7 @@ int main(int argc, char *argv[])
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    rules_cleanup(&rules_state);
     dispatcher_cleanup(&dispatcher_state);
     tproxy_cleanup(&tproxy_state);
     policy_cleanup();
