@@ -12,6 +12,7 @@
 #include "proxy/protocols/vless.h"
 #include "proxy/protocols/vless_xhttp.h"
 #include "proxy/protocols/trojan.h"
+#include "proxy/protocols/shadowsocks.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -222,6 +223,34 @@ static const proxy_protocol_t proto_trojan = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Протокол Shadowsocks 2022 — AEAD без TLS                          */
+/* ------------------------------------------------------------------ */
+
+static int ss_protocol_start(relay_conn_t *relay,
+                             const struct sockaddr_storage *dst,
+                             const ServerConfig *server)
+{
+    relay->ss = malloc(sizeof(ss_state_t));
+    if (!relay->ss)
+        return -1;
+
+    if (ss_handshake_start(relay->ss, relay->upstream_fd,
+                            dst, server->password) < 0) {
+        free(relay->ss);
+        relay->ss = NULL;
+        return -1;
+    }
+
+    relay->state = RELAY_ACTIVE;
+    return 0;
+}
+
+static const proxy_protocol_t proto_ss = {
+    .name  = "shadowsocks",
+    .start = ss_protocol_start,
+};
+
+/* ------------------------------------------------------------------ */
 /*  Выбор протокола по имени из конфига                                 */
 /* ------------------------------------------------------------------ */
 
@@ -239,6 +268,9 @@ static const proxy_protocol_t *protocol_find_for_server(
     }
     if (strcmp(server->protocol, "trojan") == 0)
         return &proto_trojan;
+    if (strcmp(server->protocol, "shadowsocks") == 0 ||
+        strcmp(server->protocol, "ss") == 0)
+        return &proto_ss;
 
     log_msg(LOG_WARN, "relay: протокол '%s' не поддержан, используется direct",
             server->protocol);
@@ -266,6 +298,7 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             r->upstream_fd = -1;
             r->download_fd = -1;
             r->xhttp       = NULL;
+            r->ss          = NULL;
             r->state       = RELAY_CONNECTING;
             r->last_active = time(NULL);
             r->ep_client.relay     = r;
@@ -304,6 +337,10 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
         xhttp_close(r->xhttp);
         free(r->xhttp);
         r->xhttp = NULL;
+    }
+    if (r->ss) {
+        free(r->ss);
+        r->ss = NULL;
     }
 
     if (r->state != RELAY_DONE) {
@@ -489,6 +526,21 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
         return 0;
 
     ssize_t n;
+
+    /* SS 2022: AEAD шифрование без TLS */
+    if (r->ss) {
+        if (from_client) {
+            n = read(r->client_fd, ds->relay_buf, ds->relay_buf_size);
+            if (n <= 0) return n;
+            return ss_send(r->ss, r->upstream_fd, ds->relay_buf, n);
+        } else {
+            n = ss_recv(r->ss, r->upstream_fd,
+                        ds->relay_buf, ds->relay_buf_size);
+            if (n <= 0) return n;
+            ssize_t w = write(r->client_fd, ds->relay_buf, n);
+            return (w > 0) ? n : w;
+        }
+    }
 
     if (from_client) {
         /*

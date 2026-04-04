@@ -213,3 +213,17 @@
 - Тест: TLS установлен, 68 байт header отправлен, сервер ответил 121 байт
 - VLESS не сломан
 - Бинарник: 928 KB
+
+## Сессия 015 — 2026-04-04
+Статус: завершена
+Сделано:
+- crypto/blake3.c (200 строк) — portable BLAKE3 derive_key mode
+- proxy/protocols/shadowsocks.c (280 строк)
+- BLAKE3 KDF: session_key = blake3_derive_key(context, PSK||salt)
+- ChaCha20-Poly1305 AEAD через wolfSSL
+- Nonce counter little-endian, инкрементируется после каждой операции
+- ss_recv() с accumulator для partial read на NONBLOCK fd
+- SS без TLS — прямой TCP, RELAY_ACTIVE сразу после handshake
+- Тест: 63 байт handshake (32 salt + 15 header + 16 tag) — корректно
+- 4 протокола работают: VLESS, XHTTP, Trojan, SS 2022
+- Бинарник: 936 KB

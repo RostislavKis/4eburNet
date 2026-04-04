@@ -29,7 +29,8 @@ typedef enum {
 
 /* Предварительные объявления */
 typedef struct relay_conn relay_conn_t;
-struct xhttp_state;  /* из vless_xhttp.h */
+struct xhttp_state;   /* из vless_xhttp.h */
+struct ss_state;      /* из shadowsocks.h — ss_state_t */
 
 /*
  * Тег для epoll data.ptr — различает client_fd и upstream_fd
@@ -61,6 +62,7 @@ struct relay_conn {
     uint8_t                 vless_resp_len;    /* байт прочитано (0-2) */
     /* XHTTP транспорт */
     struct xhttp_state     *xhttp;            /* NULL если не XHTTP */
+    struct ss_state        *ss;              /* NULL если не SS 2022 */
     int                     download_fd;       /* XHTTP GET fd (-1 если нет) */
     relay_ep_t              ep_download;       /* epoll тег для download_fd */
 };
