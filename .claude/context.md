@@ -151,3 +151,4 @@
 - Бинарник: 918 KB (без изменений)
 - FIXED C-08: SIGPIPE → signal(SIGPIPE, SIG_IGN) в main.c
 - FIXED C-05: splice отключён в dispatcher_init() (data corruption)
+- FIXED C-06: tls_config_t.sni char[256] вместо const char*

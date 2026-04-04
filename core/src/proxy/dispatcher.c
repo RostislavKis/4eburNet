@@ -100,11 +100,10 @@ static int vless_protocol_connect(relay_conn_t *relay,
                                   const struct sockaddr_storage *dst,
                                   const ServerConfig *server)
 {
-    tls_config_t cfg = {
-        .sni         = server->address,
-        .fingerprint = TLS_FP_CHROME120,
-        .verify_cert = false,
-    };
+    tls_config_t cfg = {0};
+    snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
+    cfg.fingerprint = TLS_FP_CHROME120;
+    cfg.verify_cert = false;
 
     if (tls_connect(&relay->tls, relay->upstream_fd, &cfg) < 0)
         return -1;
