@@ -154,3 +154,6 @@
 - FIXED C-06: tls_config_t.sni char[256] вместо const char*
 - FIXED C-03: RELAY_TLS_SHAKE — неблокирующий TLS handshake
 - FIXED C-04: RELAY_VLESS_SHAKE — неблокирующий VLESS response
+- FIXED C-01: sig_atomic_t в phoenix.h
+- FIXED C-02: dup2() в daemonize()
+- FIXED C-07: tls_global_cleanup() при раннем выходе
