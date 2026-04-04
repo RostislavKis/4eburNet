@@ -425,10 +425,10 @@ pre {
 </tr>
 <tr>
   <td>C-05</td>
-  <td><span class="badge badge-critical">CRITICAL</span></td>
-  <td><code>dispatcher.c:401-419</code></td>
+  <td><span class="badge badge-critical">ИСПРАВЛЕНА</span></td>
+  <td><code>dispatcher.c</code></td>
   <td>Единый splice_pipe[2] для всех relay. Partial write оставляет данные в pipe, которые попадают в чужое соединение &mdash; повреждение данных.</td>
-  <td>Pipe per connection или отказ от splice с TLS, или обязательный drain.</td>
+  <td>splice отключён в dispatcher_init(). Один pipe на все relay давал data corruption при partial write. Безопасный вариант (pipe per relay) запланирован.</td>
 </tr>
 <tr>
   <td>C-06</td>
