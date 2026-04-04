@@ -91,44 +91,46 @@ int tls_global_init(void)
     return 0;
 }
 
+/* Предварительное объявление кэша CTX (определён ниже) */
+static WOLFSSL_CTX *g_ctx_cache[4];
+
 void tls_global_cleanup(void)
 {
+    /* Освободить кэш CTX (H-04) */
+    for (int i = 0; i < 4; i++) {
+        if (g_ctx_cache[i]) {
+            wolfSSL_CTX_free(g_ctx_cache[i]);
+            g_ctx_cache[i] = NULL;
+        }
+    }
     wolfSSL_Cleanup();
     log_msg(LOG_DEBUG, "wolfSSL очищен");
 }
 
 /* ------------------------------------------------------------------ */
-/*  Применить fingerprint профиль к контексту и соединению              */
+/*  Fingerprint — CTX часть (cipher suites) и SSL часть (key share)    */
 /* ------------------------------------------------------------------ */
 
-static void apply_fingerprint(WOLFSSL_CTX *ctx, WOLFSSL *ssl,
-                              tls_fingerprint_t fp)
+/* Cipher suites на CTX (H-04: применяется один раз при создании кэша) */
+static void apply_ctx_fingerprint(WOLFSSL_CTX *ctx, tls_fingerprint_t fp)
 {
     const char *ciphers = NULL;
-
     switch (fp) {
-    case TLS_FP_CHROME120:
-        ciphers = fp_chrome120_ciphers;
-        break;
-    case TLS_FP_FIREFOX121:
-        ciphers = fp_firefox121_ciphers;
-        break;
-    case TLS_FP_IOS17:
-        ciphers = fp_ios17_ciphers;
-        break;
-    case TLS_FP_NONE:
-    default:
-        return;
+    case TLS_FP_CHROME120:  ciphers = fp_chrome120_ciphers;  break;
+    case TLS_FP_FIREFOX121: ciphers = fp_firefox121_ciphers; break;
+    case TLS_FP_IOS17:      ciphers = fp_ios17_ciphers;      break;
+    default: return;
     }
-
-    /* Cipher suites */
     if (ciphers)
         wolfSSL_CTX_set_cipher_list(ctx, ciphers);
+}
 
-    /* x25519 key share — все три клиента используют */
+/* Key share + ALPN на каждый SSL объект */
+static void apply_ssl_fingerprint(WOLFSSL *ssl, tls_fingerprint_t fp)
+{
+    if (fp == TLS_FP_NONE) return;
+
     wolfSSL_UseKeyShare(ssl, WOLFSSL_ECC_X25519);
-
-    /* ALPN: h2 + http/1.1 */
     wolfSSL_UseALPN(ssl, (char *)alpn_protocols,
                     strlen(alpn_protocols),
                     WOLFSSL_ALPN_CONTINUE_ON_MISMATCH);
@@ -137,6 +139,34 @@ static void apply_fingerprint(WOLFSSL_CTX *ctx, WOLFSSL *ssl,
             fp == TLS_FP_CHROME120  ? "Chrome120" :
             fp == TLS_FP_FIREFOX121 ? "Firefox121" :
             fp == TLS_FP_IOS17      ? "iOS17" : "unknown");
+}
+
+/* ------------------------------------------------------------------ */
+/*  WOLFSSL_CTX кэш по fingerprint (H-04: один CTX на все соединения)  */
+/* ------------------------------------------------------------------ */
+
+static WOLFSSL_CTX *get_or_create_ctx(tls_fingerprint_t fp,
+                                      bool verify_cert)
+{
+    int idx = (int)fp;
+    if (idx < 0 || idx >= 4) idx = 0;
+
+    if (g_ctx_cache[idx])
+        return g_ctx_cache[idx];
+
+    WOLFSSL_CTX *ctx = wolfSSL_CTX_new(wolfSSLv23_client_method());
+    if (!ctx) return NULL;
+
+    wolfSSL_CTX_SetMinVersion(ctx, WOLFSSL_TLSV1_2);
+
+    if (!verify_cert)
+        wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, NULL);
+
+    apply_ctx_fingerprint(ctx, fp);
+
+    g_ctx_cache[idx] = ctx;
+    log_msg(LOG_DEBUG, "TLS: CTX кэш создан (fingerprint %d)", idx);
+    return ctx;
 }
 
 /* ------------------------------------------------------------------ */
@@ -161,28 +191,17 @@ int tls_connect_start(tls_conn_t *conn, int fd,
     else
         conn->config.sni[0] = '\0';
 
-    /* Контекст: TLS 1.2 + 1.3 (Reality требует 1.3, fallback 1.2) */
-    WOLFSSL_CTX *ctx = wolfSSL_CTX_new(wolfSSLv23_client_method());
+    /* CTX из кэша (H-04: один CTX на все соединения с одним fingerprint) */
+    WOLFSSL_CTX *ctx = get_or_create_ctx(config->fingerprint,
+                                         config->verify_cert);
     if (!ctx) {
-        log_msg(LOG_ERROR, "TLS: wolfSSL_CTX_new провалился");
+        log_msg(LOG_ERROR, "TLS: не удалось получить CTX");
         return -1;
     }
-
-    wolfSSL_CTX_SetMinVersion(ctx, WOLFSSL_TLSV1_2);
-
-    /*
-     * S-03: verify_cert=false отключает проверку сертификата.
-     * Допустимо ТОЛЬКО для Reality (аутентификация через UUID+HMAC).
-     * Для обычного TLS verify_cert должен быть true.
-     * DEC-025: Reality HMAC аутентификация — v2.x
-     */
-    if (!config->verify_cert)
-        wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, NULL);
 
     WOLFSSL *ssl = wolfSSL_new(ctx);
     if (!ssl) {
         log_msg(LOG_ERROR, "TLS: wolfSSL_new провалился");
-        wolfSSL_CTX_free(ctx);
         return -1;
     }
 
@@ -196,7 +215,7 @@ int tls_connect_start(tls_conn_t *conn, int fd,
             log_msg(LOG_WARN, "TLS: UseSNI провалился: %d", ret);
     }
 
-    apply_fingerprint(ctx, ssl, config->fingerprint);
+    apply_ssl_fingerprint(ssl, config->fingerprint);
 
     conn->ssl = ssl;
     conn->ctx = ctx;
@@ -324,10 +343,8 @@ void tls_close(tls_conn_t *conn)
         wolfSSL_free((WOLFSSL *)conn->ssl);
         conn->ssl = NULL;
     }
-    if (conn->ctx) {
-        wolfSSL_CTX_free((WOLFSSL_CTX *)conn->ctx);
-        conn->ctx = NULL;
-    }
+    /* CTX не освобождаем — кэшированный (H-04) */
+    conn->ctx = NULL;
     conn->connected = false;
 }
 
