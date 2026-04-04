@@ -33,13 +33,27 @@ typedef struct {
     tls_config_t  config;
 } tls_conn_t;
 
+/* Результат неблокирующей операции */
+typedef enum {
+    TLS_OK       =  0,  /* операция завершена */
+    TLS_WANT_IO  =  1,  /* нужно повторить когда fd готов */
+    TLS_ERR      = -1,  /* ошибка */
+} tls_step_result_t;
+
 /* Глобальная инициализация wolfSSL (один раз при старте) */
 int  tls_global_init(void);
 
 /* Глобальная очистка */
 void tls_global_cleanup(void);
 
-/* Создать TLS соединение поверх существующего TCP fd */
+/* Начать TLS handshake — подготовка без блокировки */
+int  tls_connect_start(tls_conn_t *conn, int fd,
+                       const tls_config_t *config);
+
+/* Продолжить TLS handshake — один шаг, без select() */
+tls_step_result_t tls_connect_step(tls_conn_t *conn);
+
+/* Блокирующий TLS connect (обёртка start+step, для тестов) */
 int  tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config);
 
 /* Отправить данные через TLS */

@@ -140,17 +140,18 @@ static void apply_fingerprint(WOLFSSL_CTX *ctx, WOLFSSL *ssl,
 }
 
 /* ------------------------------------------------------------------ */
-/*  tls_connect                                                        */
+/*  tls_connect_start — подготовка TLS без блокировки (C-03/C-04)      */
 /* ------------------------------------------------------------------ */
 
-int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
+int tls_connect_start(tls_conn_t *conn, int fd,
+                      const tls_config_t *config)
 {
     memset(conn, 0, sizeof(*conn));
     conn->fd = fd;
-    conn->config.fingerprint    = config->fingerprint;
-    conn->config.verify_cert    = config->verify_cert;
-    conn->config.reality_key    = config->reality_key;
-    conn->config.reality_key_len = config->reality_key_len;
+    conn->config.fingerprint      = config->fingerprint;
+    conn->config.verify_cert      = config->verify_cert;
+    conn->config.reality_key      = config->reality_key;
+    conn->config.reality_key_len  = config->reality_key_len;
     conn->config.reality_short_id = config->reality_short_id;
 
     /* Копируем SNI — защита от dangling pointer при reload конфига */
@@ -167,15 +168,11 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
         return -1;
     }
 
-    /* Минимум TLS 1.2 */
     wolfSSL_CTX_SetMinVersion(ctx, WOLFSSL_TLSV1_2);
 
-    /* Верификация сертификата */
-    if (!config->verify_cert) {
+    if (!config->verify_cert)
         wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, NULL);
-    }
 
-    /* SSL объект */
     WOLFSSL *ssl = wolfSSL_new(ctx);
     if (!ssl) {
         log_msg(LOG_ERROR, "TLS: wolfSSL_new провалился");
@@ -183,10 +180,8 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
         return -1;
     }
 
-    /* Привязать TCP дескриптор */
     wolfSSL_set_fd(ssl, fd);
 
-    /* SNI */
     if (conn->config.sni[0]) {
         int ret = wolfSSL_UseSNI(ssl, WOLFSSL_SNI_HOST_NAME,
                                  conn->config.sni,
@@ -195,52 +190,71 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
             log_msg(LOG_WARN, "TLS: UseSNI провалился: %d", ret);
     }
 
-    /* Fingerprint профиль */
     apply_fingerprint(ctx, ssl, config->fingerprint);
-
-    /* TLS handshake (retry при WANT_READ/WANT_WRITE на неблокирующем fd) */
-    int ret;
-    int max_attempts = 50;  /* 50 × 100мс = 5 сек макс */
-    while (max_attempts-- > 0) {
-        ret = wolfSSL_connect(ssl);
-        if (ret == WOLFSSL_SUCCESS)
-            break;
-
-        int err = wolfSSL_get_error(ssl, ret);
-        if (err == WOLFSSL_ERROR_WANT_READ ||
-            err == WOLFSSL_ERROR_WANT_WRITE) {
-            fd_set fds;
-            FD_ZERO(&fds);
-            FD_SET(fd, &fds);
-            struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
-            fd_set *rset = (err == WOLFSSL_ERROR_WANT_READ)  ? &fds : NULL;
-            fd_set *wset = (err == WOLFSSL_ERROR_WANT_WRITE) ? &fds : NULL;
-            int rc = select(fd + 1, rset, wset, NULL, &tv);
-            if (rc < 0) {
-                log_msg(LOG_WARN, "TLS: select: %s", strerror(errno));
-                break;
-            }
-            continue;
-        }
-        break;
-    }
-
-    if (ret != WOLFSSL_SUCCESS) {
-        int err = wolfSSL_get_error(ssl, ret);
-        wolfSSL_ERR_error_string(err, tls_err_buf);
-        log_msg(LOG_WARN, "TLS handshake провалился: %s", tls_err_buf);
-        wolfSSL_free(ssl);
-        wolfSSL_CTX_free(ctx);
-        return -1;
-    }
 
     conn->ssl = ssl;
     conn->ctx = ctx;
-    conn->connected = true;
+    /* connected остаётся false — handshake ещё не завершён */
 
-    log_msg(LOG_DEBUG, "TLS соединение установлено (%s, %s)",
-            wolfSSL_get_version(ssl),
-            wolfSSL_get_cipher_name(ssl));
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  tls_connect_step — один шаг handshake, без select()                */
+/* ------------------------------------------------------------------ */
+
+tls_step_result_t tls_connect_step(tls_conn_t *conn)
+{
+    if (!conn->ssl)
+        return TLS_ERR;
+
+    int ret = wolfSSL_connect((WOLFSSL *)conn->ssl);
+    if (ret == WOLFSSL_SUCCESS) {
+        conn->connected = true;
+        log_msg(LOG_DEBUG, "TLS соединение установлено (%s, %s)",
+                wolfSSL_get_version((WOLFSSL *)conn->ssl),
+                wolfSSL_get_cipher_name((WOLFSSL *)conn->ssl));
+        return TLS_OK;
+    }
+
+    int err = wolfSSL_get_error((WOLFSSL *)conn->ssl, ret);
+    if (err == WOLFSSL_ERROR_WANT_READ ||
+        err == WOLFSSL_ERROR_WANT_WRITE)
+        return TLS_WANT_IO;
+
+    wolfSSL_ERR_error_string(err, tls_err_buf);
+    log_msg(LOG_WARN, "TLS handshake провалился: %s", tls_err_buf);
+    return TLS_ERR;
+}
+
+/* ------------------------------------------------------------------ */
+/*  tls_connect — блокирующая обёртка (для обратной совместимости)      */
+/* ------------------------------------------------------------------ */
+
+int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
+{
+    if (tls_connect_start(conn, fd, config) < 0)
+        return -1;
+
+    int max_attempts = 50;  /* 50 × 100мс = 5 сек */
+    tls_step_result_t r;
+    while ((r = tls_connect_step(conn)) == TLS_WANT_IO) {
+        if (--max_attempts <= 0) {
+            log_msg(LOG_WARN, "TLS: таймаут handshake");
+            tls_close(conn);
+            return -1;
+        }
+        fd_set rfds, wfds;
+        FD_ZERO(&rfds); FD_ZERO(&wfds);
+        FD_SET(fd, &rfds); FD_SET(fd, &wfds);
+        struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+        select(fd + 1, &rfds, &wfds, NULL, &tv);
+    }
+
+    if (r == TLS_ERR) {
+        tls_close(conn);
+        return -1;
+    }
 
     return 0;
 }

@@ -17,6 +17,8 @@ typedef enum {
     RELAY_ACTIVE     = 2,   /* relay активен, данные текут */
     RELAY_CLOSING    = 3,   /* оба конца закрыты, завершаем */
     RELAY_HALF_CLOSE = 4,   /* один конец закрыт, ждём второго (DEC-016) */
+    RELAY_TLS_SHAKE  = 5,   /* TLS handshake в процессе (C-03/C-04) */
+    RELAY_VLESS_SHAKE = 6,  /* VLESS response ожидание (C-03/C-04) */
 } relay_state_t;
 
 /* Предварительное объявление */
@@ -47,6 +49,8 @@ struct relay_conn {
     bool                    client_eof; /* клиент отправил FIN */
     bool                    upstream_eof; /* upstream отправил FIN */
     int                     server_idx; /* индекс сервера в cfg->servers[] */
+    uint8_t                 vless_resp_buf[2]; /* буфер частичного VLESS ответа */
+    uint8_t                 vless_resp_len;    /* байт прочитано (0-2) */
 };
 
 /* Состояние диспетчера */
@@ -74,17 +78,19 @@ typedef struct {
 } dispatcher_state_t;
 
 /*
- * Интерфейс протокола (DEC-016: протоколы подключаются в 1.6)
+ * Интерфейс протокола (неблокирующий, C-03/C-04)
  *
- * connect() вызывается после TCP connect к upstream.
- * Выполняет протокольное рукопожатие (VLESS header, SS handshake и т.д.)
- * Возвращает 0 при успехе.
+ * start() вызывается после TCP connect к upstream.
+ * Инициирует рукопожатие и устанавливает relay->state.
+ * direct: state = RELAY_ACTIVE (мгновенно)
+ * vless:  state = RELAY_TLS_SHAKE (продолжается в tick)
+ * Возвращает 0 при успехе инициации.
  */
 typedef struct {
     const char *name;       /* "direct", "vless", "ss", "trojan" */
-    int (*connect)(relay_conn_t *relay,
-                   const struct sockaddr_storage *dst,
-                   const ServerConfig *server);
+    int (*start)(relay_conn_t *relay,
+                 const struct sockaddr_storage *dst,
+                 const ServerConfig *server);
 } proxy_protocol_t;
 
 /* --- Жизненный цикл --- */
