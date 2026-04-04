@@ -575,3 +575,424 @@ nft_result_t nft_mode_set_tun(void)
         log_msg(LOG_INFO, "Режим маршрутизации: tun");
     return rc;
 }
+
+/* ------------------------------------------------------------------ */
+/*  nft_exec_file — атомарное применение через запись напрямую в файл   */
+/*  Для batch загрузки: fprintf в открытый FILE*, затем nft -f         */
+/* ------------------------------------------------------------------ */
+
+static nft_result_t nft_exec_file(const char *path)
+{
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", path);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        log_msg(LOG_ERROR, "nft: не удалось запустить: %s", strerror(errno));
+        return NFT_ERR_EXEC;
+    }
+
+    char err_buf[NFT_ERR_BUF] = {0};
+    size_t total = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        if (total + len < sizeof(err_buf) - 1) {
+            memcpy(err_buf + total, line, len);
+            total += len;
+        }
+    }
+    err_buf[total] = '\0';
+
+    int status = pclose(fp);
+    if (status != 0) {
+        if (total > 0 && err_buf[total - 1] == '\n')
+            err_buf[total - 1] = '\0';
+        log_msg(LOG_ERROR, "nft: batch провалился (код %d): %s",
+                status, err_buf);
+        return NFT_ERR_RULE;
+    }
+
+    return NFT_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Verdict Maps (DEC-017)                                             */
+/* ------------------------------------------------------------------ */
+
+nft_result_t nft_vmap_create(void)
+{
+    /*
+     * Verdict maps для масштабируемой фильтрации 300K+ записей.
+     * block_map  → : drop    (блокировка)
+     * bypass_map → : accept  (пропуск напрямую)
+     *
+     * proxy_addrs остаётся обычным set — tproxy нельзя в verdict map.
+     */
+    char config[NFT_ATOMIC_MAX];
+    int n = snprintf(config, sizeof(config),
+        "table inet " NFT_TABLE_NAME " {\n"
+        "    map " NFT_VMAP_BLOCK " {\n"
+        "        type ipv4_addr : verdict\n"
+        "        flags interval\n"
+        "    }\n"
+        "    map " NFT_VMAP_BLOCK6 " {\n"
+        "        type ipv6_addr : verdict\n"
+        "        flags interval\n"
+        "    }\n"
+        "    map " NFT_VMAP_BYPASS " {\n"
+        "        type ipv4_addr : verdict\n"
+        "        flags interval\n"
+        "    }\n"
+        "    map " NFT_VMAP_BYPASS6 " {\n"
+        "        type ipv6_addr : verdict\n"
+        "        flags interval\n"
+        "    }\n"
+        "}\n");
+
+    if (n < 0 || (size_t)n >= sizeof(config))
+        return NFT_ERR_EXEC;
+
+    nft_result_t rc = nft_exec_atomic(config);
+    if (rc == NFT_OK)
+        log_msg(LOG_INFO, "Verdict maps созданы (block/bypass x IPv4/IPv6)");
+    else
+        log_msg(LOG_ERROR, "Не удалось создать verdict maps: %s",
+                nft_strerror(rc));
+    return rc;
+}
+
+nft_result_t nft_vmap_flush_all(void)
+{
+    char config[NFT_ATOMIC_MAX];
+    snprintf(config, sizeof(config),
+        "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BLOCK "\n"
+        "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BLOCK6 "\n"
+        "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BYPASS "\n"
+        "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BYPASS6 "\n");
+
+    nft_result_t rc = nft_exec_atomic(config);
+    if (rc == NFT_OK)
+        log_msg(LOG_INFO, "Verdict maps очищены");
+    return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  nft_vmap_load_batch — загрузка массива CIDR в verdict map          */
+/* ------------------------------------------------------------------ */
+
+nft_result_t nft_vmap_load_batch(const char *map_name,
+                                 const char **cidrs, size_t count,
+                                 nft_load_result_t *result)
+{
+    if (result) {
+        result->loaded = 0;
+        result->skipped = 0;
+        result->errors = 0;
+    }
+
+    if (count == 0)
+        return NFT_OK;
+
+    /*
+     * Определяем вердикт по имени map:
+     * block_map/block_map6 → drop
+     * bypass_map/bypass_map6 → accept
+     */
+    const char *verdict = "accept";
+    if (strstr(map_name, "block"))
+        verdict = "drop";
+
+    /* Загружаем порциями по NFT_BATCH_MAX */
+    size_t offset = 0;
+    while (offset < count) {
+        size_t batch = count - offset;
+        if (batch > NFT_BATCH_MAX)
+            batch = NFT_BATCH_MAX;
+
+        /* Записываем batch напрямую в файл */
+        FILE *f = fopen(NFT_TMP_CONF, "w");
+        if (!f) {
+            log_msg(LOG_ERROR, "nft: не удалось создать %s: %s",
+                    NFT_TMP_CONF, strerror(errno));
+            return NFT_ERR_EXEC;
+        }
+
+        fprintf(f, "add element inet " NFT_TABLE_NAME " %s {\n",
+                map_name);
+
+        size_t written = 0;
+        for (size_t i = 0; i < batch; i++) {
+            const char *cidr = cidrs[offset + i];
+            if (!cidr || cidr[0] == '\0' || cidr[0] == '#') {
+                if (result) result->skipped++;
+                continue;
+            }
+            fprintf(f, "    %s : %s,\n", cidr, verdict);
+            written++;
+        }
+
+        fprintf(f, "}\n");
+        fclose(f);
+
+        if (written > 0) {
+            nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
+            unlink(NFT_TMP_CONF);
+            if (rc != NFT_OK) {
+                if (result) result->errors += written;
+                log_msg(LOG_ERROR,
+                    "nft: batch %s провалился на offset %zu",
+                    map_name, offset);
+                return rc;
+            }
+            if (result) result->loaded += written;
+        } else {
+            unlink(NFT_TMP_CONF);
+        }
+
+        offset += batch;
+
+        /* Прогресс каждые 50K */
+        if (result && result->loaded > 0 &&
+            result->loaded % 50000 < NFT_BATCH_MAX)
+            log_msg(LOG_INFO, "Загрузка %s: %u/%zu...",
+                    map_name, result->loaded, count);
+    }
+
+    if (result)
+        log_msg(LOG_INFO, "%s: загружено %u, пропущено %u, ошибок %u",
+                map_name, result->loaded, result->skipped, result->errors);
+
+    return NFT_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  nft_vmap_load_file — загрузка CIDR из файла                        */
+/* ------------------------------------------------------------------ */
+
+nft_result_t nft_vmap_load_file(const char *map_name,
+                                const char *filepath,
+                                nft_load_result_t *result)
+{
+    if (result) {
+        result->loaded = 0;
+        result->skipped = 0;
+        result->errors = 0;
+    }
+
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        log_msg(LOG_WARN, "nft: файл не найден: %s", filepath);
+        return NFT_ERR_NOTFOUND;
+    }
+
+    const char *verdict = "accept";
+    if (strstr(map_name, "block"))
+        verdict = "drop";
+
+    /*
+     * Читаем построчно, накапливаем batch в tmp файл.
+     * При достижении NFT_BATCH_MAX — применяем и начинаем новый.
+     */
+    FILE *batch = fopen(NFT_TMP_CONF, "w");
+    if (!batch) {
+        fclose(f);
+        return NFT_ERR_EXEC;
+    }
+
+    fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
+            map_name);
+
+    char line[256];
+    size_t batch_count = 0;
+    uint32_t total_loaded = 0;
+    uint32_t total_skipped = 0;
+    uint32_t total_errors = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        /* Убрать перенос строки */
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
+            line[--len] = '\0';
+
+        /* Пропустить пустые и комментарии */
+        if (len == 0 || line[0] == '#') {
+            total_skipped++;
+            continue;
+        }
+
+        /* Минимальная валидация: должна содержать цифру */
+        if (line[0] < '0' || line[0] > '9') {
+            /* IPv6 начинается с hex, но не с # и не пустая — пропускаем */
+            if (line[0] != ':' && !(line[0] >= 'a' && line[0] <= 'f')
+                               && !(line[0] >= 'A' && line[0] <= 'F')) {
+                total_errors++;
+                continue;
+            }
+        }
+
+        fprintf(batch, "    %s : %s,\n", line, verdict);
+        batch_count++;
+
+        if (batch_count >= NFT_BATCH_MAX) {
+            fprintf(batch, "}\n");
+            fclose(batch);
+
+            nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
+            unlink(NFT_TMP_CONF);
+            if (rc != NFT_OK) {
+                total_errors += batch_count;
+                log_msg(LOG_ERROR, "nft: batch из файла %s провалился",
+                        filepath);
+            } else {
+                total_loaded += batch_count;
+            }
+
+            /* Прогресс каждые 50K */
+            if (total_loaded > 0 && total_loaded % 50000 < NFT_BATCH_MAX)
+                log_msg(LOG_INFO, "Загрузка %s из %s: %u...",
+                        map_name, filepath, total_loaded);
+
+            /* Начать новый batch */
+            batch = fopen(NFT_TMP_CONF, "w");
+            if (!batch) {
+                fclose(f);
+                if (result) {
+                    result->loaded = total_loaded;
+                    result->skipped = total_skipped;
+                    result->errors = total_errors;
+                }
+                return NFT_ERR_EXEC;
+            }
+            fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
+                    map_name);
+            batch_count = 0;
+        }
+    }
+
+    fclose(f);
+
+    /* Финальный flush остатка */
+    if (batch_count > 0) {
+        fprintf(batch, "}\n");
+        fclose(batch);
+
+        nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
+        unlink(NFT_TMP_CONF);
+        if (rc != NFT_OK)
+            total_errors += batch_count;
+        else
+            total_loaded += batch_count;
+    } else {
+        fclose(batch);
+        unlink(NFT_TMP_CONF);
+    }
+
+    if (result) {
+        result->loaded = total_loaded;
+        result->skipped = total_skipped;
+        result->errors = total_errors;
+    }
+
+    log_msg(LOG_INFO, "Файл %s → %s: загружено %u, пропущено %u, ошибок %u",
+            filepath, map_name, total_loaded, total_skipped, total_errors);
+
+    return total_errors > 0 ? NFT_ERR_RULE : NFT_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/*  nft_vmap_stats — вывод количества записей в лог                    */
+/* ------------------------------------------------------------------ */
+
+static void vmap_count(const char *map_name)
+{
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+             "nft list map inet " NFT_TABLE_NAME " %s 2>/dev/null"
+             " | grep -c ':'", map_name);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return;
+
+    char line[32] = {0};
+    if (fgets(line, sizeof(line), fp)) {
+        int count = atoi(line);
+        log_msg(LOG_INFO, "  %s: %d записей", map_name, count);
+    }
+    pclose(fp);
+}
+
+void nft_vmap_stats(void)
+{
+    log_msg(LOG_INFO, "=== Verdict Maps ===");
+    vmap_count(NFT_VMAP_BLOCK);
+    vmap_count(NFT_VMAP_BLOCK6);
+    vmap_count(NFT_VMAP_BYPASS);
+    vmap_count(NFT_VMAP_BYPASS6);
+    log_msg(LOG_INFO, "====================");
+}
+
+/* ------------------------------------------------------------------ */
+/*  HW Offload bypass (DEC-018)                                        */
+/* ------------------------------------------------------------------ */
+
+nft_result_t nft_offload_bypass_init(void)
+{
+    /*
+     * Трафик направленный через прокси не должен попадать в HW offload.
+     * Если flowtable активен — offloaded пакеты обходят netfilter,
+     * и TPROXY их не видит.
+     *
+     * Решение: цепочка с приоритетом -300 (раньше всех наших)
+     * помечает ct mark для proxy трафика. Ядро не offload-ит
+     * соединения с ct mark != 0.
+     */
+
+    /* Проверяем наличие flowtable в fw4 */
+    FILE *fp = popen("nft list flowtables 2>/dev/null", "r");
+    bool has_flowtable = false;
+    if (fp) {
+        char line[256];
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "flowtable")) {
+                has_flowtable = true;
+                break;
+            }
+        }
+        pclose(fp);
+    }
+
+    if (!has_flowtable) {
+        log_msg(LOG_INFO,
+            "HW Offload не обнаружен, bypass не требуется");
+        return NFT_OK;
+    }
+
+    char config[NFT_ATOMIC_MAX];
+    int n = snprintf(config, sizeof(config),
+        "table inet " NFT_TABLE_NAME " {\n"
+        "    chain " NFT_CHAIN_OFFLOAD " {\n"
+        "        type filter hook forward priority %d; policy accept;\n"
+        "\n"
+        "        ip daddr @" NFT_SET_PROXY
+            " ct mark set 0x01\n"
+        "        ip6 daddr @" NFT_SET_PROXY6
+            " ct mark set 0x01\n"
+        "    }\n"
+        "}\n",
+        NFT_PRIO_OFFLOAD);
+
+    if (n < 0 || (size_t)n >= sizeof(config))
+        return NFT_ERR_EXEC;
+
+    nft_result_t rc = nft_exec_atomic(config);
+    if (rc == NFT_OK)
+        log_msg(LOG_INFO,
+            "HW Offload bypass инициализирован (priority %d)",
+            NFT_PRIO_OFFLOAD);
+    else
+        log_msg(LOG_WARN, "Не удалось создать offload bypass: %s",
+                nft_strerror(rc));
+
+    return rc;
+}

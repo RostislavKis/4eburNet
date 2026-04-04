@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 /* Имена таблицы и цепочек */
 #define NFT_TABLE_NAME      "phoenix"
@@ -36,6 +37,26 @@
 #define NFT_PRIO_PREROUTING -200
 #define NFT_PRIO_FORWARD    -200
 #define NFT_PRIO_OUTPUT     -150
+
+/* Verdict Maps — имена (DEC-017: масштабирование 300K+ записей) */
+#define NFT_VMAP_BYPASS     "bypass_map"
+#define NFT_VMAP_BYPASS6    "bypass_map6"
+#define NFT_VMAP_BLOCK      "block_map"
+#define NFT_VMAP_BLOCK6     "block_map6"
+
+/* HW Offload bypass (DEC-018) */
+#define NFT_CHAIN_OFFLOAD   "offload_bypass"
+#define NFT_PRIO_OFFLOAD    -300    /* раньше всех наших цепочек */
+
+/* Максимум записей в одной атомарной загрузке batch */
+#define NFT_BATCH_MAX       10000
+
+/* Результат загрузки правил */
+typedef struct {
+    uint32_t loaded;    /* загружено записей */
+    uint32_t skipped;   /* пропущено (дубли/ошибки) */
+    uint32_t errors;    /* ошибок парсинга */
+} nft_load_result_t;
 
 /* Результат операции nft */
 typedef enum {
@@ -88,6 +109,31 @@ nft_result_t nft_mode_set_tun(void);
 
 nft_result_t nft_tproxy_enable(uint16_t port, nft_proto_t proto);
 nft_result_t nft_tproxy_disable(void);
+
+/* --- Verdict Maps (DEC-017) --- */
+
+/* Создать все verdict maps в таблице phoenix */
+nft_result_t nft_vmap_create(void);
+
+/* Очистить все verdict maps */
+nft_result_t nft_vmap_flush_all(void);
+
+/* Batch загрузка массива CIDR строк в verdict map */
+nft_result_t nft_vmap_load_batch(const char *map_name,
+                                 const char **cidrs, size_t count,
+                                 nft_load_result_t *result);
+
+/* Загрузка из файла (один CIDR на строку, # комментарии) */
+nft_result_t nft_vmap_load_file(const char *map_name,
+                                const char *filepath,
+                                nft_load_result_t *result);
+
+/* Статистика verdict maps — вывод в лог */
+void nft_vmap_stats(void);
+
+/* --- HW Offload bypass (DEC-018) --- */
+
+nft_result_t nft_offload_bypass_init(void);
 
 /* --- Вспомогательные --- */
 
