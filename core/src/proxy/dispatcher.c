@@ -224,6 +224,99 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 }
 
 /* ------------------------------------------------------------------ */
+/*  relay_do_half_close — TCP half-close (DEC-016)                     */
+/* ------------------------------------------------------------------ */
+
+static void relay_do_half_close(relay_conn_t *r, bool client_side)
+{
+    if (client_side) {
+        r->client_eof = true;
+        /* TLS: не вызываем shutdown — просто не пишем больше */
+        if (!r->use_tls && r->upstream_fd >= 0)
+            shutdown(r->upstream_fd, SHUT_WR);
+    } else {
+        r->upstream_eof = true;
+        /* client_fd всегда plain TCP */
+        if (r->client_fd >= 0)
+            shutdown(r->client_fd, SHUT_WR);
+    }
+
+    if (r->client_eof && r->upstream_eof) {
+        r->state = RELAY_CLOSING;
+    } else {
+        r->state = RELAY_HALF_CLOSE;
+        log_msg(LOG_DEBUG, "relay: half-close (%s)",
+                client_side ? "client EOF" : "upstream EOF");
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Health-check: выбор и оценка серверов                              */
+/* ------------------------------------------------------------------ */
+
+int dispatcher_select_server(dispatcher_state_t *ds,
+                             const PhoenixConfig *cfg)
+{
+    /* Lazy init — заполнить health[] при первом вызове */
+    if (ds->health_count == 0 && cfg->server_count > 0) {
+        int count = cfg->server_count;
+        if (count > 8) count = 8;
+        for (int i = 0; i < count; i++) {
+            ds->health[i].server_idx = i;
+            ds->health[i].available  = true;
+            ds->health[i].fail_count = 0;
+        }
+        ds->health_count = count;
+    }
+
+    /* Первый enabled + available + fail_count < 3 */
+    int fallback = -1;
+    for (int i = 0; i < ds->health_count; i++) {
+        int idx = ds->health[i].server_idx;
+        if (idx >= cfg->server_count)
+            continue;
+        if (!cfg->servers[idx].enabled)
+            continue;
+        if (fallback < 0)
+            fallback = idx;
+        if (ds->health[i].available && ds->health[i].fail_count < 3)
+            return idx;
+    }
+
+    /* Все недоступны → fallback на первый enabled */
+    if (fallback >= 0) {
+        log_msg(LOG_DEBUG, "relay: все серверы недоступны, fallback на %d",
+                fallback);
+    }
+    return fallback;
+}
+
+void dispatcher_server_result(dispatcher_state_t *ds,
+                              int server_idx, bool success)
+{
+    for (int i = 0; i < ds->health_count; i++) {
+        if (ds->health[i].server_idx != server_idx)
+            continue;
+
+        if (success) {
+            ds->health[i].fail_count = 0;
+            ds->health[i].available  = true;
+            ds->health[i].last_success = time(NULL);
+        } else {
+            ds->health[i].fail_count++;
+            ds->health[i].last_check = time(NULL);
+            if (ds->health[i].fail_count >= 3) {
+                ds->health[i].available = false;
+                log_msg(LOG_WARN,
+                    "Сервер %d недоступен (%u ошибок подряд)",
+                    server_idx, ds->health[i].fail_count);
+            }
+        }
+        return;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /*  upstream_connect — неблокирующее подключение к upstream              */
 /* ------------------------------------------------------------------ */
 
@@ -292,6 +385,12 @@ static int upstream_connect(dispatcher_state_t *ds,
 static ssize_t relay_transfer(dispatcher_state_t *ds,
                               relay_conn_t *r, bool from_client)
 {
+    /* Направление уже закрыто half-close → пропустить */
+    if (from_client && r->client_eof)
+        return 0;
+    if (!from_client && r->upstream_eof)
+        return 0;
+
     ssize_t n;
 
     if (from_client) {
@@ -450,19 +549,14 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     dispatcher_state_t *ds = g_dispatcher;
     const PhoenixConfig *cfg = g_config;
 
-    /* Выбрать первый enabled сервер */
-    const ServerConfig *server = NULL;
-    for (int i = 0; i < cfg->server_count; i++) {
-        if (cfg->servers[i].enabled) {
-            server = &cfg->servers[i];
-            break;
-        }
-    }
-    if (!server) {
+    /* Выбрать сервер через health-check */
+    int idx = dispatcher_select_server(ds, cfg);
+    if (idx < 0) {
         log_msg(LOG_WARN, "relay: нет доступных серверов");
         close(conn->fd);
         return;
     }
+    const ServerConfig *server = &cfg->servers[idx];
 
     /* Выделить слот */
     relay_conn_t *r = relay_alloc(ds);
@@ -474,9 +568,11 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     r->client_fd  = conn->fd;
     r->dst        = conn->dst;
     r->created_at = time(NULL);
+    r->server_idx = idx;
 
     /* Неблокирующее подключение к upstream */
     if (upstream_connect(ds, r, server) < 0) {
+        dispatcher_server_result(ds, idx, false);
         relay_free(ds, r);
         return;
     }
@@ -555,6 +651,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     log_msg(LOG_WARN,
                         "relay: connect к upstream провалился: %s",
                         strerror(err));
+                    dispatcher_server_result(ds, r->server_idx, false);
                     relay_free(ds, r);
                     continue;
                 }
@@ -569,14 +666,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
                 /* Протокольное рукопожатие */
                 const ServerConfig *server = NULL;
-                if (g_config) {
-                    for (int j = 0; j < g_config->server_count; j++) {
-                        if (g_config->servers[j].enabled) {
-                            server = &g_config->servers[j];
-                            break;
-                        }
-                    }
-                }
+                if (g_config && r->server_idx < g_config->server_count)
+                    server = &g_config->servers[r->server_idx];
 
                 if (server) {
                     const proxy_protocol_t *proto =
@@ -584,16 +675,19 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     if (proto->connect(r, &r->dst, server) < 0) {
                         log_msg(LOG_WARN,
                             "relay: протокольное рукопожатие провалилось");
+                        dispatcher_server_result(ds, r->server_idx, false);
                         relay_free(ds, r);
                         continue;
                     }
                 }
 
+                dispatcher_server_result(ds, r->server_idx, true);
                 r->state = RELAY_ACTIVE;
                 log_msg(LOG_DEBUG, "relay: соединение к upstream установлено");
             }
             break;
 
+        case RELAY_HALF_CLOSE:
         case RELAY_ACTIVE:
             if (ep->is_client && (ev & EPOLLIN)) {
                 /* Данные от клиента → upstream */
@@ -605,8 +699,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         continue;
                     }
                     if (transferred == 0) {
-                        /* EOF от клиента */
-                        r->state = RELAY_CLOSING;
+                        relay_do_half_close(r, true);
                     } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
                         r->state = RELAY_CLOSING;
                     }
@@ -624,7 +717,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         continue;
                     }
                     if (transferred == 0) {
-                        r->state = RELAY_CLOSING;
+                        relay_do_half_close(r, false);
                     } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
                         r->state = RELAY_CLOSING;
                     }
@@ -656,6 +749,19 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 now - r->created_at > RELAY_TIMEOUT_SEC) {
                 log_msg(LOG_DEBUG, "relay: таймаут соединения");
                 relay_free(ds, r);
+            }
+        }
+    }
+
+    /* Периодический сброс health-check (~30 сек) */
+    if (ds->tick_count % 3000 == 0 && ds->health_count > 0) {
+        for (int i = 0; i < ds->health_count; i++) {
+            if (!ds->health[i].available) {
+                ds->health[i].available = true;
+                ds->health[i].fail_count = 0;
+                log_msg(LOG_DEBUG,
+                    "health: сервер %d — повторная проверка",
+                    ds->health[i].server_idx);
             }
         }
     }
