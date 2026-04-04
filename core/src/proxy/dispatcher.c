@@ -11,6 +11,7 @@
 #include "proxy/dispatcher.h"
 #include "proxy/protocols/vless.h"
 #include "proxy/protocols/vless_xhttp.h"
+#include "proxy/protocols/trojan.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -194,6 +195,33 @@ static const proxy_protocol_t proto_xhttp = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Протокол Trojan — TLS + SHA224(password) header                    */
+/* ------------------------------------------------------------------ */
+
+static int trojan_protocol_start(relay_conn_t *relay,
+                                 const struct sockaddr_storage *dst,
+                                 const ServerConfig *server)
+{
+    (void)dst;
+    tls_config_t cfg = {0};
+    snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
+    cfg.fingerprint = TLS_FP_CHROME120;
+    cfg.verify_cert = false;
+
+    if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
+        return -1;
+
+    relay->use_tls = true;
+    relay->state = RELAY_TLS_SHAKE;
+    return 0;
+}
+
+static const proxy_protocol_t proto_trojan = {
+    .name  = "trojan",
+    .start = trojan_protocol_start,
+};
+
+/* ------------------------------------------------------------------ */
 /*  Выбор протокола по имени из конфига                                 */
 /* ------------------------------------------------------------------ */
 
@@ -209,6 +237,8 @@ static const proxy_protocol_t *protocol_find_for_server(
             return &proto_xhttp;
         return &proto_vless;
     }
+    if (strcmp(server->protocol, "trojan") == 0)
+        return &proto_trojan;
 
     log_msg(LOG_WARN, "relay: протокол '%s' не поддержан, используется direct",
             server->protocol);
@@ -770,23 +800,39 @@ void dispatcher_tick(dispatcher_state_t *ds)
             {
                 tls_step_result_t tls_rc = tls_connect_step(&r->tls);
                 if (tls_rc == TLS_OK) {
-                    /* TLS готов → отправить VLESS header */
                     const ServerConfig *server = NULL;
                     if (g_config && r->server_idx < g_config->server_count)
                         server = &g_config->servers[r->server_idx];
 
-                    if (server &&
-                        vless_handshake_start(&r->tls, &r->dst,
-                                              server->uuid) < 0) {
-                        dispatcher_server_result(ds, r->server_idx, false);
+                    if (!server) {
                         relay_free(ds, r);
                         break;
                     }
 
-                    r->state = RELAY_VLESS_SHAKE;
-                    r->vless_resp_len = 0;
+                    if (strcmp(server->protocol, "trojan") == 0) {
+                        /* Trojan: header → сразу ACTIVE (нет response) */
+                        if (trojan_handshake_start(&r->tls, &r->dst,
+                                                    server->password) < 0) {
+                            dispatcher_server_result(ds, r->server_idx, false);
+                            relay_free(ds, r);
+                            break;
+                        }
+                        dispatcher_server_result(ds, r->server_idx, true);
+                        r->state = RELAY_ACTIVE;
+                        log_msg(LOG_DEBUG, "relay: Trojan активен");
+                    } else {
+                        /* VLESS: header → ждём response */
+                        if (vless_handshake_start(&r->tls, &r->dst,
+                                                   server->uuid) < 0) {
+                            dispatcher_server_result(ds, r->server_idx, false);
+                            relay_free(ds, r);
+                            break;
+                        }
+                        r->state = RELAY_VLESS_SHAKE;
+                        r->vless_resp_len = 0;
+                    }
 
-                    /* upstream: ждём EPOLLIN для ответа */
+                    /* upstream: ждём EPOLLIN */
                     struct epoll_event mod = {
                         .events   = EPOLLIN | EPOLLET,
                         .data.ptr = &r->ep_upstream,
