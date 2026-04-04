@@ -14,6 +14,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/proxy/protocols/trojan.c \
           $(SRCDIR)/proxy/protocols/shadowsocks.c \
           $(SRCDIR)/crypto/blake3.c \
+          $(SRCDIR)/crypto/blake2s.c $(SRCDIR)/crypto/noise.c \
+          $(SRCDIR)/proxy/protocols/awg.c \
           $(SRCDIR)/net_utils.c \
           $(SRCDIR)/dns/dns_packet.c $(SRCDIR)/dns/dns_cache.c \
           $(SRCDIR)/dns/dns_rules.c $(SRCDIR)/dns/dns_upstream.c \
