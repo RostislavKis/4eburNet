@@ -15,7 +15,8 @@ typedef enum {
     RELAY_DONE       = 0,   /* слот свободен */
     RELAY_CONNECTING = 1,   /* upstream connect в процессе */
     RELAY_ACTIVE     = 2,   /* relay активен, данные текут */
-    RELAY_CLOSING    = 3,   /* один конец закрылся */
+    RELAY_CLOSING    = 3,   /* оба конца закрыты, завершаем */
+    RELAY_HALF_CLOSE = 4,   /* один конец закрыт, ждём второго (DEC-016) */
 } relay_state_t;
 
 /* Предварительное объявление */
@@ -43,6 +44,9 @@ struct relay_conn {
     relay_ep_t              ep_upstream;
     tls_conn_t              tls;        /* TLS соединение к upstream */
     bool                    use_tls;    /* true = relay через tls_send/recv */
+    bool                    client_eof; /* клиент отправил FIN */
+    bool                    upstream_eof; /* upstream отправил FIN */
+    int                     server_idx; /* индекс сервера в cfg->servers[] */
 };
 
 /* Состояние диспетчера */
@@ -58,6 +62,15 @@ typedef struct {
     uint64_t        total_accepted;
     uint64_t        total_closed;
     uint64_t        tick_count;         /* счётчик вызовов tick */
+    /* Health-check состояние серверов */
+    struct {
+        int       server_idx;
+        time_t    last_check;
+        time_t    last_success;
+        uint32_t  fail_count;
+        bool      available;
+    } health[8];                        /* до 8 серверов */
+    int             health_count;       /* 0 = не инициализирован */
 } dispatcher_state_t;
 
 /*
@@ -83,6 +96,16 @@ void dispatcher_tick(dispatcher_state_t *ds);
 void dispatcher_cleanup(dispatcher_state_t *ds);
 void dispatcher_stats(const dispatcher_state_t *ds,
                       uint64_t *accepted, uint64_t *closed);
+
+/* --- Health-check failover --- */
+
+/* Выбрать лучший доступный сервер (индекс в cfg->servers[]) */
+int  dispatcher_select_server(dispatcher_state_t *ds,
+                              const PhoenixConfig *cfg);
+
+/* Обновить статус сервера после попытки подключения */
+void dispatcher_server_result(dispatcher_state_t *ds,
+                              int server_idx, bool success);
 
 /* --- Вызывается из tproxy.c (сигнатура НЕ меняется) --- */
 

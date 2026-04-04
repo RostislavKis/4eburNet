@@ -136,3 +136,16 @@
 - Бинарник: 918 KB
 - Тест: TLS установлен (TLSv1.2 Chrome120), VLESS header отправлен,
          таймаут 5 сек при отсутствии VLESS сервера — корректно
+Коммиты: 1dada65
+
+## Сессия 011 — 2026-04-04
+Статус: завершена
+Сделано:
+- relay_do_half_close(): shutdown(SHUT_WR) при EOF одной стороны
+- TLS half-close: не вызываем shutdown, просто перестаём писать
+- RELAY_HALF_CLOSE = 4, client_eof/upstream_eof флаги
+- dispatcher_select_server(): lazy init health[], первый доступный сервер
+- dispatcher_server_result(): fail_count, available=false при 3 ошибках
+- Periodic health reset каждые 3000 тиков (~30 сек)
+- Тест: "relay: half-close (client EOF)" подтверждён, 16 байт прошли
+- Бинарник: 918 KB (без изменений)
