@@ -11,6 +11,7 @@
 #include "crypto/tls.h"
 #include "dns/dns_server.h"
 #include "dns/dns_rules.h"
+#include "routing/device_policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +29,7 @@ static tproxy_state_t tproxy_state;
 static dispatcher_state_t dispatcher_state;
 static rules_manager_t rules_state;
 static dns_server_t dns_state;
+static device_manager_t device_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -313,6 +315,12 @@ int main(int argc, char *argv[])
         dns_server_init(&dns_state, &cfg);
     }
 
+    /* Per-device routing (netdev MAC map) */
+    if (cfg.device_count > 0 && cfg.lan_interface[0]) {
+        device_policy_init(&device_state, &cfg);
+        device_policy_apply(&device_state, cfg.lan_interface);
+    }
+
     /* Политика маршрутизации — ip rule и ip route */
     policy_check_conflicts();
     if (strcmp(cfg.mode, "tun") == 0) {
@@ -421,6 +429,11 @@ int main(int argc, char *argv[])
                 rules_check_update(&rules_state);
                 if (cfg.dns.enabled)
                     dns_rules_init(&cfg);
+                if (cfg.device_count > 0 && cfg.lan_interface[0]) {
+                    device_policy_free(&device_state);
+                    device_policy_init(&device_state, &cfg);
+                    device_policy_apply(&device_state, cfg.lan_interface);
+                }
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
@@ -436,6 +449,8 @@ cleanup:
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    device_policy_free(&device_state);
+    device_policy_cleanup_nft();
     if (cfg.dns.enabled) {
         dns_server_cleanup(&dns_state);
         dns_rules_free();

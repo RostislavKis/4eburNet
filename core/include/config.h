@@ -53,6 +53,27 @@ typedef struct {
     char pattern[256];   /* *.example.com или example.com */
 } DnsRule;
 
+/* Политика устройства */
+typedef enum {
+    DEVICE_POLICY_DEFAULT = 0,
+    DEVICE_POLICY_PROXY   = 1,
+    DEVICE_POLICY_BYPASS  = 2,
+    DEVICE_POLICY_BLOCK   = 3,
+} device_policy_t;
+
+/* Конфигурация per-device routing */
+typedef struct {
+    char            name[64];
+    char            alias[128];
+    uint8_t         mac[6];
+    char            mac_str[18];
+    device_policy_t policy;
+    char            server_group[64];
+    bool            enabled;
+    int             priority;
+    char            comment[256];
+} device_config_t;
+
 /* Основная конфигурация phoenixd */
 typedef struct PhoenixConfig {
     bool           enabled;
@@ -63,6 +84,9 @@ typedef struct PhoenixConfig {
     DnsConfig      dns;
     DnsRule       *dns_rules;
     int            dns_rule_count;
+    char           lan_interface[32];   /* "br-lan" — для netdev hook */
+    device_config_t *devices;
+    int            device_count;
 } PhoenixConfig;
 
 /* Загрузка конфига из UCI-файла, возвращает 0 при успехе */
