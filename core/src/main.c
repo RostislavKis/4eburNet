@@ -112,13 +112,15 @@ static void daemonize(void)
     if (pid > 0)
         exit(0);
 
-    /* Перенаправляем стандартные потоки */
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-    open("/dev/null", O_RDONLY);  /* stdin  */
-    open("/dev/null", O_WRONLY);  /* stdout */
-    open("/dev/null", O_WRONLY);  /* stderr */
+    /* Явное перенаправление fd 0/1/2 через dup2 */
+    int devnull = open("/dev/null", O_RDWR);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        if (devnull > STDERR_FILENO)
+            close(devnull);
+    }
 
     umask(0027);
     if (chdir("/") < 0) { /* корневой каталог недоступен */ }
@@ -231,6 +233,7 @@ int main(int argc, char *argv[])
     PhoenixConfig cfg;
     if (config_load(config_path, &cfg) < 0) {
         log_msg(LOG_ERROR, "Не удалось загрузить конфиг, завершение");
+        tls_global_cleanup();
         log_close();
         return 1;
     }
@@ -244,6 +247,7 @@ int main(int argc, char *argv[])
 
     if (!cfg.enabled) {
         log_msg(LOG_INFO, "Демон отключён в конфиге, завершение");
+        tls_global_cleanup();
         config_free(&cfg);
         log_close();
         return 0;
@@ -256,6 +260,7 @@ int main(int argc, char *argv[])
     state.ipc_fd = ipc_init();
     if (state.ipc_fd < 0) {
         log_msg(LOG_ERROR, "Не удалось создать IPC сокет");
+        tls_global_cleanup();
         config_free(&cfg);
         unlink(PHOENIX_PID_FILE);
         log_close();
