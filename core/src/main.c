@@ -8,6 +8,7 @@
 #include "proxy/dispatcher.h"
 #include "ntp_bootstrap.h"
 #include "routing/rules_loader.h"
+#include "crypto/tls.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -212,6 +213,10 @@ int main(int argc, char *argv[])
         ntp_bootstrap();
     }
 
+    /* Инициализация крипто-подсистемы */
+    if (tls_global_init() < 0)
+        log_msg(LOG_WARN, "wolfSSL недоступен, TLS протоколы отключены");
+
     /* Определение профиля устройства */
     state.profile = rm_detect_profile();
     log_msg(LOG_INFO, "Профиль: %s (макс. соединений: %u, буфер: %zu)",
@@ -382,6 +387,7 @@ int main(int argc, char *argv[])
     policy_cleanup();
     nft_cleanup();
     ipc_cleanup(state.ipc_fd);
+    tls_global_cleanup();
     config_free(&cfg);
     unlink(PHOENIX_PID_FILE);
 
