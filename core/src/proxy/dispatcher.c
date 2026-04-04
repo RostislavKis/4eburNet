@@ -77,49 +77,47 @@ static void fmt_addr(const struct sockaddr_storage *ss,
 /*  Протокол "direct" — relay без шифрования (для тестов)               */
 /* ------------------------------------------------------------------ */
 
-static int protocol_direct_connect(relay_conn_t *relay,
-                                   const struct sockaddr_storage *dst,
-                                   const ServerConfig *server)
+static int protocol_direct_start(relay_conn_t *relay,
+                                 const struct sockaddr_storage *dst,
+                                 const ServerConfig *server)
 {
-    (void)relay;
     (void)dst;
     (void)server;
+    /* direct: мгновенно активен, без TLS/handshake */
+    relay->state = RELAY_ACTIVE;
     return 0;
 }
 
 static const proxy_protocol_t proto_direct = {
-    .name    = "direct",
-    .connect = protocol_direct_connect,
+    .name  = "direct",
+    .start = protocol_direct_start,
 };
 
 /* ------------------------------------------------------------------ */
-/*  Протокол VLESS — TLS + VLESS header                                */
+/*  Протокол VLESS — неблокирующий TLS + VLESS header (C-03/C-04)      */
 /* ------------------------------------------------------------------ */
 
-static int vless_protocol_connect(relay_conn_t *relay,
-                                  const struct sockaddr_storage *dst,
-                                  const ServerConfig *server)
+static int vless_protocol_start(relay_conn_t *relay,
+                                const struct sockaddr_storage *dst,
+                                const ServerConfig *server)
 {
+    (void)dst;
     tls_config_t cfg = {0};
     snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
 
-    if (tls_connect(&relay->tls, relay->upstream_fd, &cfg) < 0)
+    if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
         return -1;
-
-    if (vless_handshake(&relay->tls, dst, server->uuid) < 0) {
-        tls_close(&relay->tls);
-        return -1;
-    }
 
     relay->use_tls = true;
+    relay->state = RELAY_TLS_SHAKE;
     return 0;
 }
 
 static const proxy_protocol_t proto_vless = {
-    .name    = "vless",
-    .connect = vless_protocol_connect,
+    .name  = "vless",
+    .start = vless_protocol_start,
 };
 
 /* ------------------------------------------------------------------ */
@@ -626,15 +624,15 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     continue;
                 }
 
-                /* connect успешен — переключить upstream на EPOLLIN */
+                /* connect успешен — переключить upstream на EPOLLIN|EPOLLOUT */
                 struct epoll_event mod = {
-                    .events   = EPOLLIN | EPOLLET,
+                    .events   = EPOLLIN | EPOLLOUT | EPOLLET,
                     .data.ptr = &r->ep_upstream,
                 };
                 epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
                           r->upstream_fd, &mod);
 
-                /* Протокольное рукопожатие */
+                /* Запустить протокольное рукопожатие (неблокирующее) */
                 const ServerConfig *server = NULL;
                 if (g_config && r->server_idx < g_config->server_count)
                     server = &g_config->servers[r->server_idx];
@@ -642,18 +640,79 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 if (server) {
                     const proxy_protocol_t *proto =
                         protocol_find(server->protocol);
-                    if (proto->connect(r, &r->dst, server) < 0) {
+                    if (proto->start(r, &r->dst, server) < 0) {
                         log_msg(LOG_WARN,
-                            "relay: протокольное рукопожатие провалилось");
+                            "relay: инициация протокола провалилась");
                         dispatcher_server_result(ds, r->server_idx, false);
                         relay_free(ds, r);
                         continue;
                     }
+                } else {
+                    r->state = RELAY_ACTIVE;
                 }
 
-                dispatcher_server_result(ds, r->server_idx, true);
-                r->state = RELAY_ACTIVE;
-                log_msg(LOG_DEBUG, "relay: соединение к upstream установлено");
+                /* state установлен внутри proto->start() */
+                log_msg(LOG_DEBUG, "relay: TCP connect OK, протокол: %s",
+                        server ? server->protocol : "direct");
+            }
+            break;
+
+        case RELAY_TLS_SHAKE:
+            /* TLS handshake — один шаг за tick (C-03) */
+            if (ep->is_client) break;
+            if (!(ev & (EPOLLIN | EPOLLOUT))) break;
+            {
+                tls_step_result_t tls_rc = tls_connect_step(&r->tls);
+                if (tls_rc == TLS_OK) {
+                    /* TLS готов → отправить VLESS header */
+                    const ServerConfig *server = NULL;
+                    if (g_config && r->server_idx < g_config->server_count)
+                        server = &g_config->servers[r->server_idx];
+
+                    if (server &&
+                        vless_handshake_start(&r->tls, &r->dst,
+                                              server->uuid) < 0) {
+                        dispatcher_server_result(ds, r->server_idx, false);
+                        relay_free(ds, r);
+                        break;
+                    }
+
+                    r->state = RELAY_VLESS_SHAKE;
+                    r->vless_resp_len = 0;
+
+                    /* upstream: ждём EPOLLIN для ответа */
+                    struct epoll_event mod = {
+                        .events   = EPOLLIN | EPOLLET,
+                        .data.ptr = &r->ep_upstream,
+                    };
+                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                              r->upstream_fd, &mod);
+                } else if (tls_rc == TLS_ERR) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                }
+                /* TLS_WANT_IO → ждём следующего epoll события */
+            }
+            break;
+
+        case RELAY_VLESS_SHAKE:
+            /* VLESS response — один шаг за tick (C-04) */
+            if (ep->is_client) break;
+            if (!(ev & EPOLLIN)) break;
+            {
+                int vrc = vless_read_response_step(&r->tls,
+                    r->vless_resp_buf, &r->vless_resp_len);
+                if (vrc == 0) {
+                    /* VLESS готов → relay активен */
+                    dispatcher_server_result(ds, r->server_idx, true);
+                    r->state = RELAY_ACTIVE;
+                    log_msg(LOG_DEBUG,
+                        "relay: VLESS установлен, relay активен");
+                } else if (vrc < 0) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                }
+                /* vrc == 1 → ждём данных */
             }
             break;
 

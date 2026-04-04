@@ -59,4 +59,19 @@ int vless_handshake(tls_conn_t *tls,
                     const struct sockaddr_storage *dst,
                     const char *uuid_str);
 
+/*
+ * Неблокирующий API (C-03/C-04):
+ *
+ * vless_handshake_start() — парсинг UUID + отправка header (не ждёт ответ)
+ * vless_read_response_step() — один вызов tls_recv без retry
+ *   Параметры resp_buf/resp_len — буфер частичного чтения из relay_conn_t.
+ *   Возвращает: 0=готово, 1=повторить, -1=ошибка
+ */
+int vless_handshake_start(tls_conn_t *tls,
+                          const struct sockaddr_storage *dst,
+                          const char *uuid_str);
+
+int vless_read_response_step(tls_conn_t *tls,
+                             uint8_t *resp_buf, uint8_t *resp_len);
+
 #endif /* VLESS_H */
