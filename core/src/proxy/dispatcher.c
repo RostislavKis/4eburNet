@@ -10,6 +10,7 @@
 
 #include "proxy/dispatcher.h"
 #include "proxy/protocols/vless.h"
+#include "proxy/protocols/vless_xhttp.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -107,19 +108,110 @@ static const proxy_protocol_t proto_vless = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Протокол VLESS + XHTTP транспорт                                   */
+/* ------------------------------------------------------------------ */
+
+static int xhttp_protocol_start(relay_conn_t *relay,
+                                const struct sockaddr_storage *dst,
+                                const ServerConfig *server)
+{
+    (void)dst;
+
+    /* upstream_fd уже подключён (upload). Создаём download fd. */
+    struct sockaddr_storage addr;
+    memset(&addr, 0, sizeof(addr));
+    struct sockaddr_in *a4 = (struct sockaddr_in *)&addr;
+    struct sockaddr_in6 *a6 = (struct sockaddr_in6 *)&addr;
+
+    if (inet_pton(AF_INET, server->address, &a4->sin_addr) == 1) {
+        a4->sin_family = AF_INET;
+        a4->sin_port   = htons(server->port);
+    } else if (inet_pton(AF_INET6, server->address, &a6->sin6_addr) == 1) {
+        a6->sin6_family = AF_INET6;
+        a6->sin6_port   = htons(server->port);
+    } else {
+        return -1;
+    }
+
+    int family = addr.ss_family;
+    socklen_t addrlen = (family == AF_INET)
+        ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+
+    int dl_fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (dl_fd < 0)
+        return -1;
+
+    if (connect(dl_fd, (struct sockaddr *)&addr, addrlen) < 0 &&
+        errno != EINPROGRESS) {
+        close(dl_fd);
+        return -1;
+    }
+
+    relay->download_fd = dl_fd;
+
+    /* epoll теги для download */
+    relay->ep_download.relay     = relay;
+    relay->ep_download.is_client = false;
+
+    /* Выделяем XHTTP состояние */
+    relay->xhttp = calloc(1, sizeof(xhttp_state_t));
+    if (!relay->xhttp) {
+        close(dl_fd);
+        relay->download_fd = -1;
+        return -1;
+    }
+
+    tls_config_t cfg = {0};
+    const char *sni_host = server->xhttp_host[0]
+        ? server->xhttp_host : server->address;
+    snprintf(cfg.sni, sizeof(cfg.sni), "%s", sni_host);
+    cfg.fingerprint = TLS_FP_CHROME120;
+    cfg.verify_cert = false;
+
+    const char *path = server->xhttp_path[0]
+        ? server->xhttp_path : "/";
+
+    if (xhttp_start(relay->xhttp, relay->upstream_fd, dl_fd,
+                     &cfg, path, sni_host) < 0) {
+        free(relay->xhttp);
+        relay->xhttp = NULL;
+        close(dl_fd);
+        relay->download_fd = -1;
+        return -1;
+    }
+
+    relay->use_tls = true;
+
+    /* download_fd ждёт connect → EPOLLOUT */
+    relay->state = RELAY_XHTTP_DN_CONNECT;
+
+    return 0;
+}
+
+static const proxy_protocol_t proto_xhttp = {
+    .name  = "vless+xhttp",
+    .start = xhttp_protocol_start,
+};
+
+/* ------------------------------------------------------------------ */
 /*  Выбор протокола по имени из конфига                                 */
 /* ------------------------------------------------------------------ */
 
-static const proxy_protocol_t *protocol_find(const char *name)
+static const proxy_protocol_t *protocol_find_for_server(
+    const ServerConfig *server)
 {
-    if (strcmp(name, "direct") == 0)
+    if (strcmp(server->protocol, "direct") == 0)
         return &proto_direct;
-    if (strcmp(name, "vless") == 0)
-        return &proto_vless;
 
-    /* Неизвестный протокол — используем direct как fallback */
+    if (strcmp(server->protocol, "vless") == 0) {
+        if (server->transport[0] &&
+            strcmp(server->transport, "xhttp") == 0)
+            return &proto_xhttp;
+        return &proto_vless;
+    }
+
     log_msg(LOG_WARN, "relay: протокол '%s' не поддержан, используется direct",
-            name);
+            server->protocol);
     return &proto_direct;
 }
 
@@ -142,6 +234,8 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             memset(r, 0, sizeof(*r));
             r->client_fd   = -1;
             r->upstream_fd = -1;
+            r->download_fd = -1;
+            r->xhttp       = NULL;
             r->state       = RELAY_CONNECTING;
             r->last_active = time(NULL);
             r->ep_client.relay     = r;
@@ -172,6 +266,15 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->upstream_fd, NULL);
         close(r->upstream_fd);
     }
+    if (r->download_fd >= 0) {
+        epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->download_fd, NULL);
+        close(r->download_fd);
+    }
+    if (r->xhttp) {
+        xhttp_close(r->xhttp);
+        free(r->xhttp);
+        r->xhttp = NULL;
+    }
 
     if (r->state != RELAY_DONE) {
         log_msg(LOG_DEBUG, "relay: закрыт (in:%lu out:%lu)",
@@ -183,6 +286,7 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 
     r->client_fd   = -1;
     r->upstream_fd = -1;
+    r->download_fd = -1;
     r->state       = RELAY_DONE;
 }
 
@@ -631,7 +735,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
                 if (server) {
                     const proxy_protocol_t *proto =
-                        protocol_find(server->protocol);
+                        protocol_find_for_server(server);
                     if (proto->start(r, &r->dst, server) < 0) {
                         log_msg(LOG_WARN,
                             "relay: инициация протокола провалилась");
@@ -644,8 +748,18 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 }
 
                 /* state установлен внутри proto->start() */
-                log_msg(LOG_DEBUG, "relay: TCP connect OK, протокол: %s",
-                        server ? server->protocol : "direct");
+                /* XHTTP: download_fd нужно добавить в epoll */
+                if (r->download_fd >= 0) {
+                    struct epoll_event dev = {
+                        .events   = EPOLLOUT | EPOLLET,
+                        .data.ptr = &r->ep_download,
+                    };
+                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD,
+                              r->download_fd, &dev);
+                }
+                log_msg(LOG_DEBUG, "relay: TCP connect OK, протокол: %s%s",
+                        server ? server->protocol : "direct",
+                        r->xhttp ? "+xhttp" : "");
             }
             break;
 
@@ -748,6 +862,150 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 }
             }
 
+            if (r->state == RELAY_CLOSING)
+                relay_free(ds, r);
+            break;
+
+        /* --- XHTTP состояния --- */
+
+        case RELAY_XHTTP_DN_CONNECT:
+            /* download fd TCP connect завершён (EPOLLOUT) */
+            if (!ep->is_client && (ev & EPOLLOUT) &&
+                events[i].data.ptr == &r->ep_download) {
+                int err = 0;
+                socklen_t errlen = sizeof(err);
+                getsockopt(r->download_fd, SOL_SOCKET, SO_ERROR,
+                           &err, &errlen);
+                if (err != 0) {
+                    log_msg(LOG_WARN, "XHTTP: download connect: %s",
+                            strerror(err));
+                    relay_free(ds, r);
+                    break;
+                }
+                /* Оба fd подключены → начать upload TLS */
+                struct epoll_event mod = {
+                    .events = EPOLLIN | EPOLLOUT | EPOLLET,
+                    .data.ptr = &r->ep_upstream,
+                };
+                epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                          r->upstream_fd, &mod);
+                r->state = RELAY_XHTTP_UP_TLS;
+            }
+            break;
+
+        case RELAY_XHTTP_UP_TLS:
+            if (events[i].data.ptr != &r->ep_upstream) break;
+            if (!(ev & (EPOLLIN | EPOLLOUT))) break;
+            {
+                tls_step_result_t tr = xhttp_upload_tls_step(r->xhttp);
+                if (tr == TLS_OK) {
+                    /* Upload TLS готов → download TLS */
+                    struct epoll_event mod = {
+                        .events = EPOLLIN | EPOLLOUT | EPOLLET,
+                        .data.ptr = &r->ep_download,
+                    };
+                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                              r->download_fd, &mod);
+                    r->state = RELAY_XHTTP_DN_TLS;
+                } else if (tr == TLS_ERR) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                }
+            }
+            break;
+
+        case RELAY_XHTTP_DN_TLS:
+            if (events[i].data.ptr != &r->ep_download) break;
+            if (!(ev & (EPOLLIN | EPOLLOUT))) break;
+            {
+                tls_step_result_t tr = xhttp_download_tls_step(r->xhttp);
+                if (tr == TLS_OK) {
+                    r->state = RELAY_XHTTP_UP_REQ;
+                    /* Сразу отправляем POST */
+                    const ServerConfig *srv = NULL;
+                    if (g_config && r->server_idx < g_config->server_count)
+                        srv = &g_config->servers[r->server_idx];
+                    if (!srv || xhttp_send_upload_request(r->xhttp,
+                            &r->dst, srv->uuid) < 0) {
+                        relay_free(ds, r);
+                        break;
+                    }
+                    /* Отправляем GET */
+                    if (xhttp_send_download_request(r->xhttp) < 0) {
+                        relay_free(ds, r);
+                        break;
+                    }
+                    r->state = RELAY_XHTTP_DN_REQ;
+                } else if (tr == TLS_ERR) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                }
+            }
+            break;
+
+        case RELAY_XHTTP_UP_REQ:
+            /* Не должен попасть сюда — переход сразу в DN_REQ */
+            break;
+
+        case RELAY_XHTTP_DN_REQ:
+            /* Парсим HTTP 200 OK от download */
+            if (events[i].data.ptr != &r->ep_download) break;
+            if (!(ev & EPOLLIN)) break;
+            {
+                int prc = xhttp_parse_response_step(r->xhttp);
+                if (prc == 0) {
+                    dispatcher_server_result(ds, r->server_idx, true);
+                    r->state = RELAY_XHTTP_ACTIVE;
+                    log_msg(LOG_DEBUG, "XHTTP: relay активен");
+                } else if (prc < 0) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                }
+            }
+            break;
+
+        case RELAY_XHTTP_ACTIVE:
+            /* client → upload (chunked POST) */
+            if (ep->is_client && (ev & EPOLLIN)) {
+                for (;;) {
+                    ssize_t n = read(r->client_fd,
+                                     ds->relay_buf, ds->relay_buf_size);
+                    if (n > 0) {
+                        ssize_t sent = xhttp_send_chunk(
+                            r->xhttp, ds->relay_buf, n);
+                        if (sent > 0) {
+                            r->bytes_in += sent;
+                            r->last_active = time(NULL);
+                            continue;
+                        }
+                    }
+                    if (n == 0) {
+                        relay_do_half_close(r, true);
+                    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        r->state = RELAY_CLOSING;
+                    }
+                    break;
+                }
+            }
+            /* download → client (chunked GET) */
+            if (events[i].data.ptr == &r->ep_download && (ev & EPOLLIN)) {
+                for (;;) {
+                    ssize_t n = xhttp_recv_chunk(
+                        r->xhttp, ds->relay_buf, ds->relay_buf_size);
+                    if (n > 0) {
+                        write(r->client_fd, ds->relay_buf, n);
+                        r->bytes_out += n;
+                        r->last_active = time(NULL);
+                        continue;
+                    }
+                    if (n == 0) {
+                        relay_do_half_close(r, false);
+                    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        r->state = RELAY_CLOSING;
+                    }
+                    break;
+                }
+            }
             if (r->state == RELAY_CLOSING)
                 relay_free(ds, r);
             break;
