@@ -9,7 +9,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/proxy/tproxy.c $(SRCDIR)/proxy/dispatcher.c \
           $(SRCDIR)/routing/rules_loader.c $(SRCDIR)/ntp_bootstrap.c \
           $(SRCDIR)/crypto/tls.c \
-          $(SRCDIR)/proxy/protocols/vless.c
+          $(SRCDIR)/proxy/protocols/vless.c \
+          $(SRCDIR)/net_utils.c
 TARGET = $(BUILDDIR)/phoenixd
 
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1

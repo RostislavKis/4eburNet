@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE 700  /* strptime — до всех include (M-04) */
+
 /*
  * NTP Bootstrap через HTTP Date: заголовок (DEC-019)
  *
@@ -11,8 +13,6 @@
 
 #include "ntp_bootstrap.h"
 #include "phoenix.h"
-
-#define _XOPEN_SOURCE   /* для strptime */
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -107,7 +107,8 @@ static int try_host(const char *ip, const char *host)
         return -1;
     }
 
-    /* Читаем ответ */
+    /* Читаем ответ (HEAD не содержит тела, но читаем буфер
+       целиком — некоторые серверы могут отправить лишнее) */
     char buf[HTTP_BUF_SIZE] = {0};
     ssize_t total = 0;
     while (total < (ssize_t)(sizeof(buf) - 1)) {

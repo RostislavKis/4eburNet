@@ -21,7 +21,8 @@
 #define NFT_CMD_MAX     4096
 
 /* Максимальный размер атомарного конфига для nft -f - */
-#define NFT_ATOMIC_MAX  8192
+/* Batch загрузка (vmap/set) использует nft_exec_file() без этого лимита (M-08) */
+#define NFT_ATOMIC_MAX  16384
 
 /* Максимальный размер вывода ошибки от nft */
 #define NFT_ERR_BUF     512
