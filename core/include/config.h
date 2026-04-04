@@ -14,6 +14,16 @@ typedef struct {
     char     uuid[64];        /* для vless/vmess */
     char     password[128];   /* для trojan/shadowsocks */
     char     transport[16];   /* "raw" (default) или "xhttp" */
+    /* AWG параметры */
+    char     awg_private_key[64];
+    char     awg_public_key[64];
+    char     awg_psk[64];
+    char     awg_h1[32], awg_h2[32], awg_h3[32], awg_h4[32];
+    uint16_t awg_s1, awg_s2, awg_s3, awg_s4;
+    uint8_t  awg_jc;
+    uint16_t awg_jmin, awg_jmax;
+    char     awg_i1[256], awg_i2[256], awg_i3[256], awg_i4[256], awg_i5[256];
+    uint16_t awg_keepalive;
     char     xhttp_path[128]; /* HTTP путь для XHTTP, default "/" */
     char     xhttp_host[128]; /* Host заголовок для XHTTP */
 } ServerConfig;

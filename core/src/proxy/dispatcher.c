@@ -13,6 +13,7 @@
 #include "proxy/protocols/vless_xhttp.h"
 #include "proxy/protocols/trojan.h"
 #include "proxy/protocols/shadowsocks.h"
+#include "proxy/protocols/awg.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -251,6 +252,49 @@ static const proxy_protocol_t proto_ss = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Протокол AWG — UDP, без TCP connect                                */
+/* ------------------------------------------------------------------ */
+
+static int awg_protocol_start(relay_conn_t *relay,
+                              const struct sockaddr_storage *dst,
+                              const ServerConfig *server)
+{
+    (void)dst;
+    relay->awg = malloc(sizeof(awg_state_t));
+    if (!relay->awg) return -1;
+
+    if (awg_init(relay->awg, server) < 0) {
+        free(relay->awg); relay->awg = NULL;
+        return -1;
+    }
+
+    if (awg_handshake_start(relay->awg, server->address, server->port) < 0) {
+        awg_close(relay->awg);
+        free(relay->awg); relay->awg = NULL;
+        return -1;
+    }
+
+    /* AWG UDP fd в dispatcher epoll */
+    if (g_dispatcher) {
+        struct epoll_event ev = {
+            .events   = EPOLLIN | EPOLLET,
+            .data.ptr = &relay->ep_upstream,
+        };
+        epoll_ctl(g_dispatcher->epoll_fd, EPOLL_CTL_ADD,
+                  relay->awg->udp_fd, &ev);
+    }
+
+    relay->upstream_fd = relay->awg->udp_fd;
+    relay->state = RELAY_AWG_HANDSHAKE;
+    return 0;
+}
+
+static const proxy_protocol_t proto_awg = {
+    .name  = "awg",
+    .start = awg_protocol_start,
+};
+
+/* ------------------------------------------------------------------ */
 /*  Выбор протокола по имени из конфига                                 */
 /* ------------------------------------------------------------------ */
 
@@ -271,6 +315,8 @@ static const proxy_protocol_t *protocol_find_for_server(
     if (strcmp(server->protocol, "shadowsocks") == 0 ||
         strcmp(server->protocol, "ss") == 0)
         return &proto_ss;
+    if (strcmp(server->protocol, "awg") == 0)
+        return &proto_awg;
 
     log_msg(LOG_WARN, "relay: протокол '%s' не поддержан, используется direct",
             server->protocol);
@@ -299,6 +345,7 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             r->download_fd = -1;
             r->xhttp       = NULL;
             r->ss          = NULL;
+            r->awg         = NULL;
             r->state       = RELAY_CONNECTING;
             r->last_active = time(NULL);
             r->ep_client.relay     = r;
@@ -332,6 +379,14 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
     if (r->download_fd >= 0) {
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->download_fd, NULL);
         close(r->download_fd);
+    }
+    if (r->awg) {
+        if (r->awg->udp_fd >= 0)
+            epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL,
+                      r->awg->udp_fd, NULL);
+        awg_close(r->awg);
+        free(r->awg);
+        r->awg = NULL;
     }
     if (r->xhttp) {
         xhttp_close(r->xhttp);
@@ -527,6 +582,18 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 
     ssize_t n;
 
+    /* AWG: UDP шифрование */
+    if (r->awg && r->awg->handshake_done) {
+        if (from_client) {
+            n = read(r->client_fd, ds->relay_buf, ds->relay_buf_size);
+            if (n <= 0) return n;
+            return awg_send(r->awg, ds->relay_buf, n);
+        } else {
+            /* AWG upstream данные через awg_process_incoming в tick */
+            return 0;
+        }
+    }
+
     /* SS 2022: AEAD шифрование без TLS */
     if (r->ss) {
         if (from_client) {
@@ -716,7 +783,22 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     r->created_at = time(NULL);
     r->server_idx = idx;
 
-    /* Неблокирующее подключение к upstream */
+    /* AWG: UDP, минует TCP connect */
+    if (strcmp(server->protocol, "awg") == 0) {
+        if (awg_protocol_start(r, &conn->dst, server) < 0) {
+            dispatcher_server_result(ds, idx, false);
+            relay_free(ds, r);
+        } else {
+            ds->total_accepted++;
+            char dst_str[64];
+            net_format_addr(&r->dst, dst_str, sizeof(dst_str));
+            log_msg(LOG_DEBUG, "relay: %s → %s:%u (AWG UDP)",
+                    dst_str, server->address, server->port);
+        }
+        return;
+    }
+
+    /* Неблокирующее подключение к upstream (TCP) */
     if (upstream_connect(ds, r, server) < 0) {
         dispatcher_server_result(ds, idx, false);
         relay_free(ds, r);
@@ -1104,6 +1186,61 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     break;
                 }
             }
+            if (r->state == RELAY_CLOSING)
+                relay_free(ds, r);
+            break;
+
+        /* --- AWG состояния --- */
+
+        case RELAY_AWG_HANDSHAKE:
+            if (!ep->is_client && r->awg) {
+                int arc = awg_process_incoming(r->awg);
+                if (arc == 1) {
+                    dispatcher_server_result(ds, r->server_idx, true);
+                    r->state = RELAY_AWG_ACTIVE;
+                    log_msg(LOG_DEBUG, "relay: AWG активен");
+                } else if (arc < 0) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                } else {
+                    awg_tick(r->awg);
+                }
+            }
+            break;
+
+        case RELAY_AWG_ACTIVE:
+            if (ep->is_client && (ev & EPOLLIN)) {
+                /* client → AWG */
+                for (;;) {
+                    ssize_t n = read(r->client_fd,
+                                     ds->relay_buf, ds->relay_buf_size);
+                    if (n > 0) {
+                        awg_send(r->awg, ds->relay_buf, n);
+                        r->bytes_in += n;
+                        r->last_active = time(NULL);
+                        continue;
+                    }
+                    if (n == 0) relay_do_half_close(r, true);
+                    else if (errno != EAGAIN) r->state = RELAY_CLOSING;
+                    break;
+                }
+            }
+            if (!ep->is_client && (ev & EPOLLIN) && r->awg) {
+                /* AWG → client */
+                int arc = awg_process_incoming(r->awg);
+                if (arc == 2) {
+                    uint8_t buf[2048];
+                    ssize_t n = awg_recv(r->awg, buf, sizeof(buf));
+                    if (n > 0) {
+                        write(r->client_fd, buf, n);
+                        r->bytes_out += n;
+                        r->last_active = time(NULL);
+                    }
+                } else if (arc < 0) {
+                    r->state = RELAY_CLOSING;
+                }
+            }
+            if (r->awg) awg_tick(r->awg);
             if (r->state == RELAY_CLOSING)
                 relay_free(ds, r);
             break;

@@ -124,6 +124,47 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "xhttp_host") == 0) {
         strncpy(srv->xhttp_host, value, sizeof(srv->xhttp_host) - 1);
         srv->xhttp_host[sizeof(srv->xhttp_host) - 1] = '\0';
+    /* AWG параметры */
+    } else if (strcmp(key, "awg_private_key") == 0) {
+        snprintf(srv->awg_private_key, sizeof(srv->awg_private_key), "%s", value);
+    } else if (strcmp(key, "awg_public_key") == 0) {
+        snprintf(srv->awg_public_key, sizeof(srv->awg_public_key), "%s", value);
+    } else if (strcmp(key, "awg_psk") == 0) {
+        snprintf(srv->awg_psk, sizeof(srv->awg_psk), "%s", value);
+    } else if (strcmp(key, "awg_h1") == 0) {
+        snprintf(srv->awg_h1, sizeof(srv->awg_h1), "%s", value);
+    } else if (strcmp(key, "awg_h2") == 0) {
+        snprintf(srv->awg_h2, sizeof(srv->awg_h2), "%s", value);
+    } else if (strcmp(key, "awg_h3") == 0) {
+        snprintf(srv->awg_h3, sizeof(srv->awg_h3), "%s", value);
+    } else if (strcmp(key, "awg_h4") == 0) {
+        snprintf(srv->awg_h4, sizeof(srv->awg_h4), "%s", value);
+    } else if (strcmp(key, "awg_s1") == 0) {
+        srv->awg_s1 = (uint16_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_s2") == 0) {
+        srv->awg_s2 = (uint16_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_s3") == 0) {
+        srv->awg_s3 = (uint16_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_s4") == 0) {
+        srv->awg_s4 = (uint16_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_jc") == 0) {
+        srv->awg_jc = (uint8_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_jmin") == 0) {
+        srv->awg_jmin = (uint16_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_jmax") == 0) {
+        srv->awg_jmax = (uint16_t)strtol(value, NULL, 10);
+    } else if (strcmp(key, "awg_i1") == 0) {
+        snprintf(srv->awg_i1, sizeof(srv->awg_i1), "%s", value);
+    } else if (strcmp(key, "awg_i2") == 0) {
+        snprintf(srv->awg_i2, sizeof(srv->awg_i2), "%s", value);
+    } else if (strcmp(key, "awg_i3") == 0) {
+        snprintf(srv->awg_i3, sizeof(srv->awg_i3), "%s", value);
+    } else if (strcmp(key, "awg_i4") == 0) {
+        snprintf(srv->awg_i4, sizeof(srv->awg_i4), "%s", value);
+    } else if (strcmp(key, "awg_i5") == 0) {
+        snprintf(srv->awg_i5, sizeof(srv->awg_i5), "%s", value);
+    } else if (strcmp(key, "awg_keepalive") == 0) {
+        srv->awg_keepalive = (uint16_t)strtol(value, NULL, 10);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
     }
