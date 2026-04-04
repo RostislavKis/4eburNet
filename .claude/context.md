@@ -241,3 +241,18 @@
 - Бинарник: 949 KB
 - Тест: google.com→default, doubleclick→NXDOMAIN, yandex.ru→bypass, кэш
 - Никакого хардкода — все upstream/правила/порты из конфига
+
+## Сессия 017 — 2026-04-05
+Статус: завершена
+Сделано:
+- crypto/blake2s.c (170 строк) — portable BLAKE2s (wolfSSL без --enable-blake2s)
+- crypto/noise.c (310 строк) — Noise_IKpsk2: X25519 + ChaCha20-Poly1305 + BLAKE2s, TAI64N
+- proxy/protocols/awg.c (330 строк) — AWG 2.0 обфускация
+- H1-H4 header ranges, S1-S4 padding, Jc/Jmin/Jmax junk
+- I1-I5 CPS парсер (<b>/<r>/<rd>/<rc>/<t>)
+- AWG 1.0/1.5/2.0 + WireGuard совместимость (H=0 → стандартный WG)
+- dispatcher: RELAY_AWG_HANDSHAKE + RELAY_AWG_ACTIVE, UDP epoll
+- config.h: все AWG поля в ServerConfig
+- Тест: 4 junk + 173 байт Init (148 WG + 25 S1) → корректно
+- VLESS не сломан
+- Бинарник: 967 KB
