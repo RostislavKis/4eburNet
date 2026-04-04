@@ -91,3 +91,17 @@
 - Тест: relay 127.0.0.1:7893 → 127.0.0.1:9999 (echo), 12 байт прошли
 - half-close (out:0) — ограничение v1, DEC-016 для 1.6
 - Бинарник: 145 KB
+Коммиты: c77c03a
+
+## Сессия 008 — 2026-04-04
+Статус: завершена
+Сделано:
+- nftables.c расширен: Verdict Maps для block/bypass (DEC-017)
+- Фикс: auto-merge не поддерживается в verdict maps nft 1.0.8, убран
+- nft_offload_bypass_init(): HW Offload bypass chain priority -300 (DEC-018)
+- rules_loader.c: менеджер файлов правил, batch загрузка, mtime обновление
+- rules_create_test_file(): 40 реальных RU CIDR для bypass
+- ntp_bootstrap.c: raw TCP HTTP Date: парсинг, settimeofday (DEC-019)
+- Интеграция в main.c: NTP → vmap → offload → rules → policy → tproxy
+- Бинарник: 162 KB (+17KB)
+- Тест: 40 RU CIDR в bypass_map, lookup 5.3.0.0/16 : accept работает
