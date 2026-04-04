@@ -2,6 +2,7 @@
 #define DISPATCHER_H
 
 #include "proxy/tproxy.h"
+#include "crypto/tls.h"
 #include "config.h"
 
 #include <stdint.h>
@@ -40,6 +41,8 @@ struct relay_conn {
     uint64_t                bytes_out;  /* upstream → клиент */
     relay_ep_t              ep_client;  /* для epoll data.ptr */
     relay_ep_t              ep_upstream;
+    tls_conn_t              tls;        /* TLS соединение к upstream */
+    bool                    use_tls;    /* true = relay через tls_send/recv */
 };
 
 /* Состояние диспетчера */
@@ -66,7 +69,7 @@ typedef struct {
  */
 typedef struct {
     const char *name;       /* "direct", "vless", "ss", "trojan" */
-    int (*connect)(int upstream_fd,
+    int (*connect)(relay_conn_t *relay,
                    const struct sockaddr_storage *dst,
                    const ServerConfig *server);
 } proxy_protocol_t;
