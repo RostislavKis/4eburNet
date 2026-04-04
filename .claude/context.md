@@ -256,3 +256,18 @@
 - Тест: 4 junk + 173 байт Init (148 WG + 25 S1) → корректно
 - VLESS не сломан
 - Бинарник: 967 KB
+
+## Сессия 018 — 2026-04-05
+Статус: завершена
+Сделано:
+- routing/device_policy.c + .h
+- netdev hook: ether saddr vmap @mac_map (истинный L2 MAC routing)
+- fwmark pipeline: netdev phoenix_dev → inet phoenix prerouting
+- Политики: proxy(0x10)/bypass(0x11)/block(0x12)/default
+- CRUD: device_policy_add/del/update/find
+- device_policy_apply() — атомарная загрузка через nft -f
+- device_policy_to_json() — JSON для IPC/LuCI
+- config.h: device_config_t, device_manager_t, lan_interface
+- Тест: 2 устройства в mac_map — bypass/proxy корректно
+- DEC-020 закрыт
+- Бинарник: 971 KB

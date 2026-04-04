@@ -18,9 +18,11 @@ typedef enum {
     SECTION_SERVER,
     SECTION_DNS,
     SECTION_DNS_RULE,
+    SECTION_DEVICE_POLICY,
 } section_type_t;
 
 #define MAX_DNS_RULES 256
+#define MAX_DEVICES   64
 
 /* Удаление окружающих кавычек из строки */
 static void strip_quotes(char *s)
@@ -86,9 +88,28 @@ static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char
     } else if (strcmp(key, "mode") == 0) {
         strncpy(cfg->mode, value, sizeof(cfg->mode) - 1);
         cfg->mode[sizeof(cfg->mode) - 1] = '\0';
+    } else if (strcmp(key, "lan_interface") == 0) {
+        snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция phoenix: %s", key);
     }
+}
+
+/* MAC парсинг и нормализация */
+static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
+{
+    if (!str || strlen(str) != 17) return -1;
+    unsigned int m[6];
+    if (sscanf(str, "%x:%x:%x:%x:%x:%x",
+               &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6)
+        return -1;
+    for (int i = 0; i < 6; i++) {
+        if (m[i] > 255) return -1;
+        mac[i] = (uint8_t)m[i];
+    }
+    snprintf(out_str, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return 0;
 }
 
 /* Применение опции к текущему серверу */
@@ -188,10 +209,14 @@ int config_load(const char *path, PhoenixConfig *cfg)
     ServerConfig servers[MAX_SERVERS];
     int srv_count = 0;
 
-    /* Временный массив DNS правил */
+    /* Временные массивы */
     DnsRule dns_rules[MAX_DNS_RULES];
     int dns_rule_count = 0;
     cfg->dns_rule_count = 0;
+
+    device_config_t devices_tmp[MAX_DEVICES];
+    int dev_count = 0;
+    cfg->device_count = 0;
 
     section_type_t section = SECTION_NONE;
     char line[MAX_LINE];
@@ -246,6 +271,15 @@ int config_load(const char *path, PhoenixConfig *cfg)
                 srv_count++;
             } else if (strcmp(type, "dns") == 0) {
                 section = SECTION_DNS;
+            } else if (strcmp(type, "device_policy") == 0) {
+                section = SECTION_DEVICE_POLICY;
+                if (dev_count < MAX_DEVICES) {
+                    memset(&devices_tmp[dev_count], 0, sizeof(device_config_t));
+                    if (name)
+                        snprintf(devices_tmp[dev_count].name,
+                                 sizeof(devices_tmp[dev_count].name), "%s", name);
+                    dev_count++;
+                }
             } else if (strcmp(type, "dns_rule") == 0) {
                 section = SECTION_DNS_RULE;
                 if (dns_rule_count < MAX_DNS_RULES) {
@@ -325,6 +359,29 @@ int config_load(const char *path, PhoenixConfig *cfg)
                         snprintf(dr->pattern, sizeof(dr->pattern), "%s", value);
                 }
                 break;
+            case SECTION_DEVICE_POLICY:
+                if (dev_count > 0) {
+                    device_config_t *d = &devices_tmp[dev_count - 1];
+                    if (strcmp(key, "alias") == 0 || strcmp(key, "name") == 0)
+                        snprintf(d->alias, sizeof(d->alias), "%s", value);
+                    else if (strcmp(key, "mac") == 0)
+                        parse_mac(value, d->mac, d->mac_str);
+                    else if (strcmp(key, "policy") == 0) {
+                        if (strcmp(value, "proxy") == 0) d->policy = DEVICE_POLICY_PROXY;
+                        else if (strcmp(value, "bypass") == 0) d->policy = DEVICE_POLICY_BYPASS;
+                        else if (strcmp(value, "block") == 0) d->policy = DEVICE_POLICY_BLOCK;
+                        else d->policy = DEVICE_POLICY_DEFAULT;
+                    }
+                    else if (strcmp(key, "server_group") == 0)
+                        snprintf(d->server_group, sizeof(d->server_group), "%s", value);
+                    else if (strcmp(key, "enabled") == 0)
+                        d->enabled = (strcmp(value, "1") == 0);
+                    else if (strcmp(key, "priority") == 0)
+                        d->priority = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "comment") == 0)
+                        snprintf(d->comment, sizeof(d->comment), "%s", value);
+                }
+                break;
             case SECTION_NONE:
                 log_msg(LOG_WARN, "Строка %d: опция вне секции", line_num);
                 break;
@@ -360,13 +417,26 @@ int config_load(const char *path, PhoenixConfig *cfg)
     }
     cfg->dns_rule_count = dns_rule_count;
 
-    log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, DNS правил: %d)",
-            path, srv_count, dns_rule_count);
+    /* Копируем устройства */
+    if (dev_count > 0) {
+        cfg->devices = malloc((size_t)dev_count * sizeof(device_config_t));
+        if (cfg->devices)
+            memcpy(cfg->devices, devices_tmp,
+                   (size_t)dev_count * sizeof(device_config_t));
+    }
+    cfg->device_count = dev_count;
+
+    log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, DNS правил: %d, устройств: %d)",
+            path, srv_count, dns_rule_count, dev_count);
     return 0;
 }
 
 void config_free(PhoenixConfig *cfg)
 {
+    if (cfg->devices) {
+        free(cfg->devices);
+        cfg->devices = NULL;
+    }
     if (cfg->dns_rules) {
         free(cfg->dns_rules);
         cfg->dns_rules = NULL;
