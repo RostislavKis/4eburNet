@@ -184,3 +184,19 @@
 - FIXED M-07: health reset time-based вместо tick_count
 - FIXED M-09: idle timeout по last_active, half-close 15 сек
 - L-01: принято, рефакторинг в v2
+
+## Сессия 013 — 2026-04-04
+Статус: завершена
+Сделано:
+- proxy/protocols/vless_xhttp.c (330 строк)
+- xhttp_state_t: upload/download tls_conn_t, chunk state machine
+- xhttp_session_id_gen(): /dev/urandom → 32 hex
+- xhttp_send_upload_request(): POST + chunked VLESS header
+- xhttp_send_download_request(): GET с session ID
+- xhttp_parse_response_step(): неблокирующий HTTP 200 парсинг
+- xhttp_send_chunk() / xhttp_recv_chunk(): chunk encode/decode
+- dispatcher: 6 новых состояний (XHTTP_DN_CONNECT → XHTTP_ACTIVE)
+- config.h: transport, xhttp_path, xhttp_host в ServerConfig
+- Бинарник: 927 KB (+9KB)
+- Тест: upload TLS + download TLS + POST + GET + 200 OK + relay активен
+- transport=raw (прямой VLESS) не сломан

@@ -111,6 +111,15 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "password") == 0) {
         strncpy(srv->password, value, sizeof(srv->password) - 1);
         srv->password[sizeof(srv->password) - 1] = '\0';
+    } else if (strcmp(key, "transport") == 0) {
+        strncpy(srv->transport, value, sizeof(srv->transport) - 1);
+        srv->transport[sizeof(srv->transport) - 1] = '\0';
+    } else if (strcmp(key, "xhttp_path") == 0) {
+        strncpy(srv->xhttp_path, value, sizeof(srv->xhttp_path) - 1);
+        srv->xhttp_path[sizeof(srv->xhttp_path) - 1] = '\0';
+    } else if (strcmp(key, "xhttp_host") == 0) {
+        strncpy(srv->xhttp_host, value, sizeof(srv->xhttp_host) - 1);
+        srv->xhttp_host[sizeof(srv->xhttp_host) - 1] = '\0';
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
     }
