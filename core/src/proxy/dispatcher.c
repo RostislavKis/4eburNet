@@ -29,8 +29,9 @@
 /* Максимум событий epoll за один tick */
 #define DISPATCHER_MAX_EVENTS   64
 
-/* Таймаут зависших соединений (секунды) */
-#define RELAY_TIMEOUT_SEC       60
+/* Таймаут бездействия (секунды) */
+#define RELAY_TIMEOUT_SEC           60
+#define RELAY_HALF_CLOSE_TIMEOUT    15  /* half-close: вдвое меньше (M-09) */
 
 /* Частота проверки таймаутов (раз в N тиков) */
 #define RELAY_TIMEOUT_CHECK     100
@@ -142,6 +143,7 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             r->client_fd   = -1;
             r->upstream_fd = -1;
             r->state       = RELAY_CONNECTING;
+            r->last_active = time(NULL);
             r->ep_client.relay     = r;
             r->ep_client.is_client = true;
             r->ep_upstream.relay     = r;
@@ -485,6 +487,8 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
     log_msg(LOG_DEBUG,
         "splice отключён (data corruption fix, аудит C-05)");
 
+    ds->health_reset_at = time(NULL) + 30;  /* первый health reset через 30 сек */
+
     log_msg(LOG_INFO, "Диспетчер запущен (макс. %d соединений, буфер: %zu)",
             ds->conns_max, ds->relay_buf_size);
     return 0;
@@ -713,6 +717,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         ds, r, true);
                     if (transferred > 0) {
                         r->bytes_in += transferred;
+                        r->last_active = time(NULL);
                         continue;
                     }
                     if (transferred == 0) {
@@ -731,6 +736,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         ds, r, false);
                     if (transferred > 0) {
                         r->bytes_out += transferred;
+                        r->last_active = time(NULL);
                         continue;
                     }
                     if (transferred == 0) {
@@ -757,28 +763,46 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
     ds->tick_count++;
 
-    /* Периодическая проверка таймаутов */
-    if (ds->tick_count % RELAY_TIMEOUT_CHECK == 0) {
+    /* Периодическая проверка таймаутов (M-03: ранний выход, M-09: idle) */
+    if (ds->tick_count % RELAY_TIMEOUT_CHECK == 0
+        && ds->conns_count > 0) {
         time_t now = time(NULL);
-        for (int i = 0; i < ds->conns_max; i++) {
+        int checked = 0;
+        for (int i = 0; i < ds->conns_max
+                        && checked < ds->conns_count; i++) {
             relay_conn_t *r = &ds->conns[i];
-            if (r->state != RELAY_DONE &&
-                now - r->created_at > RELAY_TIMEOUT_SEC) {
-                log_msg(LOG_DEBUG, "relay: таймаут соединения");
+            if (r->state == RELAY_DONE)
+                continue;
+            checked++;
+
+            time_t idle_since = r->last_active > r->created_at
+                                ? r->last_active : r->created_at;
+            int timeout = (r->state == RELAY_HALF_CLOSE)
+                          ? RELAY_HALF_CLOSE_TIMEOUT
+                          : RELAY_TIMEOUT_SEC;
+
+            if (now - idle_since > timeout) {
+                log_msg(LOG_DEBUG,
+                    "relay: idle таймаут %lds (state=%d)",
+                    (long)(now - idle_since), r->state);
                 relay_free(ds, r);
             }
         }
     }
 
-    /* Периодический сброс health-check (~30 сек) */
-    if (ds->tick_count % 3000 == 0 && ds->health_count > 0) {
-        for (int i = 0; i < ds->health_count; i++) {
-            if (!ds->health[i].available) {
-                ds->health[i].available = true;
-                ds->health[i].fail_count = 0;
-                log_msg(LOG_DEBUG,
-                    "health: сервер %d — повторная проверка",
-                    ds->health[i].server_idx);
+    /* Health reset по абсолютному времени (M-07) */
+    {
+        time_t now_t = time(NULL);
+        if (now_t >= ds->health_reset_at && ds->health_count > 0) {
+            ds->health_reset_at = now_t + 30;
+            for (int i = 0; i < ds->health_count; i++) {
+                if (!ds->health[i].available) {
+                    ds->health[i].available  = true;
+                    ds->health[i].fail_count = 0;
+                    log_msg(LOG_DEBUG,
+                        "health: сервер %d сброшен для повторной проверки",
+                        ds->health[i].server_idx);
+                }
             }
         }
     }
