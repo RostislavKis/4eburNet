@@ -40,6 +40,7 @@ struct relay_conn {
     relay_state_t           state;
     struct sockaddr_storage dst;        /* оригинальный dst пакета */
     time_t                  created_at;
+    time_t                  last_active;  /* время последней передачи (M-09) */
     uint64_t                bytes_in;   /* клиент → upstream */
     uint64_t                bytes_out;  /* upstream → клиент */
     relay_ep_t              ep_client;  /* для epoll data.ptr */
@@ -76,6 +77,7 @@ typedef struct {
         bool      available;
     } health[8];                        /* до 8 серверов */
     int             health_count;       /* 0 = не инициализирован */
+    time_t          health_reset_at;    /* следующий health reset (M-07) */
 } dispatcher_state_t;
 
 /*
