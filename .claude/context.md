@@ -200,3 +200,16 @@
 - Бинарник: 927 KB (+9KB)
 - Тест: upload TLS + download TLS + POST + GET + 200 OK + relay активен
 - transport=raw (прямой VLESS) не сломан
+
+## Сессия 014 — 2026-04-04
+Статус: завершена
+Сделано:
+- proxy/protocols/trojan.c (130 строк)
+- SHA224(password) через wolfSSL wc_Sha224
+- trojan_build_request(): 68 байт для IPv4 (56 hex + cmd + addr + port + CRLF)
+- trojan_handshake_start(): без response от сервера → RELAY_ACTIVE
+- dispatcher.c: trojan_protocol_start, ветвление trojan/vless в RELAY_TLS_SHAKE
+- Исправлен IPv6 тип адреса: 0x03→0x04 (Trojan spec)
+- Тест: TLS установлен, 68 байт header отправлен, сервер ответил 121 байт
+- VLESS не сломан
+- Бинарник: 928 KB
