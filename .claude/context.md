@@ -157,3 +157,9 @@
 - FIXED C-01: sig_atomic_t в phoenix.h
 - FIXED C-02: dup2() в daemonize()
 - FIXED C-07: tls_global_cleanup() при раннем выходе
+- FIXED S-01/S-02: validate_cidr() + validate_nft_cmd() — injection защита
+- FIXED S-03: VERIFY_NONE документирован как Reality-only, DEC-025
+- FIXED S-04/S-05: UUID убран из логов
+- FIXED S-06: IPC socket chmod 0600
+- FIXED H-03: strtol() с валидацией порта 1-65535
+- FIXED H-09: proto_common.h удалён (мёртвый код)
