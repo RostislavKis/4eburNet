@@ -179,7 +179,7 @@
 - FIXED M-10: IPC truncation fix
 - FIXED L-02: комментарий HEAD запроса
 - FIXED L-03: pid_t в check_pid_file
-- FIXED M-02: net_format_addr устраняет дублирование
+- FIXED M-02: exec_cmd_lines/capture/contains в net_utils.c — все popen инкапсулированы
 - FIXED M-03: таймаут ранний выход по conns_count
 - FIXED M-07: health reset time-based вместо tick_count
 - FIXED M-09: idle timeout по last_active, half-close 15 сек
