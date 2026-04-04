@@ -60,7 +60,7 @@ static void print_usage(const char *prog)
 }
 
 /* Проверка PID-файла — запущен ли уже демон */
-static int check_pid_file(void)
+static pid_t check_pid_file(void)
 {
     FILE *f = fopen(PHOENIX_PID_FILE, "r");
     if (!f)
@@ -196,7 +196,7 @@ int main(int argc, char *argv[])
     }
 
     /* Проверка на уже запущенный экземпляр */
-    int existing_pid = check_pid_file();
+    pid_t existing_pid = check_pid_file();
     if (existing_pid > 0) {
         fprintf(stderr, "Демон уже запущен (PID %d)\n", existing_pid);
         return 1;

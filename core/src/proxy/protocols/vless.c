@@ -14,6 +14,7 @@
  */
 
 #include "proxy/protocols/vless.h"
+#include "net_utils.h"
 #include "phoenix.h"
 
 #include <stdio.h>
@@ -191,23 +192,7 @@ int vless_read_response(tls_conn_t *tls)
 /*  Форматирование адреса для логов                                    */
 /* ------------------------------------------------------------------ */
 
-static void vless_fmt_addr(const struct sockaddr_storage *ss,
-                           char *buf, size_t buflen)
-{
-    if (ss->ss_family == AF_INET) {
-        const struct sockaddr_in *s4 = (const struct sockaddr_in *)ss;
-        char ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &s4->sin_addr, ip, sizeof(ip));
-        snprintf(buf, buflen, "%s:%u", ip, ntohs(s4->sin_port));
-    } else if (ss->ss_family == AF_INET6) {
-        const struct sockaddr_in6 *s6 = (const struct sockaddr_in6 *)ss;
-        char ip[INET6_ADDRSTRLEN];
-        inet_ntop(AF_INET6, &s6->sin6_addr, ip, sizeof(ip));
-        snprintf(buf, buflen, "[%s]:%u", ip, ntohs(s6->sin6_port));
-    } else {
-        snprintf(buf, buflen, "unknown");
-    }
-}
+/* vless_fmt_addr → net_format_addr из net_utils.c (M-01) */
 
 /* ------------------------------------------------------------------ */
 /*  vless_handshake                                                    */
@@ -225,7 +210,7 @@ int vless_handshake(tls_conn_t *tls,
     }
 
     char dst_str[64];
-    vless_fmt_addr(dst, dst_str, sizeof(dst_str));
+    net_format_addr(dst, dst_str, sizeof(dst_str));
 
     log_msg(LOG_DEBUG, "VLESS handshake: dst: %s", dst_str);
 
@@ -272,7 +257,7 @@ int vless_handshake_start(tls_conn_t *tls,
     }
 
     char dst_str[64];
-    vless_fmt_addr(dst, dst_str, sizeof(dst_str));
+    net_format_addr(dst, dst_str, sizeof(dst_str));
 
     log_msg(LOG_DEBUG, "VLESS handshake start: dst: %s", dst_str);
 
