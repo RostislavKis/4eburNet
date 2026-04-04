@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>phoenix-router v0.1.0 — Аудит кодовой базы v1</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --critical: #f85149;
+  --high: #db6d28;
+  --medium: #d29922;
+  --low: #58a6ff;
+  --security: #bc4c00;
+  --accent: #58a6ff;
+  --green: #3fb950;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  padding: 2rem;
+}
+.container { max-width: 1400px; margin: 0 auto; }
+h1 {
+  font-size: 2rem;
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+h2 {
+  font-size: 1.4rem;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3rem;
+}
+h3 {
+  font-size: 1.15rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+}
+.meta {
+  color: var(--text-dim);
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+}
+/* Executive Summary cards */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.2rem;
+  text-align: center;
+  border-top: 3px solid var(--border);
+}
+.card.critical { border-top-color: var(--critical); }
+.card.high { border-top-color: var(--high); }
+.card.medium { border-top-color: var(--medium); }
+.card.low { border-top-color: var(--low); }
+.card.security { border-top-color: var(--security); }
+.card .count {
+  font-size: 2.5rem;
+  font-weight: bold;
+  display: block;
+}
+.card.critical .count { color: var(--critical); }
+.card.high .count { color: var(--high); }
+.card.medium .count { color: var(--medium); }
+.card.low .count { color: var(--low); }
+.card.security .count { color: var(--security); }
+.card .label {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.badge-critical { background: #3d1214; color: var(--critical); border: 1px solid #6e2b2d; }
+.badge-high { background: #3d2004; color: var(--high); border: 1px solid #6e4008; }
+.badge-medium { background: #3d2e04; color: var(--medium); border: 1px solid #6e5408; }
+.badge-low { background: #0c2d6b; color: var(--low); border: 1px solid #1a4b9a; }
+.badge-security { background: #3d1e04; color: var(--security); border: 1px solid #6e3508; }
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+th, td {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--surface);
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+tr:nth-child(even) { background: rgba(22,27,34,0.5); }
+tr:hover { background: rgba(56,139,253,0.1); }
+code {
+  background: #1c2128;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: #e6edf3;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+pre {
+  background: #1c2128;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+  color: #e6edf3;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+.finding {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  margin: 0.8rem 0;
+  border-left: 3px solid var(--border);
+}
+.finding.critical { border-left-color: var(--critical); }
+.finding.high { border-left-color: var(--high); }
+.finding.medium { border-left-color: var(--medium); }
+.finding.low { border-left-color: var(--low); }
+.finding.security { border-left-color: var(--security); }
+.finding-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.finding-id {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+.finding-file {
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+.finding p { margin: 0.3rem 0; }
+.recommendation {
+  color: var(--green);
+  font-style: italic;
+  margin-top: 0.5rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--green);
+}
+.toc { margin: 1rem 0 2rem; }
+.toc a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.toc a:hover { text-decoration: underline; }
+.toc ul { list-style: none; padding-left: 1.2rem; }
+.toc > ul { padding-left: 0; }
+.toc li { margin: 0.2rem 0; }
+.file-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.2rem;
+  margin: 1rem 0;
+}
+.priority-list {
+  counter-reset: priority;
+  list-style: none;
+  padding: 0;
+}
+.priority-list li {
+  counter-increment: priority;
+  padding: 0.8rem 1rem;
+  margin: 0.5rem 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.priority-list li::before {
+  content: "#" counter(priority);
+  font-weight: bold;
+  color: var(--critical);
+  margin-right: 0.8rem;
+  font-family: monospace;
+}
+.arch-issue {
+  background: #1a1520;
+  border: 1px solid #442255;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0.8rem 0;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>phoenix-router v0.1.0 &mdash; Аудит кодовой базы</h1>
+<div class="meta">
+  <strong>Версия аудита:</strong> v1 &nbsp;|&nbsp;
+  <strong>Дата:</strong> 2026-04-04 &nbsp;|&nbsp;
+  <strong>Режим:</strong> Адвокат дьявола &nbsp;|&nbsp;
+  <strong>Файлов проверено:</strong> 25 &nbsp;|&nbsp;
+  <strong>Строк кода:</strong> ~5500
+</div>
+
+<!-- ============================================================ -->
+<h2 id="summary">Executive Summary</h2>
+<!-- ============================================================ -->
+
+<div class="summary-grid">
+  <div class="card critical">
+    <span class="count">8</span>
+    <span class="label">Critical</span>
+  </div>
+  <div class="card high">
+    <span class="count">10</span>
+    <span class="label">High</span>
+  </div>
+  <div class="card medium">
+    <span class="count">10</span>
+    <span class="label">Medium</span>
+  </div>
+  <div class="card low">
+    <span class="count">3</span>
+    <span class="label">Low</span>
+  </div>
+  <div class="card security">
+    <span class="count">7</span>
+    <span class="label">Security</span>
+  </div>
+</div>
+
+<p><strong>Итого: 38 находок.</strong> Из них 8 критических, блокирующих корректную работу под нагрузкой или при определённых сценариях.
+Наиболее серьёзные: блокирующий TLS handshake внутри event loop, повреждение данных через общий splice pipe, use-after-free при перезагрузке конфига, отсутствие обработки SIGPIPE.</p>
+
+<!-- ============================================================ -->
+<h2 id="toc">Содержание</h2>
+<!-- ============================================================ -->
+<div class="toc">
+<ul>
+  <li><a href="#summary">Executive Summary</a></li>
+  <li><a href="#top5">Топ-5 критичных находок</a></li>
+  <li><a href="#all-findings">Полная таблица находок</a></li>
+  <li><a href="#per-file">Секции по файлам</a>
+    <ul>
+      <li><a href="#file-main">main.c</a></li>
+      <li><a href="#file-log">log.c</a></li>
+      <li><a href="#file-rm">resource_manager.c</a></li>
+      <li><a href="#file-config">config.c</a></li>
+      <li><a href="#file-ipc">ipc.c</a></li>
+      <li><a href="#file-ntp">ntp_bootstrap.c</a></li>
+      <li><a href="#file-nft">routing/nftables.c</a></li>
+      <li><a href="#file-policy">routing/policy.c</a></li>
+      <li><a href="#file-rules">routing/rules_loader.c</a></li>
+      <li><a href="#file-tproxy">proxy/tproxy.c</a></li>
+      <li><a href="#file-dispatcher">proxy/dispatcher.c</a></li>
+      <li><a href="#file-tls">crypto/tls.c</a></li>
+      <li><a href="#file-vless">proxy/protocols/vless.c</a></li>
+      <li><a href="#file-headers">Заголовочные файлы</a></li>
+      <li><a href="#file-scripts">Скрипты и Makefile</a></li>
+    </ul>
+  </li>
+  <li><a href="#arch">Архитектурные проблемы</a></li>
+  <li><a href="#deps">Межмодульные зависимости</a></li>
+  <li><a href="#priority-list">Приоритизированный список исправлений</a></li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="top5">Топ-5 критичных находок</h2>
+<!-- ============================================================ -->
+
+<div class="finding critical">
+  <div class="finding-header">
+    <span class="badge badge-critical">CRITICAL</span>
+    <span class="finding-id">C-03</span>
+    <span class="finding-file">crypto/tls.c:190-214</span>
+  </div>
+  <p><strong>Блокирующий TLS handshake внутри event loop.</strong></p>
+  <p><code>tls_connect()</code> содержит цикл <code>select()</code> с 50 итерациями &times; 100мс = <strong>до 5 секунд блокировки</strong>.
+  Вызывается из <code>dispatcher_tick()</code> &rarr; <code>vless_protocol_connect()</code>.
+  Пока идёт TLS handshake к одному серверу, <strong>ВСЕ остальные соединения заморожены</strong>: нет accept, нет relay, нет IPC.
+  При медленном upstream или таймауте &mdash; весь прокси не работает 5 секунд.</p>
+  <div class="recommendation">Вынести TLS handshake в неблокирующий конечный автомат, интегрированный в epoll. wolfSSL поддерживает WOLFSSL_CBIO_RECV/WOLFSSL_CBIO_SEND для неблокирующего IO.</div>
+</div>
+
+<div class="finding critical">
+  <div class="finding-header">
+    <span class="badge badge-critical">CRITICAL</span>
+    <span class="finding-id">C-05</span>
+    <span class="finding-file">proxy/dispatcher.c:401-419</span>
+  </div>
+  <p><strong>Общий splice pipe &mdash; повреждение данных между соединениями.</strong></p>
+  <p>Один <code>splice_pipe[2]</code> используется всеми relay-соединениями. При splice из client_fd в pipe, если запись из pipe в upstream_fd прерывается (EAGAIN, partial write), <strong>данные остаются в pipe</strong>.
+  Следующий вызов <code>relay_transfer()</code> для <strong>другого соединения</strong> прочитает чужие данные из pipe и отправит их не тому upstream.
+  Это <strong>повреждение данных и утечка информации</strong> между соединениями клиентов.</p>
+  <div class="recommendation">Либо pipe-per-connection (дорого по fd), либо отказ от splice при наличии TLS, либо гарантированный drain pipe до конца перед возвратом.</div>
+</div>
+
+<div class="finding critical">
+  <div class="finding-header">
+    <span class="badge badge-critical">CRITICAL</span>
+    <span class="finding-id">C-06</span>
+    <span class="finding-file">main.c:362-368 + crypto/tls.c:148</span>
+  </div>
+  <p><strong>Use-after-free при перезагрузке конфига.</strong></p>
+  <p>При SIGHUP/reload: <code>config_free(&amp;cfg)</code> освобождает <code>cfg.servers</code>.
+  Но активные TLS-соединения в dispatcher хранят <code>tls_conn.config.sni = server-&gt;address</code> (shallow copy указателя в <code>tls_connect()</code>, строка 148).
+  После free, <strong>все активные TLS relay имеют dangling pointer на SNI строку</strong>.
+  wolfSSL может обратиться к освобождённой памяти при renegotiation или shutdown.</p>
+  <div class="recommendation">Копировать SNI строку через strdup() в tls_connect(), освобождать в tls_close(). Или не освобождать старый конфиг пока есть активные соединения.</div>
+</div>
+
+<div class="finding critical">
+  <div class="finding-header">
+    <span class="badge badge-critical">CRITICAL</span>
+    <span class="finding-id">C-08</span>
+    <span class="finding-file">main.c (отсутствует)</span>
+  </div>
+  <p><strong>Нет обработки SIGPIPE &mdash; демон будет убит при write() в закрытый сокет.</strong></p>
+  <p>При <code>write()</code> в сокет, чей peer уже закрылся, ядро отправляет SIGPIPE.
+  Действие по умолчанию &mdash; завершение процесса.
+  В сетевом демоне с множеством relay-соединений это <strong>неизбежный сценарий</strong>.
+  Один клиент закрыл соединение неожиданно &rarr; весь демон падает.</p>
+  <div class="recommendation">Добавить <code>signal(SIGPIPE, SIG_IGN)</code> в начало main(), до любых сетевых операций.</div>
+</div>
+
+<div class="finding critical">
+  <div class="finding-header">
+    <span class="badge badge-critical">CRITICAL</span>
+    <span class="finding-id">C-04</span>
+    <span class="finding-file">proxy/protocols/vless.c:133-158</span>
+  </div>
+  <p><strong>Блокирующий select() в vless_read_response() внутри event loop.</strong></p>
+  <p>Аналогично C-03: цикл с <code>select()</code> до 5 секунд при чтении VLESS response.
+  Вызывается из <code>dispatcher_tick()</code> &rarr; <code>vless_handshake()</code>.
+  Усугубляет C-03: <strong>суммарная блокировка до 10 секунд</strong> (5 сек TLS + 5 сек VLESS).</p>
+  <div class="recommendation">Объединить с TLS handshake в общий неблокирующий конечный автомат.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="all-findings">Полная таблица находок</h2>
+<!-- ============================================================ -->
+
+<table>
+<thead>
+<tr>
+  <th style="width:4%">ID</th>
+  <th style="width:8%">Категория</th>
+  <th style="width:18%">Файл : строка</th>
+  <th style="width:35%">Описание</th>
+  <th style="width:35%">Рекомендация</th>
+</tr>
+</thead>
+<tbody>
+<!-- CRITICAL -->
+<tr>
+  <td>C-01</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>main.c:22-32</code></td>
+  <td><code>volatile bool running/reload</code> в signal handler. Стандарт C требует <code>volatile sig_atomic_t</code>. На некоторых архитектурах запись в bool не атомарна.</td>
+  <td>Заменить <code>volatile bool</code> на <code>volatile sig_atomic_t</code> в PhoenixState (phoenix.h:84-85).</td>
+</tr>
+<tr>
+  <td>C-02</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>main.c:119-121</code></td>
+  <td><code>daemonize()</code>: три <code>open("/dev/null")</code> без проверки возвращаемого значения. Если первый open() не получит fd=0, последующие получат неверные fd. fprintf(stderr) будет писать в неизвестный fd.</td>
+  <td>Проверять возвращаемые значения open(). Использовать dup2() для явного назначения fd 0/1/2.</td>
+</tr>
+<tr>
+  <td>C-03</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>crypto/tls.c:190-214</code></td>
+  <td>Блокирующий select() цикл (до 5 сек) в tls_connect(), вызываемый из event loop. Замораживает ВСЕ соединения.</td>
+  <td>Неблокирующий TLS handshake через конечный автомат в epoll.</td>
+</tr>
+<tr>
+  <td>C-04</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>vless.c:133-158</code></td>
+  <td>Блокирующий select() цикл (до 5 сек) в vless_read_response(), вызываемый из event loop. Суммарно с C-03: до 10 сек блокировки.</td>
+  <td>Интегрировать в неблокирующий конечный автомат.</td>
+</tr>
+<tr>
+  <td>C-05</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>dispatcher.c:401-419</code></td>
+  <td>Единый splice_pipe[2] для всех relay. Partial write оставляет данные в pipe, которые попадают в чужое соединение &mdash; повреждение данных.</td>
+  <td>Pipe per connection или отказ от splice с TLS, или обязательный drain.</td>
+</tr>
+<tr>
+  <td>C-06</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>main.c:362-368</code></td>
+  <td>Use-after-free: config reload освобождает servers[], но активные TLS хранят указатель на server-&gt;address как SNI.</td>
+  <td>strdup() для SNI в tls_connect(), или отложенный free старого конфига.</td>
+</tr>
+<tr>
+  <td>C-07</td>
+  <td><span class="badge badge-critical">CRITICAL</span></td>
+  <td><code>main.c:232-236</code></td>
+  <td>tls_global_init() вызван на строке 217, но при раннем выходе (ошибка конфига, строка 234, или disabled, строка 248) tls_global_cleanup() не вызывается. Утечка ресурсов wolfSSL.</td>
+  <td>Добавить tls_global_cleanup() во все ранние exit-пути после строки 217.</td>
+</tr>
+<tr>
+  <td>C-08</td>
+  <td><span class="badge badge-critical">ИСПРАВЛЕНА</span></td>
+  <td><code>main.c:333</code></td>
+  <td>SIGPIPE не обрабатывается. write() в закрытый сокет убьёт весь процесс. Для сетевого демона с relay &mdash; неизбежный сценарий.</td>
+  <td>signal(SIGPIPE, SIG_IGN) добавлен в main.c после sigaction блока.</td>
+</tr>
+<!-- HIGH -->
+<tr>
+  <td>H-01</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>main.c:377</code></td>
+  <td><code>usleep(10000)</code> в главном цикле: 10мс latency floor для всех операций, лишние пробуждения в idle. Poll-sleep вместо event-driven.</td>
+  <td>Заменить на блокирующий epoll_wait с таймаутом 10мс. Или объединить оба epoll в один.</td>
+</tr>
+<tr>
+  <td>H-02</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>ipc.c:76-87</code></td>
+  <td>client_fd из accept() &mdash; блокирующий. read() заголовка IPC может зависнуть навечно если клиент подключился но не отправляет данные. Блокирует главный цикл.</td>
+  <td>Установить O_NONBLOCK на client_fd после accept, или добавить SO_RCVTIMEO.</td>
+</tr>
+<tr>
+  <td>H-03</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>config.c:102</code></td>
+  <td><code>atoi(value)</code> для порта: нет валидации диапазона, нет проверки ошибок. Порт 99999 или "abc" молча приведут к мусорному значению.</td>
+  <td>Использовать strtoul() с проверкой errno и диапазона 1-65535.</td>
+</tr>
+<tr>
+  <td>H-04</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>crypto/tls.c:153</code></td>
+  <td>WOLFSSL_CTX создаётся на каждое соединение. CTX аллоцирует память, парсит cipher lists, инициализирует RNG. При высоком connection rate &mdash; значительный overhead.</td>
+  <td>Создать один WOLFSSL_CTX при запуске, переиспользовать для всех соединений с одним fingerprint.</td>
+</tr>
+<tr>
+  <td>H-05</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>dispatcher.c:174-195</code></td>
+  <td>relay_alloc() &mdash; O(n) линейный поиск свободного слота. FULL профиль: до 16384 итераций на каждое новое соединение.</td>
+  <td>Свободный список (freelist) или стек свободных индексов для O(1) аллокации.</td>
+</tr>
+<tr>
+  <td>H-06</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>rules_loader.c:122-138</code></td>
+  <td>Загрузка proxy set по одной записи: каждый CIDR вызывает <code>nft_set_add_addr()</code> &rarr; <code>popen("nft...")</code>. Для 1000 записей = 1000 fork+exec.</td>
+  <td>Batch загрузка через nft -f файл, как уже сделано для verdict maps.</td>
+</tr>
+<tr>
+  <td>H-07</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>core/Makefile:35-41</code></td>
+  <td>OpenWrt package Makefile компилирует только main.c и config.c, игнорируя 10 других .c файлов. Сборка через opkg гарантированно сломана.</td>
+  <td>Обновить Build/Compile чтобы включить все SOURCES из Makefile.dev.</td>
+</tr>
+<tr>
+  <td>H-08</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>ntp_bootstrap.c:27-34</code></td>
+  <td>Захардкоженные IP: 77.88.8.8, 213.180.193.3, 93.184.216.34. Если все станут недоступны (смена IP, блокировка), NTP bootstrap молча провалится и TLS не заработает.</td>
+  <td>Добавить возможность конфигурирования bootstrap хостов. Увеличить список. Добавить fallback на NTP порт 123.</td>
+</tr>
+<tr>
+  <td>H-09</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>proto_common.h:1-55</code></td>
+  <td>Весь файл &mdash; мёртвый код. Определяет ProtocolType, TlsConfig, ProxyServer, ProtocolHandler, но ни один из них не используется. dispatcher.h определяет свой proxy_protocol_t.</td>
+  <td>Удалить файл полностью.</td>
+</tr>
+<tr>
+  <td>H-10</td>
+  <td><span class="badge badge-high">HIGH</span></td>
+  <td><code>main.c:350-378</code></td>
+  <td>Два отдельных epoll: tproxy_state.epoll_fd и dispatcher_state.epoll_fd. Оба поллятся с timeout=0, затем usleep. Двойной syscall overhead, лишняя задержка.</td>
+  <td>Объединить в один epoll fd, использовать блокирующий epoll_wait.</td>
+</tr>
+<!-- MEDIUM -->
+<tr>
+  <td>M-01</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>tproxy.c:75 / dispatcher.c:58 / vless.c:194</code></td>
+  <td>format_addr() / fmt_addr() / vless_fmt_addr() &mdash; три идентичных копии форматирования sockaddr_storage в строку.</td>
+  <td>Вынести в общую утилиту (например, в phoenix.h или отдельный utils.c).</td>
+</tr>
+<tr>
+  <td>M-02</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>nftables.c / policy.c</code></td>
+  <td>Паттерн popen+fgets+pclose+error-check дублируется 5+ раз (~30 строк каждый): nft_exec, nft_exec_atomic, nft_exec_file, policy_exec, policy_exec_quiet.</td>
+  <td>Общая функция exec_cmd_capture(cmd, err_buf, err_size) &rarr; int.</td>
+</tr>
+<tr>
+  <td>M-03</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>dispatcher.c:744-754</code></td>
+  <td>Проверка таймаутов сканирует ВСЕ conns_max слотов (до 16384). Каждые 100 тиков = каждую секунду.</td>
+  <td>Добавить linked list активных соединений, или min-heap по created_at.</td>
+</tr>
+<tr>
+  <td>M-04</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>ntp_bootstrap.c:15</code></td>
+  <td><code>#define _XOPEN_SOURCE</code> определён ПОСЛЕ <code>#include "phoenix.h"</code>, который включает <code>&lt;time.h&gt;</code>. Feature test macros должны быть ДО системных headers. strptime() может быть не объявлен.</td>
+  <td>Переместить #define _XOPEN_SOURCE в самое начало файла, до всех #include.</td>
+</tr>
+<tr>
+  <td>M-05</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>rules_loader.c:47-51</code></td>
+  <td><code>popen("mkdir -p ...")</code> для создания директории. Fork+exec shell ради mkdir &mdash; лишние syscalls.</td>
+  <td>Использовать mkdir() с ручной рекурсией или вызвать mkdir(path, 0755) напрямую.</td>
+</tr>
+<tr>
+  <td>M-06</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>crypto/tls.c:26</code></td>
+  <td>Статический <code>tls_err_buf[256]</code> перезаписывается при каждой ошибке. Не потокобезопасен, теряет контекст предыдущей ошибки.</td>
+  <td>Перенести в tls_conn_t, или использовать thread-local storage.</td>
+</tr>
+<tr>
+  <td>M-07</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>dispatcher.c:757</code></td>
+  <td>Health-check интервал = tick_count % 3000. Привязан к частоте вызова tick(), которая зависит от usleep и блокирующих вызовов. Под нагрузкой или при блокирующем TLS интервал плывёт.</td>
+  <td>Использовать time() для абсолютных временных меток вместо счётчика тиков.</td>
+</tr>
+<tr>
+  <td>M-08</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>nftables.c:24</code></td>
+  <td><code>NFT_ATOMIC_MAX = 8192</code>. Конфиг nft_init() с 6 наборами + 3 цепочками + правилами = ~2KB. Но apply_mode() с tproxy правилами может приблизиться к лимиту при кастомизации.</td>
+  <td>Добавить проверку snprintf возвращаемого значения (уже есть) и увеличить буфер или перейти на динамическую аллокацию.</td>
+</tr>
+<tr>
+  <td>M-09</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>dispatcher.c</code></td>
+  <td>Нет таймаута бездействия (idle timeout). RELAY_TIMEOUT_SEC=60 считается от created_at. Соединение может не передавать данных вечно, не будучи закрытым, если оба конца молчат но не отключаются.</td>
+  <td>Добавить last_activity timestamp, обновлять при каждом transfer, проверять idle &gt; 60 сек.</td>
+</tr>
+<tr>
+  <td>M-10</td>
+  <td><span class="badge badge-medium">MEDIUM</span></td>
+  <td><code>ipc.c:188-194</code></td>
+  <td><code>if (resp.length &gt; 0 &amp;&amp; resp.length &lt; buf_size)</code> &mdash; при <code>resp.length == buf_size</code>, ответ молча отбрасывается (buf[0]='\0'). Нет сообщения об ошибке.</td>
+  <td>Читать min(resp.length, buf_size-1) байт, или логировать truncation.</td>
+</tr>
+<!-- LOW -->
+<tr>
+  <td>L-01</td>
+  <td><span class="badge badge-low">LOW</span></td>
+  <td><code>config.c, dispatcher.c, nftables.c</code></td>
+  <td>Функции &gt;100 строк: config_load (122), dispatcher_tick (130), nft_vmap_load_file (125), nft_init (100). Сложно читать и поддерживать.</td>
+  <td>Разбить на подфункции по логическим блокам.</td>
+</tr>
+<tr>
+  <td>L-02</td>
+  <td><span class="badge badge-low">LOW</span></td>
+  <td><code>ntp_bootstrap.c:1-10</code></td>
+  <td>Заголовочный комментарий говорит &laquo;HEAD запрос&raquo;, но код (строка 41) определяет <code>HTTP_REQ_FMT = "HEAD / HTTP/1.0\r\n..."</code> и читает тело ответа до 1024 байт. Мелкое несоответствие.</td>
+  <td>Уточнить: HEAD запрос, но чтение headers для извлечения Date:.</td>
+</tr>
+<tr>
+  <td>L-03</td>
+  <td><span class="badge badge-low">LOW</span></td>
+  <td><code>main.c:62-80</code></td>
+  <td><code>check_pid_file()</code> возвращает <code>int</code>, но PID &mdash; это <code>pid_t</code>. На платформах где pid_t &gt; int возможна потеря данных. На Linux/musl &mdash; оба int, не проблема.</td>
+  <td>Использовать pid_t как тип возвращаемого значения.</td>
+</tr>
+<!-- SECURITY -->
+<tr>
+  <td>S-01</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>nftables.c:309-315</code></td>
+  <td>CIDR строки из файлов правил передаются в popen() через shell (<code>nft_set_add_addr &rarr; nft_exec &rarr; popen("nft ... { %s }")</code>). Если CIDR файл содержит shell-метасимволы, возможна <strong>command injection</strong> с правами root.</td>
+  <td>Валидация CIDR перед подстановкой: допустимы только [0-9a-fA-F.:\/]. Или переход на nft -f для всех операций.</td>
+</tr>
+<tr>
+  <td>S-02</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>nftables.c:834</code></td>
+  <td>В nft_vmap_load_file() CIDR из пользовательского файла записывается в nft конфиг как <code>fprintf(batch, "    %s : %s,\n", line, verdict)</code>. Если line содержит nft-синтаксис (<code>}\nadd table...</code>), возможен nft injection.</td>
+  <td>Валидация формата CIDR: regex <code>^[0-9a-fA-F.:\/]+$</code> перед записью.</td>
+</tr>
+<tr>
+  <td>S-03</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>crypto/tls.c:163-164</code></td>
+  <td><code>WOLFSSL_VERIFY_NONE</code> &mdash; верификация сертификата полностью отключена. Комментарий только &laquo;для Reality&raquo;, но применяется ко всем TLS соединениям. MITM атака возможна.</td>
+  <td>Для Reality: использовать verify_none с пояснением и альтернативной проверкой (server public key). Для обычных TLS: включить verify.</td>
+</tr>
+<tr>
+  <td>S-04</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>vless.c:223</code></td>
+  <td>UUID пользователя логируется: <code>"VLESS: невалидный UUID: %.16s..."</code> &mdash; первые 16 символов UUID попадают в лог. UUID является аутентификационным секретом.</td>
+  <td>Не логировать UUID вообще, или логировать только первые 4 символа.</td>
+</tr>
+<tr>
+  <td>S-05</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>vless.c:227-228</code></td>
+  <td>В vless_handshake: <code>uuid_prefix</code> (первые 8 символов UUID) логируется в debug. Частичный UUID в логах.</td>
+  <td>Логировать только хеш UUID или маскированную версию (****-****-...).</td>
+</tr>
+<tr>
+  <td>S-06</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>ipc.c:56</code></td>
+  <td>Unix socket <code>chmod 0660</code>: любой пользователь в группе root может отправить IPC_CMD_STOP и убить демон. На OpenWrt &mdash; все процессы от root, поэтому низкий риск.</td>
+  <td>Использовать 0600 или проверять peer credentials через SO_PEERCRED.</td>
+</tr>
+<tr>
+  <td>S-07</td>
+  <td><span class="badge badge-security">SECURITY</span></td>
+  <td><code>deploy.sh:53, Makefile.dev:15</code></td>
+  <td><code>StrictHostKeyChecking=no</code> и <code>UserKnownHostsFile=/dev/null</code> &mdash; SSH host key verification отключена. MITM при деплое возможен. Инструменты разработки, но плохая привычка.</td>
+  <td>Зафиксировать host key после первого подключения. Или хотя бы задокументировать риск.</td>
+</tr>
+</tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="per-file">Секции по файлам</h2>
+<!-- ============================================================ -->
+
+<!-- main.c -->
+<div class="file-section" id="file-main">
+<h3>core/src/main.c <span style="color:var(--text-dim)">(398 строк)</span></h3>
+<p><strong>Роль:</strong> Точка входа, главный цикл, инициализация/cleanup всех подсистем, daemonize, сигналы.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-critical">C-01</span> volatile bool вместо sig_atomic_t (строки 84-85 в phoenix.h, использование в строках 31,38)</li>
+  <li><span class="badge badge-critical">C-02</span> daemonize() &mdash; open() без проверки (строки 119-121)</li>
+  <li><span class="badge badge-critical">C-06</span> use-after-free при config reload (строки 362-368)</li>
+  <li><span class="badge badge-critical">C-07</span> tls_global_cleanup не вызывается при раннем exit (строки 232-249)</li>
+  <li><span class="badge badge-critical">C-08</span> Нет SIGPIPE handling</li>
+  <li><span class="badge badge-high">H-01</span> usleep(10000) poll-sleep (строка 377)</li>
+  <li><span class="badge badge-high">H-10</span> Два отдельных epoll (строки 352-353)</li>
+</ul>
+<p><strong>Init/Cleanup порядок:</strong> В целом корректный (cleanup в обратном порядке). Исключение: ранние exit-пути (строки 234, 248) пропускают tls_global_cleanup(). Сигнальные обработчики устанавливаются после инициализации всех подсистем, но до <code>state.running = true</code> (строка 343) &mdash; безопасно.</p>
+</div>
+
+<!-- log.c -->
+<div class="file-section" id="file-log">
+<h3>core/src/log.c <span style="color:var(--text-dim)">(101 строка)</span></h3>
+<p><strong>Роль:</strong> Логирование в stderr + файл с ротацией по размеру.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li>Строка 65: <code>level &lt;= LOG_ERROR</code> не проверяет <code>level &gt;= 0</code>. Отрицательное значение enum &rarr; out-of-bounds в level_names[]. Практически невозможно при текущем API, но формально UB.</li>
+  <li>log_check_size() вызывается при каждой записи. fstat() syscall на каждое сообщение &mdash; минимальный overhead, но можно оптимизировать счётчиком.</li>
+  <li>log_init() при повторном вызове (строки 240-241 в main.c) не закрывает предыдущий файл &mdash; но main.c вызывает log_close() перед повторным init. OK.</li>
+  <li>Лимит 512KB (PHOENIX_LOG_MAX_BYTES) корректно соблюдается через ftruncate. Защита tmpfs работает.</li>
+</ul>
+<p style="color:var(--green)"><strong>Вердикт:</strong> Чистый модуль. Минимальные замечания.</p>
+</div>
+
+<!-- resource_manager.c -->
+<div class="file-section" id="file-rm">
+<h3>core/src/resource_manager.c <span style="color:var(--text-dim)">(92 строки)</span></h3>
+<p><strong>Роль:</strong> Определение профиля устройства по RAM, OOM настройки.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li>Строка 24: <code>strtoul(p, NULL, 10)</code> &mdash; нет проверки ошибок. Если MemTotal содержит нечитаемое значение, mem_kb=0 &rarr; профиль MICRO. Безопасный fallback.</li>
+  <li>Строка 88: <code>fprintf(f, "500\n")</code> &mdash; return value fprintf не проверяется. Минимальный риск.</li>
+</ul>
+<p style="color:var(--green)"><strong>Вердикт:</strong> Чистый модуль. Без серьёзных проблем.</p>
+</div>
+
+<!-- config.c -->
+<div class="file-section" id="file-config">
+<h3>core/src/config.c <span style="color:var(--text-dim)">(264 строки)</span></h3>
+<p><strong>Роль:</strong> Парсинг UCI-подобного конфига.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-high">H-03</span> Строка 102: atoi() для порта без валидации</li>
+  <li>Строка 125-126: strcpy() для default значений &mdash; безопасно (длины проверены), но стилистически лучше strncpy.</li>
+  <li>Строка 129: <code>ServerConfig servers[MAX_SERVERS]</code> &mdash; 64 * sizeof(ServerConfig) на стеке. ServerConfig ~580 байт. 64 * 580 = ~37KB на стеке. На MICRO устройстве стек обычно 8KB по умолчанию &mdash; <strong>stack overflow!</strong></li>
+</ul>
+<p><strong>Дополнительно:</strong> Строка 129 &mdash; это потенциальный CRITICAL. 37KB на стеке при default stack size 8KB на embedded &mdash; гарантированный segfault. Но на Linux x86_64 стек по умолчанию 8MB, на OpenWrt musl &mdash; обычно 128KB (CONFIG_STACK_SIZE). 37KB &lt; 128KB, но опасно близко.</p>
+</div>
+
+<!-- ipc.c -->
+<div class="file-section" id="file-ipc">
+<h3>core/src/ipc.c <span style="color:var(--text-dim)">(199 строк)</span></h3>
+<p><strong>Роль:</strong> IPC через Unix socket для управления демоном.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-high">H-02</span> Строка 76: client_fd не установлен в non-blocking &mdash; read() может зависнуть</li>
+  <li><span class="badge badge-security">S-06</span> Строка 56: chmod 0660</li>
+  <li><span class="badge badge-medium">M-10</span> Строка 188: edge case resp.length == buf_size</li>
+  <li>Строки 27-30: ipc_respond() &mdash; два write() без retry при partial write. Для маленьких ответов (&lt;512 байт) partial write маловероятен, но не невозможен.</li>
+  <li>Строка 23: <code>(uint16_t)strlen(json)</code> &mdash; если json &gt; 65535 байт, truncation. Текущие ответы &lt;512 байт, но формально небезопасно.</li>
+</ul>
+</div>
+
+<!-- ntp_bootstrap.c -->
+<div class="file-section" id="file-ntp">
+<h3>core/src/ntp_bootstrap.c <span style="color:var(--text-dim)">(199 строк)</span></h3>
+<p><strong>Роль:</strong> Установка времени через HTTP Date: заголовок при холодном старте.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-high">H-08</span> Захардкоженные IP-адреса bootstrap хостов (строки 27-34)</li>
+  <li><span class="badge badge-medium">M-04</span> _XOPEN_SOURCE после includes (строка 15)</li>
+  <li>Строка 100: connect() блокирующий с SO_RCVTIMEO=3 сек. До 3 хостов &times; 3 сек = 9 секунд блокировки при старте. Допустимо при инициализации.</li>
+  <li>Строка 110: <code>send(fd, req, req_len, 0) != req_len</code> &mdash; partial send не обрабатывается. На blocking socket с маленьким запросом (~50 байт) это безопасно.</li>
+  <li>Строка 135-137: Поиск "Date: " case-insensitive только для двух вариантов. "DATE: " или "dAtE: " не найдутся. RFC допускает любой регистр.</li>
+</ul>
+<p><strong>Безопасность:</strong> settimeofday() требует CAP_SYS_TIME. На OpenWrt демон работает от root &mdash; OK. Но время от HTTP не аутентифицировано: MITM может подставить неверное время, вызвав принятие просроченных TLS сертификатов.</p>
+</div>
+
+<!-- nftables.c -->
+<div class="file-section" id="file-nft">
+<h3>core/src/routing/nftables.c <span style="color:var(--text-dim)">(999 строк)</span></h3>
+<p><strong>Роль:</strong> Управление nftables через subprocess nft. Таблицы, цепочки, наборы, verdict maps.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-security">S-01</span> Command injection через popen в nft_exec (строки 37-44)</li>
+  <li><span class="badge badge-security">S-02</span> nft injection через fprintf в nft_vmap_load_file (строка 834)</li>
+  <li><span class="badge badge-medium">M-02</span> Дублирование error-reading паттерна (3 раза)</li>
+  <li><span class="badge badge-medium">M-08</span> NFT_ATOMIC_MAX=8192 может быть мал</li>
+  <li>Строка 167: <code>strstr(line, expected)</code> для проверки существования таблицы. "table inet phoenix" может матчить "table inet phoenix_backup" если expected не содержит \n. Потенциальный ложный positive.</li>
+  <li>Строки 200-269: nft_init() &mdash; один гигантский snprintf. Если буфер переполнится &mdash; truncation проверяется (строка 271). OK.</li>
+  <li>Строки 200-236: nft_init() создаёт обычные sets (bypass_addrs, proxy_addrs, block_addrs), а nft_vmap_create() создаёт verdict maps (bypass_map, block_map). <strong>Двойная структура</strong> &mdash; и sets, и maps для одних и тех же данных. Rules_loader использует и то, и другое. Потенциальное рассогласование.</li>
+</ul>
+</div>
+
+<!-- policy.c -->
+<div class="file-section" id="file-policy">
+<h3>core/src/routing/policy.c <span style="color:var(--text-dim)">(368 строк)</span></h3>
+<p><strong>Роль:</strong> ip rule / ip route через subprocess.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-medium">M-02</span> Дублирование popen паттерна</li>
+  <li><span class="badge badge-security">S-07</span> (частично) popen с формируемыми командами &mdash; dev parameter в policy_init_tun</li>
+  <li>Строки 93-117: policy_rule_exists() и policy_route_exists() &mdash; каждый вызов = popen + чтение всех правил + strstr. При 6 проверках в init = 6 fork+exec.</li>
+  <li>policy_dump() делает 3 popen вызова в debug режиме. Не проблема, но лишние fork.</li>
+  <li>policy_exec_quiet() игнорирует все ошибки &mdash; по дизайну (cleanup), OK.</li>
+</ul>
+</div>
+
+<!-- rules_loader.c -->
+<div class="file-section" id="file-rules">
+<h3>core/src/routing/rules_loader.c <span style="color:var(--text-dim)">(304 строки)</span></h3>
+<p><strong>Роль:</strong> Загрузка CIDR списков из файлов в nftables.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-high">H-06</span> Per-line nft_set_add_addr для proxy type (строки 122-138)</li>
+  <li><span class="badge badge-medium">M-05</span> popen("mkdir -p") (строки 47-51)</li>
+  <li>Строка 85: magic number 16 (max sources). Определено в rules_loader.h как размер массива [16], но нет #define.</li>
+  <li>rules_check_update() при перезагрузке proxy set: flush + per-line add (строки 179-198). Во время flush+reload существует окно, когда set пуст &mdash; весь proxy трафик идёт напрямую.</li>
+</ul>
+</div>
+
+<!-- tproxy.c -->
+<div class="file-section" id="file-tproxy">
+<h3>core/src/proxy/tproxy.c <span style="color:var(--text-dim)">(496 строк)</span></h3>
+<p><strong>Роль:</strong> TPROXY сервер (TCP+UDP, IPv4+IPv6), epoll edge-triggered.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-medium">M-01</span> format_addr() дублирование</li>
+  <li>Строка 69: <code>TPROXY_UDP_BUF = 65536</code> &mdash; 64KB буфер на стеке в tproxy_recv_udp(). Вызывается из main loop. На OpenWrt со стеком 128KB &mdash; половина стека занята одной функцией.</li>
+  <li>Строка 304: <code>dispatcher_handle_conn(&amp;conn)</code> вызывается с указателем на локальную переменную. dispatcher_handle_conn() копирует данные из conn (fd, dst), не хранит указатель. OK.</li>
+  <li>Edge-triggered epoll правильно обрабатывается циклами до EAGAIN. Корректно.</li>
+</ul>
+<p style="color:var(--green)"><strong>Вердикт:</strong> Хорошо написанный модуль. Основное замечание &mdash; 64KB на стеке для UDP буфера.</p>
+</div>
+
+<!-- dispatcher.c -->
+<div class="file-section" id="file-dispatcher">
+<h3>core/src/proxy/dispatcher.c <span style="color:var(--text-dim)">(816 строк)</span></h3>
+<p><strong>Роль:</strong> Relay-диспетчер: accept от tproxy, connect к upstream, двунаправленный relay, health-check, half-close.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-critical">C-05</span> Общий splice_pipe &mdash; data corruption (строки 401-419)</li>
+  <li><span class="badge badge-high">H-05</span> O(n) relay_alloc (строки 174-195)</li>
+  <li><span class="badge badge-medium">M-01</span> fmt_addr() дублирование</li>
+  <li><span class="badge badge-medium">M-03</span> O(n) timeout scan (строки 744-754)</li>
+  <li><span class="badge badge-medium">M-07</span> Health-check интервал drift</li>
+  <li><span class="badge badge-medium">M-09</span> Нет idle timeout</li>
+  <li>Строки 41-52: глобальные g_dispatcher/g_config &mdash; не проблема в однопоточном коде, но ограничивает расширяемость.</li>
+  <li>Строка 488: <code>calloc(conns_max, sizeof(relay_conn_t))</code>. FULL: 16384 &times; ~320 байт = <strong>~5.2MB</strong>. На 128MB+ устройстве ~4% RAM &mdash; терпимо. Но relay_buf ещё 64KB. Суммарно ~5.3MB.</li>
+  <li>Строки 693-707: relay_transfer возвращаемое значение &mdash; при transferred==0 вызывается half_close. Но если tls_recv возвращает -1 с errno==EAGAIN, код проверяет errno. Однако tls_recv при WANT_READ устанавливает errno=EAGAIN и возвращает -1, что корректно обрабатывается. OK.</li>
+</ul>
+</div>
+
+<!-- tls.c -->
+<div class="file-section" id="file-tls">
+<h3>core/src/crypto/tls.c <span style="color:var(--text-dim)">(313 строк)</span></h3>
+<p><strong>Роль:</strong> wolfSSL обёртка с uTLS fingerprint (Chrome/Firefox/iOS).</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-critical">C-03</span> Блокирующий TLS handshake (строки 190-214)</li>
+  <li><span class="badge badge-high">H-04</span> WOLFSSL_CTX per connection (строка 153)</li>
+  <li><span class="badge badge-security">S-03</span> VERIFY_NONE без альтернативы (строки 163-164)</li>
+  <li><span class="badge badge-medium">M-06</span> Статический tls_err_buf (строка 26)</li>
+  <li>Строка 132: <code>wolfSSL_UseALPN(ssl, (char *)alpn_protocols, strlen(alpn_protocols), ...)</code> &mdash; alpn_protocols &mdash; статическая строка, cast const away безопасен (wolfSSL не модифицирует). Но const correctness нарушена.</li>
+  <li>Строки 245-258: tls_send() при len &gt; INT_MAX &mdash; cast <code>(int)len</code> truncation. Маловероятно (буферы &lt;64KB), но формально.</li>
+  <li>Строка 291: tls_close() вызывает wolfSSL_shutdown() который может потребовать чтение/запись. На неблокирующем fd может вернуть WANT_READ. Не обрабатывается &mdash; shutdown неполный.</li>
+</ul>
+</div>
+
+<!-- vless.c -->
+<div class="file-section" id="file-vless">
+<h3>core/src/proxy/protocols/vless.c <span style="color:var(--text-dim)">(263 строки)</span></h3>
+<p><strong>Роль:</strong> VLESS протокол: UUID парсинг, request header, response, handshake.</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-critical">C-04</span> Блокирующий select() в vless_read_response (строки 133-158)</li>
+  <li><span class="badge badge-security">S-04</span> UUID в логах ошибок (строка 223)</li>
+  <li><span class="badge badge-security">S-05</span> UUID prefix в debug логах (строки 227-228)</li>
+  <li><span class="badge badge-medium">M-01</span> vless_fmt_addr() дублирование (строки 194-210)</li>
+  <li>Строка 174: <code>uint8_t addons[256]</code> на стеке для чтения аддонов. addons_len &mdash; uint8_t, max 255. Вмещается. OK.</li>
+  <li>Строка 248: <code>sent != header_len</code> &mdash; tls_send может вернуть меньше при EAGAIN (возвращает -1 с errno=EAGAIN). Но если вернёт partial write, проверка сработает и handshake провалится. Partial TLS write &mdash; неверная обработка.</li>
+</ul>
+</div>
+
+<!-- Headers -->
+<div class="file-section" id="file-headers">
+<h3>Заголовочные файлы <span style="color:var(--text-dim)">(13 файлов)</span></h3>
+<p><strong>Проверены:</strong> phoenix.h, config.h, ipc.h, resource_manager.h, nftables.h, policy.h, rules_loader.h, tproxy.h, dispatcher.h, tls.h, vless.h, ntp_bootstrap.h, proto_common.h</p>
+<p><strong>Находки:</strong></p>
+<ul>
+  <li><span class="badge badge-critical">C-01</span> phoenix.h:84-85: <code>volatile bool running/reload</code> вместо <code>volatile sig_atomic_t</code></li>
+  <li><span class="badge badge-high">H-09</span> proto_common.h: весь файл &mdash; мёртвый код</li>
+  <li>phoenix.h:67: <code>__attribute__((packed))</code> на ipc_header_t &mdash; на LE платформах OK, но packed struct может вызвать unaligned access penalty на ARM. Размер структуры 8 байт, natural alignment и так не нарушен.</li>
+  <li>dispatcher.h:72: <code>health[8]</code> &mdash; magic number 8 без #define. Если cfg-&gt;server_count &gt; 8, серверы 8+ не получат health-check.</li>
+  <li>tproxy.h:13-14: <code>TPROXY_MAX_CONNS=4096</code> и <code>TPROXY_BUF_SIZE=65536</code> объявлены но не используются (dispatcher.c использует свои значения из профиля).</li>
+  <li>Circular includes: нет. Все headers защищены include guards. Зависимости линейны.</li>
+  <li>nftables.h: все NFT_SET_*, NFT_VMAP_*, NFT_MARK_*, NFT_PRIO_* &mdash; хорошо организованы.</li>
+</ul>
+</div>
+
+<!-- Scripts -->
+<div class="file-section" id="file-scripts">
+<h3>Скрипты и Makefile <span style="color:var(--text-dim)">(4 файла)</span></h3>
+
+<h4>scripts/dev-setup.sh (287 строк)</h4>
+<ul>
+  <li><code>set -euo pipefail</code> &mdash; строгий режим. Хорошо.</li>
+  <li>Строка 202: <code>sudo make install</code> &mdash; требует sudo без проверки доступности. Если sudo недоступен, скрипт падает.</li>
+  <li>Строка 22: <code>WOLFSSL_BUILD_DIR="/tmp/wolfssl-build-$$"</code> &mdash; PID в имени предотвращает конфликты. OK.</li>
+  <li>Строка 196: <code>--silent &gt;/dev/null 2&gt;&amp;1</code> &mdash; вывод configure скрыт. При ошибке &mdash; тишина. Нужен fallback с выводом ошибки.</li>
+</ul>
+
+<h4>scripts/build.sh (143 строки)</h4>
+<ul>
+  <li>Строка 21: <code>SDK_MIPSEL</code> путь отличается от dev-setup.sh (<code>mipsel-mt7621</code> vs <code>mipsel</code>). Несогласованность путей.</li>
+  <li>Строка 71: <code>if [ $? -eq 0 ]</code> после make | tee &mdash; <code>$?</code> содержит exit code tee, не make (в bash без pipefail). Но скрипт использует <code>set -e</code>, и в /bin/sh pipefail может не работать.</li>
+</ul>
+
+<h4>scripts/deploy.sh (180 строк)</h4>
+<ul>
+  <li><span class="badge badge-security">S-07</span> StrictHostKeyChecking=no (строка 53)</li>
+  <li>Строка 44: Защита от деплоя на 192.168.1.1 &mdash; отлично.</li>
+  <li>Строка 82: do_build() всегда собирает mipsel, даже если deploy.conf указывает aarch64. Захардкожено.</li>
+</ul>
+
+<h4>core/Makefile.dev (35 строк)</h4>
+<ul>
+  <li>Строка 19: <code>$(TARGET): $(SOURCES) include/*.h</code> &mdash; зависимость от include/*.h не рекурсивна. routing/*.h и proxy/*.h не отслеживаются.</li>
+  <li>Нет -Werror &mdash; предупреждения не блокируют сборку.</li>
+</ul>
+
+<h4>core/Makefile (OpenWrt, 51 строка)</h4>
+<ul>
+  <li><span class="badge badge-high">H-07</span> Build/Compile компилирует только main.c + config.c</li>
+  <li>Строка 17: <code>DEPENDS:=+libwolfssl +libnftables +libuci +libpthread</code> &mdash; проект использует static wolfSSL и нет libuci/libpthread. Зависимости не соответствуют реальности.</li>
+  <li>Строка 18: <code>PKGARCH:=all</code> &mdash; должно быть без PKGARCH (архитектуро-зависимый бинарник).</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="arch">Архитектурные проблемы</h2>
+<!-- ============================================================ -->
+
+<div class="arch-issue">
+<h3>ARCH-01: Блокирующие вызовы в event loop</h3>
+<p><strong>Серьёзность: CRITICAL</strong></p>
+<p>Главная архитектурная проблема проекта. Event loop (main.c:350-378) должен быть полностью неблокирующим, но содержит:</p>
+<ul>
+  <li><code>tls_connect()</code> &mdash; select() до 5 сек (crypto/tls.c:190-214)</li>
+  <li><code>vless_read_response()</code> &mdash; select() до 5 сек (vless.c:133-158)</li>
+  <li><code>ipc_process() &rarr; read()</code> &mdash; блокирующий read на client_fd (ipc.c:82)</li>
+  <li><code>ntp_bootstrap()</code> &mdash; до 9 сек при старте (допустимо, одноразово)</li>
+</ul>
+<p>При множественных соединениях к медленным upstream, демон фактически последовательно подключается к каждому, замораживая всю обработку. <strong>Один медленный сервер убивает весь прокси.</strong></p>
+<pre>
+Хронология при 3 соединениях к медленному upstream:
+  [0s]     conn1: tls_connect() начат
+  [0-5s]   ВСЁ заморожено (tproxy, relay, IPC)
+  [5s]     conn1: vless_handshake() начат
+  [5-10s]  ВСЁ заморожено
+  [10s]    conn2: tls_connect() начат
+  [10-15s] ВСЁ заморожено
+  ...итого 30 секунд недоступности
+</pre>
+</div>
+
+<div class="arch-issue">
+<h3>ARCH-02: Poll-sleep вместо event-driven</h3>
+<p><strong>Серьёзность: HIGH</strong></p>
+<p>Два epoll (tproxy + dispatcher) поллятся с timeout=0, затем <code>usleep(10000)</code>. Это добавляет:</p>
+<ul>
+  <li>10мс latency floor для каждого события</li>
+  <li>100 пробуждений/сек в idle (лишний CPU на роутере)</li>
+  <li>2 лишних syscall (epoll_wait) на каждую итерацию</li>
+</ul>
+<p>Правильный дизайн: один epoll_wait с timeout=10мс (или -1), включающий все fd из обоих модулей + IPC fd.</p>
+</div>
+
+<div class="arch-issue">
+<h3>ARCH-03: Общий splice pipe</h3>
+<p><strong>Серьёзность: CRITICAL</strong></p>
+<p>Один pipe[2] для splice() разделяется между всеми relay соединениями (dispatcher.c:59). При partial splice данные из pipe могут попасть в чужое соединение. Это:</p>
+<ul>
+  <li>Повреждение данных</li>
+  <li>Утечка данных между клиентами (privacy violation)</li>
+  <li>Непредсказуемое поведение при высокой нагрузке</li>
+</ul>
+<p>Спасает то, что splice используется только когда <code>!r-&gt;use_tls</code> (direct протокол). Для VLESS (use_tls=true) splice не задействован. Но для future direct-протокола или debug-режима &mdash; бомба замедленного действия.</p>
+</div>
+
+<div class="arch-issue">
+<h3>ARCH-04: WOLFSSL_CTX per connection</h3>
+<p><strong>Серьёзность: HIGH</strong></p>
+<p>Каждое TLS соединение создаёт свой WOLFSSL_CTX (tls.c:153). CTX создание включает:</p>
+<ul>
+  <li>Аллокация памяти для cipher state</li>
+  <li>Парсинг cipher list строки</li>
+  <li>Инициализация RNG</li>
+</ul>
+<p>Должен быть один CTX на fingerprint профиль (3 штуки), переиспользуемый для всех соединений.</p>
+</div>
+
+<div class="arch-issue">
+<h3>ARCH-05: Дублирование sets и verdict maps</h3>
+<p><strong>Серьёзность: MEDIUM</strong></p>
+<p>nft_init() создаёт обычные sets (bypass_addrs, proxy_addrs, block_addrs), а nft_vmap_create() создаёт verdict maps (bypass_map, block_map). Правила в цепочках ссылаются на обычные sets. Verdict maps создаются, но <strong>не используются в цепочках</strong> &mdash; правила используют <code>@bypass_addrs</code>, не <code>vmap @bypass_map</code>.</p>
+<p>DEC-017 (Verdict Maps) объявлен реализованным, но фактически maps создаются и заполняются, но не задействованы в правилах фильтрации. Обычные sets по-прежнему используются.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="deps">Межмодульные зависимости</h2>
+<!-- ============================================================ -->
+
+<h3>Граф зависимостей</h3>
+<pre>
+main.c ─────┬── phoenix.h (все модули)
+            ├── resource_manager.h
+            ├── config.h
+            ├── ipc.h
+            ├── routing/nftables.h
+            ├── routing/policy.h
+            ├── routing/rules_loader.h ── routing/nftables.h
+            ├── proxy/tproxy.h ────────── proxy/dispatcher.h (handle_conn)
+            ├── proxy/dispatcher.h ────┬── proxy/tproxy.h (tproxy_conn_t)
+            │                          ├── crypto/tls.h
+            │                          ├── config.h (ServerConfig)
+            │                          └── proxy/protocols/vless.h ── crypto/tls.h
+            ├── ntp_bootstrap.h
+            └── crypto/tls.h
+</pre>
+
+<h3>Глобальное состояние</h3>
+<table>
+<thead>
+<tr><th>Переменная</th><th>Файл</th><th>Кто пишет</th><th>Кто читает</th><th>Безопасность</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>g_dispatcher</code></td>
+  <td>dispatcher.c:44</td>
+  <td>dispatcher_set_context(), dispatcher_cleanup()</td>
+  <td>dispatcher_handle_conn(), dispatcher_handle_udp()</td>
+  <td>Однопоточный &mdash; OK. Но handle_conn вызывается из tproxy модуля, создавая неявную связь.</td>
+</tr>
+<tr>
+  <td><code>g_config</code></td>
+  <td>dispatcher.c:45</td>
+  <td>dispatcher_set_context(), dispatcher_cleanup()</td>
+  <td>dispatcher_handle_conn(), dispatcher_tick()</td>
+  <td>Указатель на стековую переменную в main(). При reload обновляется. Use-after-free (C-06).</td>
+</tr>
+<tr>
+  <td><code>log_file</code></td>
+  <td>log.c:11</td>
+  <td>log_init(), log_close()</td>
+  <td>log_msg(), log_flush(), log_check_size()</td>
+  <td>Однопоточный &mdash; OK.</td>
+</tr>
+<tr>
+  <td><code>tls_err_buf</code></td>
+  <td>tls.c:26</td>
+  <td>tls_connect(), tls_send(), tls_recv()</td>
+  <td>tls_last_error()</td>
+  <td>Перезаписывается при каждой ошибке. Не thread-safe.</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Функции вызываемые до инициализации</h3>
+<p>Порядок инициализации в main.c корректен для нормального пути. Проблемные места:</p>
+<ul>
+  <li><code>log_msg()</code> вызывается из rm_detect_profile() до конфигурации уровня лога &mdash; используется LOG_INFO по умолчанию. OK.</li>
+  <li><code>nft_vmap_create()</code> вызывается после nft_init(). Если nft_init() провалился (NFT_WARN), vmap_create() тоже провалится, но не проверяется.</li>
+  <li><code>nft_offload_bypass_init()</code> аналогично &mdash; вызывается безусловно после nft_init(), даже если nft недоступен.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="priority-list">Приоритизированный список исправлений</h2>
+<!-- ============================================================ -->
+
+<ol class="priority-list">
+  <li><strong>SIGPIPE handling (C-08)</strong> &mdash; Одна строка кода, предотвращает случайное падение демона. Минимальные усилия, максимальный эффект.</li>
+  <li><strong>Неблокирующий TLS handshake (C-03, C-04, ARCH-01)</strong> &mdash; Самая масштабная переработка, но без этого демон не может обслуживать множество соединений. Конечный автомат для TLS+VLESS handshake.</li>
+  <li><strong>Use-after-free при reload (C-06)</strong> &mdash; strdup() для SNI и отложенный free. Средние усилия.</li>
+  <li><strong>Splice pipe isolation (C-05, ARCH-03)</strong> &mdash; Либо pipe-per-connection, либо отказ от splice (splice выигрыш минимален при TLS relay). Быстрый fix: отключить splice.</li>
+  <li><strong>sig_atomic_t (C-01)</strong> &mdash; Одна строка в phoenix.h. Тривиальный fix.</li>
+  <li><strong>daemonize dup2() (C-02)</strong> &mdash; 5 строк. Тривиальный fix.</li>
+  <li><strong>tls_global_cleanup на ранних exit (C-07)</strong> &mdash; 2-3 строки. Тривиальный fix.</li>
+  <li><strong>IPC client_fd non-blocking (H-02)</strong> &mdash; 2 строки. Быстрый fix.</li>
+  <li><strong>Event-driven loop (H-01, H-10, ARCH-02)</strong> &mdash; Объединение epoll, замена usleep на blocking wait. Средняя переработка.</li>
+  <li><strong>WOLFSSL_CTX sharing (H-04, ARCH-04)</strong> &mdash; Создать 3 CTX (по fingerprint) при инициализации. Средние усилия.</li>
+  <li><strong>relay_alloc freelist (H-05)</strong> &mdash; Добавить стек свободных индексов. Быстрый fix.</li>
+  <li><strong>Batch загрузка proxy set (H-06)</strong> &mdash; Использовать nft -f вместо per-line popen. Средние усилия.</li>
+  <li><strong>OpenWrt Makefile (H-07)</strong> &mdash; Обновить Build/Compile и DEPENDS. Быстрый fix.</li>
+  <li><strong>CIDR валидация (S-01, S-02)</strong> &mdash; Regex или whitelist-проверка перед подстановкой в nft. Быстрый fix.</li>
+  <li><strong>UUID в логах (S-04, S-05)</strong> &mdash; Маскировка UUID. Тривиальный fix.</li>
+  <li><strong>atoi &rarr; strtoul для порта (H-03)</strong> &mdash; Тривиальный fix.</li>
+  <li><strong>config.c stack overflow (config_load: ServerConfig servers[64])</strong> &mdash; Переход на malloc. Быстрый fix.</li>
+  <li><strong>Удалить proto_common.h (H-09)</strong> &mdash; Одна команда. Тривиальный fix.</li>
+</ol>
+
+<hr style="margin-top: 3rem; border-color: var(--border);">
+<p style="color: var(--text-dim); text-align: center; margin-top: 1rem;">
+  phoenix-router audit v1 &mdash; 2026-04-04 &mdash; 38 findings (8C / 10H / 10M / 3L / 7S)
+</p>
+
+</div>
+</body>
+</html>
