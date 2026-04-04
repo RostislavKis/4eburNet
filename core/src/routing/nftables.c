@@ -648,6 +648,86 @@ static nft_result_t nft_exec_file(const char *path)
 }
 
 /* ------------------------------------------------------------------ */
+/*  nft_set_load_file — batch загрузка в обычный set (H-06)            */
+/* ------------------------------------------------------------------ */
+
+nft_result_t nft_set_load_file(const char *set_name,
+                               const char *filepath,
+                               nft_load_result_t *result)
+{
+    if (result) {
+        result->loaded = 0;
+        result->skipped = 0;
+        result->errors = 0;
+    }
+
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        log_msg(LOG_WARN, "nft: файл не найден: %s", filepath);
+        return NFT_ERR_NOTFOUND;
+    }
+
+    FILE *batch = fopen(NFT_TMP_CONF, "w");
+    if (!batch) { fclose(f); return NFT_ERR_EXEC; }
+
+    fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
+            set_name);
+
+    char line[256];
+    size_t batch_count = 0;
+    uint32_t total_loaded = 0, total_skipped = 0, total_errors = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
+            line[--len] = '\0';
+        if (len == 0 || line[0] == '#') { total_skipped++; continue; }
+        if (!validate_cidr(line)) { total_errors++; continue; }
+
+        fprintf(batch, "    %s,\n", line);
+        batch_count++;
+
+        if (batch_count >= NFT_BATCH_MAX) {
+            fprintf(batch, "}\n");
+            fclose(batch);
+            nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
+            unlink(NFT_TMP_CONF);
+            if (rc != NFT_OK) total_errors += batch_count;
+            else total_loaded += batch_count;
+
+            batch = fopen(NFT_TMP_CONF, "w");
+            if (!batch) { fclose(f); break; }
+            fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
+                    set_name);
+            batch_count = 0;
+        }
+    }
+    fclose(f);
+
+    if (batch_count > 0) {
+        fprintf(batch, "}\n");
+        fclose(batch);
+        nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
+        unlink(NFT_TMP_CONF);
+        if (rc != NFT_OK) total_errors += batch_count;
+        else total_loaded += batch_count;
+    } else {
+        fclose(batch);
+        unlink(NFT_TMP_CONF);
+    }
+
+    if (result) {
+        result->loaded = total_loaded;
+        result->skipped = total_skipped;
+        result->errors = total_errors;
+    }
+
+    log_msg(LOG_INFO, "Файл %s → %s: загружено %u, пропущено %u, ошибок %u",
+            filepath, set_name, total_loaded, total_skipped, total_errors);
+    return total_errors > 0 ? NFT_ERR_RULE : NFT_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Verdict Maps (DEC-017)                                             */
 /* ------------------------------------------------------------------ */
 

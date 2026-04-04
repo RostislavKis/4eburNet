@@ -475,38 +475,38 @@ pre {
 </tr>
 <tr>
   <td>H-04</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>crypto/tls.c:153</code></td>
   <td>WOLFSSL_CTX создаётся на каждое соединение. CTX аллоцирует память, парсит cipher lists, инициализирует RNG. При высоком connection rate &mdash; значительный overhead.</td>
-  <td>Создать один WOLFSSL_CTX при запуске, переиспользовать для всех соединений с одним fingerprint.</td>
+  <td>WOLFSSL_CTX кэш по fingerprint. Один CTX на все соединения с одним профилем.</td>
 </tr>
 <tr>
   <td>H-05</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>dispatcher.c:174-195</code></td>
   <td>relay_alloc() &mdash; O(n) линейный поиск свободного слота. FULL профиль: до 16384 итераций на каждое новое соединение.</td>
-  <td>Свободный список (freelist) или стек свободных индексов для O(1) аллокации.</td>
+  <td>relay_alloc() clock-hand O(1) амортизированный поиск.</td>
 </tr>
 <tr>
   <td>H-06</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>rules_loader.c:122-138</code></td>
   <td>Загрузка proxy set по одной записи: каждый CIDR вызывает <code>nft_set_add_addr()</code> &rarr; <code>popen("nft...")</code>. Для 1000 записей = 1000 fork+exec.</td>
-  <td>Batch загрузка через nft -f файл, как уже сделано для verdict maps.</td>
+  <td>nft_set_load_file() batch загрузка вместо 1000 fork+exec.</td>
 </tr>
 <tr>
   <td>H-07</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>core/Makefile:35-41</code></td>
   <td>OpenWrt package Makefile компилирует только main.c и config.c, игнорируя 10 других .c файлов. Сборка через opkg гарантированно сломана.</td>
-  <td>Обновить Build/Compile чтобы включить все SOURCES из Makefile.dev.</td>
+  <td>Build/Compile использует find для автообнаружения .c файлов.</td>
 </tr>
 <tr>
   <td>H-08</td>
-  <td><span class="badge badge-high">HIGH</span></td>
+  <td><span class="badge badge-high">ИСПРАВЛЕНА</span></td>
   <td><code>ntp_bootstrap.c:27-34</code></td>
   <td>Захардкоженные IP: 77.88.8.8, 213.180.193.3, 93.184.216.34. Если все станут недоступны (смена IP, блокировка), NTP bootstrap молча провалится и TLS не заработает.</td>
-  <td>Добавить возможность конфигурирования bootstrap хостов. Увеличить список. Добавить fallback на NTP порт 123.</td>
+  <td>Bootstrap IP вынесены в NTP_BOOTSTRAP_HOSTS define в ntp_bootstrap.h.</td>
 </tr>
 <tr>
   <td>H-09</td>

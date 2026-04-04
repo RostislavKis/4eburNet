@@ -131,6 +131,11 @@ nft_result_t nft_vmap_load_file(const char *map_name,
 /* Статистика verdict maps — вывод в лог */
 void nft_vmap_stats(void);
 
+/* Batch загрузка из файла в обычный set (не vmap) */
+nft_result_t nft_set_load_file(const char *set_name,
+                               const char *filepath,
+                               nft_load_result_t *result);
+
 /* --- HW Offload bypass (DEC-018) --- */
 
 nft_result_t nft_offload_bypass_init(void);
