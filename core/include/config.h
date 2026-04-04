@@ -13,6 +13,9 @@ typedef struct {
     uint16_t port;
     char     uuid[64];        /* для vless/vmess */
     char     password[128];   /* для trojan/shadowsocks */
+    char     transport[16];   /* "raw" (default) или "xhttp" */
+    char     xhttp_path[128]; /* HTTP путь для XHTTP, default "/" */
+    char     xhttp_host[128]; /* Host заголовок для XHTTP */
 } ServerConfig;
 
 /* Основная конфигурация phoenixd */

@@ -19,10 +19,17 @@ typedef enum {
     RELAY_HALF_CLOSE = 4,   /* один конец закрыт, ждём второго (DEC-016) */
     RELAY_TLS_SHAKE  = 5,   /* TLS handshake в процессе (C-03/C-04) */
     RELAY_VLESS_SHAKE = 6,  /* VLESS response ожидание (C-03/C-04) */
+    RELAY_XHTTP_DN_CONNECT = 7,  /* XHTTP: download fd TCP connect */
+    RELAY_XHTTP_UP_TLS  = 8,    /* XHTTP: upload TLS handshake */
+    RELAY_XHTTP_DN_TLS  = 9,    /* XHTTP: download TLS handshake */
+    RELAY_XHTTP_UP_REQ  = 10,   /* XHTTP: POST headers + VLESS */
+    RELAY_XHTTP_DN_REQ  = 11,   /* XHTTP: GET + parse 200 OK */
+    RELAY_XHTTP_ACTIVE  = 12,   /* XHTTP: chunked relay активен */
 } relay_state_t;
 
-/* Предварительное объявление */
+/* Предварительные объявления */
 typedef struct relay_conn relay_conn_t;
+struct xhttp_state;  /* из vless_xhttp.h */
 
 /*
  * Тег для epoll data.ptr — различает client_fd и upstream_fd
@@ -52,6 +59,10 @@ struct relay_conn {
     int                     server_idx; /* индекс сервера в cfg->servers[] */
     uint8_t                 vless_resp_buf[2]; /* буфер частичного VLESS ответа */
     uint8_t                 vless_resp_len;    /* байт прочитано (0-2) */
+    /* XHTTP транспорт */
+    struct xhttp_state     *xhttp;            /* NULL если не XHTTP */
+    int                     download_fd;       /* XHTTP GET fd (-1 если нет) */
+    relay_ep_t              ep_download;       /* epoll тег для download_fd */
 };
 
 /* Состояние диспетчера */
