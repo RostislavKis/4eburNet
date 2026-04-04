@@ -99,7 +99,12 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         strncpy(srv->address, value, sizeof(srv->address) - 1);
         srv->address[sizeof(srv->address) - 1] = '\0';
     } else if (strcmp(key, "port") == 0) {
-        srv->port = (uint16_t)atoi(value);
+        long port_val = strtol(value, NULL, 10);
+        if (port_val < 1 || port_val > 65535) {
+            log_msg(LOG_WARN, "Конфиг: невалидный порт %ld", port_val);
+            port_val = 443;
+        }
+        srv->port = (uint16_t)port_val;
     } else if (strcmp(key, "uuid") == 0) {
         strncpy(srv->uuid, value, sizeof(srv->uuid) - 1);
         srv->uuid[sizeof(srv->uuid) - 1] = '\0';

@@ -52,8 +52,8 @@ int ipc_init(void)
         return -1;
     }
 
-    /* Права доступа: владелец + группа */
-    chmod(PHOENIX_IPC_SOCKET, 0660);
+    /* Права доступа: только root (S-06) */
+    chmod(PHOENIX_IPC_SOCKET, 0600);
 
     if (listen(fd, 5) < 0) {
         log_msg(LOG_ERROR, "listen() не удался");
