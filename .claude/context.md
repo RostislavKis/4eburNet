@@ -105,3 +105,19 @@
 - Интеграция в main.c: NTP → vmap → offload → rules → policy → tproxy
 - Бинарник: 162 KB (+17KB)
 - Тест: 40 RU CIDR в bypass_map, lookup 5.3.0.0/16 : accept работает
+Коммиты: 8c00174
+
+## Сессия 009 — 2026-04-04
+Статус: завершена
+Сделано:
+- wolfSSL 5.9.0 собран статически с musl-gcc
+- crypto/tls.c: tls_connect с Chrome120/Firefox121/iOS17 fingerprint
+- x25519 key share через wolfSSL_UseKeyShare
+- ALPN: h2+http/1.1 с CONTINUE_ON_MISMATCH
+- SNI через wolfSSL_UseSNI
+- WOLFSSL_VERIFY_NONE для Reality (verify_cert=false)
+- tls_send/recv с EAGAIN при WANT_READ/WANT_WRITE
+- tls_global_init/cleanup интегрированы в main.c
+- DEC-024: wolfSSL без OpenSSL compat, ошибки через get_error
+- Бинарник: 914 KB (wolfSSL +752KB, в лимите 4MB)
+- Тест: wolfSSL v5.9.0 инициализирован, TCP connect к google:443 работает
