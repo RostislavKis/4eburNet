@@ -146,14 +146,17 @@ static const proxy_protocol_t *protocol_find(const char *name)
 
 static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
 {
+    /* Clock-hand поиск: O(1) амортизированный (H-05) */
+    int start = ds->next_free;
     for (int i = 0; i < ds->conns_max; i++) {
-        if (ds->conns[i].state == RELAY_DONE) {
-            relay_conn_t *r = &ds->conns[i];
+        int idx = (start + i) % ds->conns_max;
+        if (ds->conns[idx].state == RELAY_DONE) {
+            ds->next_free = (idx + 1) % ds->conns_max;
+            relay_conn_t *r = &ds->conns[idx];
             memset(r, 0, sizeof(*r));
             r->client_fd   = -1;
             r->upstream_fd = -1;
             r->state       = RELAY_CONNECTING;
-            /* Настроить epoll теги */
             r->ep_client.relay     = r;
             r->ep_client.is_client = true;
             r->ep_upstream.relay     = r;

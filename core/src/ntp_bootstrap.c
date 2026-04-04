@@ -23,16 +23,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-/* HTTP хосты для bootstrap (IP, без DNS) */
+/* HTTP хосты для bootstrap (IP, без DNS) — из ntp_bootstrap.h */
 static const struct {
     const char *ip;
-    const char *host;   /* Host: заголовок */
-} bootstrap_hosts[] = {
-    { "77.88.8.8",      "yandex.ru"     },  /* Яндекс DNS */
-    { "213.180.193.3",  "mail.ru"       },  /* Mail.ru */
-    { "93.184.216.34",  "example.com"   },  /* IANA example */
-    { NULL, NULL }
-};
+    const char *host;
+} bootstrap_hosts[] = NTP_BOOTSTRAP_HOSTS;
 
 /* Размер буфера для HTTP ответа */
 #define HTTP_BUF_SIZE   1024

@@ -120,28 +120,13 @@ int rules_load_all(rules_manager_t *rm)
         nft_load_result_t result;
 
         if (s->type == RULES_PROXY) {
-            /* proxy — обычный set, загружаем через nft_set_add_addr */
-            FILE *f = fopen(s->path, "r");
-            if (!f) continue;
-
-            uint32_t loaded = 0;
-            char line[256];
-            while (fgets(line, sizeof(line), f)) {
-                size_t len = strlen(line);
-                while (len > 0 &&
-                       (line[len-1] == '\n' || line[len-1] == '\r'))
-                    line[--len] = '\0';
-                if (len == 0 || line[0] == '#')
-                    continue;
-                if (nft_set_add_addr(NFT_SET_PROXY, line) == NFT_OK)
-                    loaded++;
-            }
-            fclose(f);
-
-            s->loaded_count = loaded;
+            /* proxy — обычный set, batch загрузка (H-06) */
+            nft_result_t rc = nft_set_load_file(NFT_SET_PROXY,
+                                                 s->path, &result);
+            s->loaded_count = result.loaded;
             s->mtime = mt;
-            log_msg(LOG_INFO, "Файл %s → %s: загружено %u",
-                    s->path, NFT_SET_PROXY, loaded);
+            if (rc != NFT_OK && result.loaded == 0)
+                errors++;
         } else {
             /* bypass/block — verdict maps, batch загрузка */
             nft_result_t rc = nft_vmap_load_file(map, s->path, &result);
@@ -177,26 +162,11 @@ int rules_check_update(rules_manager_t *rm)
         const char *map = map_name_for_type(s->type);
 
         if (s->type == RULES_PROXY) {
-            /* Очистить set и перезагрузить */
+            /* Очистить set и перезагрузить batch (H-06) */
             nft_set_flush(NFT_SET_PROXY);
-            FILE *f = fopen(s->path, "r");
-            if (!f) continue;
-
-            uint32_t loaded = 0;
-            char line[256];
-            while (fgets(line, sizeof(line), f)) {
-                size_t len = strlen(line);
-                while (len > 0 &&
-                       (line[len-1] == '\n' || line[len-1] == '\r'))
-                    line[--len] = '\0';
-                if (len == 0 || line[0] == '#')
-                    continue;
-                if (nft_set_add_addr(NFT_SET_PROXY, line) == NFT_OK)
-                    loaded++;
-            }
-            fclose(f);
-
-            s->loaded_count = loaded;
+            nft_load_result_t result;
+            nft_set_load_file(NFT_SET_PROXY, s->path, &result);
+            s->loaded_count = result.loaded;
         } else {
             /* Очистить vmap и перезагрузить */
             char cmd[256];

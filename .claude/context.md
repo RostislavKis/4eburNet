@@ -163,3 +163,8 @@
 - FIXED S-06: IPC socket chmod 0600
 - FIXED H-03: strtol() с валидацией порта 1-65535
 - FIXED H-09: proto_common.h удалён (мёртвый код)
+- FIXED H-04: WOLFSSL_CTX кэш по fingerprint
+- FIXED H-05: relay_alloc() clock-hand O(1)
+- FIXED H-06: nft_set_load_file() batch вместо fork+exec
+- FIXED H-07: Makefile автообнаружение .c файлов
+- FIXED H-08: NTP bootstrap IP в defines

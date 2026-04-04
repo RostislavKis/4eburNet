@@ -30,14 +30,15 @@ endef
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
+	$(CP) ./include $(PKG_BUILD_DIR)/
 endef
 
 define Build/Compile
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \
+		-I$(PKG_BUILD_DIR)/include \
 		-o $(PKG_BUILD_DIR)/phoenix \
-		$(PKG_BUILD_DIR)/main.c \
-		$(PKG_BUILD_DIR)/config.c \
-		-luci -lwolfssl -lpthread
+		$(shell find $(PKG_BUILD_DIR) -name '*.c' -not -path '*/test/*') \
+		-lwolfssl -luci -lm
 endef
 
 define Package/phoenix-core/install

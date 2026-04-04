@@ -63,6 +63,7 @@ typedef struct {
     int             splice_pipe[2];    /* pipe для splice (однопоточный) */
     uint8_t        *relay_buf;         /* буфер для read/write relay */
     size_t          relay_buf_size;    /* размер буфера (по профилю) */
+    int             next_free;          /* clock-hand подсказка (H-05) */
     uint64_t        total_accepted;
     uint64_t        total_closed;
     uint64_t        tick_count;         /* счётчик вызовов tick */
