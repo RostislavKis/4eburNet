@@ -72,14 +72,15 @@ int ipc_init(void)
 
 void ipc_process(int server_fd, PhoenixState *state)
 {
-    /* Неблокирующий accept — если нет соединений, сразу выходим */
-    int client_fd = accept(server_fd, NULL, NULL);
+    /* Неблокирующий accept + client_fd (H-02) */
+    int client_fd = accept4(server_fd, NULL, NULL,
+                            SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (client_fd < 0)
         return;
 
-    /* Читаем заголовок команды */
+    /* Читаем заголовок команды (MSG_DONTWAIT — не блокируем) */
     ipc_header_t hdr;
-    ssize_t n = read(client_fd, &hdr, sizeof(hdr));
+    ssize_t n = recv(client_fd, &hdr, sizeof(hdr), MSG_DONTWAIT);
     if (n != sizeof(hdr)) {
         log_msg(LOG_WARN, "IPC: неполный заголовок (%zd байт)", n);
         close(client_fd);

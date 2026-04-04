@@ -168,3 +168,6 @@
 - FIXED H-06: nft_set_load_file() batch вместо fork+exec
 - FIXED H-07: Makefile автообнаружение .c файлов
 - FIXED H-08: NTP bootstrap IP в defines
+- FIXED H-01: master epoll вместо usleep + 3 epoll
+- FIXED H-02: accept4(SOCK_NONBLOCK) + recv(MSG_DONTWAIT)
+- FIXED H-10: tproxy + ipc fd в master epoll
