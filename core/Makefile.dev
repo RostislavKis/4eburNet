@@ -11,6 +11,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/crypto/tls.c \
           $(SRCDIR)/proxy/protocols/vless.c \
           $(SRCDIR)/proxy/protocols/vless_xhttp.c \
+          $(SRCDIR)/proxy/protocols/trojan.c \
           $(SRCDIR)/net_utils.c
 TARGET = $(BUILDDIR)/phoenixd
 
