@@ -9,6 +9,7 @@
  */
 
 #include "routing/policy.h"
+#include "net_utils.h"
 #include "phoenix.h"
 
 #include <stdio.h>
@@ -37,30 +38,13 @@ static policy_result_t policy_exec(const char *cmd)
 
     log_msg(LOG_DEBUG, "ip: %s", cmd);
 
-    FILE *fp = popen(full_cmd, "r");
-    if (!fp) {
-        log_msg(LOG_ERROR, "ip: не удалось запустить: %s", strerror(errno));
-        return POLICY_ERR_EXEC;
-    }
-
     char err_buf[POLICY_ERR_BUF] = {0};
-    size_t total = 0;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t len = strlen(line);
-        if (total + len < sizeof(err_buf) - 1) {
-            memcpy(err_buf + total, line, len);
-            total += len;
-        }
-    }
-    err_buf[total] = '\0';
-
-    int status = pclose(fp);
+    int status = exec_cmd_capture(full_cmd, err_buf, sizeof(err_buf));
     if (status != 0) {
-        if (total > 0 && err_buf[total - 1] == '\n')
-            err_buf[total - 1] = '\0';
+        size_t len = strlen(err_buf);
+        if (len > 0 && err_buf[len - 1] == '\n')
+            err_buf[len - 1] = '\0';
 
-        /* "File exists" — правило уже есть, не ошибка */
         if (strstr(err_buf, "File exists"))
             return POLICY_ERR_EXISTS;
 
@@ -79,14 +63,19 @@ static void policy_exec_quiet(const char *cmd)
 {
     char full_cmd[POLICY_CMD_MAX];
     snprintf(full_cmd, sizeof(full_cmd), "ip %s 2>/dev/null", cmd);
-    FILE *fp = popen(full_cmd, "r");
-    if (fp)
-        pclose(fp);
+    exec_cmd(full_cmd);
 }
 
 /* ------------------------------------------------------------------ */
 /*  policy_rule_exists — проверить наличие ip rule                     */
 /* ------------------------------------------------------------------ */
+
+struct rule_search { const char *mark; const char *table; bool found; };
+static void rule_search_cb(const char *line, void *ctx) {
+    struct rule_search *s = ctx;
+    if (!s->found && strstr(line, s->mark) && strstr(line, s->table))
+        s->found = true;
+}
 
 static bool policy_rule_exists(uint32_t mark, int table, bool ipv6)
 {
@@ -94,26 +83,13 @@ static bool policy_rule_exists(uint32_t mark, int table, bool ipv6)
     snprintf(cmd, sizeof(cmd), "ip %s rule show 2>/dev/null",
              ipv6 ? "-6" : "");
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp)
-        return false;
-
-    char needle_mark[32];
-    char needle_table[32];
+    char needle_mark[32], needle_table[32];
     snprintf(needle_mark, sizeof(needle_mark), "fwmark 0x%x", mark);
     snprintf(needle_table, sizeof(needle_table), "lookup %d", table);
 
-    bool found = false;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, needle_mark) && strstr(line, needle_table)) {
-            found = true;
-            break;
-        }
-    }
-
-    pclose(fp);
-    return found;
+    struct rule_search s = { needle_mark, needle_table, false };
+    exec_cmd_lines(cmd, rule_search_cb, &s);
+    return s.found;
 }
 
 /* ------------------------------------------------------------------ */
@@ -127,21 +103,7 @@ static bool policy_route_exists(int table, const char *prefix, bool ipv6)
              "ip %s route show table %d 2>/dev/null",
              ipv6 ? "-6" : "", table);
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp)
-        return false;
-
-    bool found = false;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, prefix)) {
-            found = true;
-            break;
-        }
-    }
-
-    pclose(fp);
-    return found;
+    return exec_cmd_contains(cmd, prefix);
 }
 
 /* ------------------------------------------------------------------ */
@@ -254,15 +216,10 @@ policy_result_t policy_init_tun(const char *dev)
 
     /* Проверяем что интерфейс существует */
     char check[POLICY_CMD_MAX];
-    snprintf(check, sizeof(check), "link show %s 2>/dev/null", dev);
-    FILE *fp = popen(check, "r");
-    bool dev_exists = false;
-    if (fp) {
-        char line[256];
-        if (fgets(line, sizeof(line), fp))
-            dev_exists = true;
-        pclose(fp);
-    }
+    snprintf(check, sizeof(check), "ip link show %s 2>/dev/null", dev);
+    char out[64] = {0};
+    exec_cmd_capture(check, out, sizeof(out));
+    bool dev_exists = (out[0] != '\0');
 
     if (dev_exists) {
         rc = policy_exec(cmd);
@@ -320,48 +277,25 @@ void policy_cleanup(void)
 /*  policy_dump                                                        */
 /* ------------------------------------------------------------------ */
 
+static void dump_rule_cb(const char *line, void *ctx) {
+    (void)ctx;
+    log_msg(LOG_DEBUG, "  rule: %s", line);
+}
+static void dump_t100_cb(const char *line, void *ctx) {
+    (void)ctx;
+    log_msg(LOG_DEBUG, "  table 100: %s", line);
+}
+static void dump_t200_cb(const char *line, void *ctx) {
+    (void)ctx;
+    log_msg(LOG_DEBUG, "  table 200: %s", line);
+}
+
 void policy_dump(void)
 {
     log_msg(LOG_DEBUG, "=== Политика маршрутизации ===");
-
-    /* ip rule */
-    FILE *fp = popen("ip rule show 2>/dev/null", "r");
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp)) {
-            size_t len = strlen(line);
-            if (len > 0 && line[len - 1] == '\n')
-                line[len - 1] = '\0';
-            log_msg(LOG_DEBUG, "  rule: %s", line);
-        }
-        pclose(fp);
-    }
-
-    /* ip route table 100 */
-    fp = popen("ip route show table 100 2>/dev/null", "r");
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp)) {
-            size_t len = strlen(line);
-            if (len > 0 && line[len - 1] == '\n')
-                line[len - 1] = '\0';
-            log_msg(LOG_DEBUG, "  table 100: %s", line);
-        }
-        pclose(fp);
-    }
-
-    /* ip route table 200 */
-    fp = popen("ip route show table 200 2>/dev/null", "r");
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp)) {
-            size_t len = strlen(line);
-            if (len > 0 && line[len - 1] == '\n')
-                line[len - 1] = '\0';
-            log_msg(LOG_DEBUG, "  table 200: %s", line);
-        }
-        pclose(fp);
-    }
+    exec_cmd_lines("ip rule show 2>/dev/null", dump_rule_cb, NULL);
+    exec_cmd_lines("ip route show table 100 2>/dev/null", dump_t100_cb, NULL);
+    exec_cmd_lines("ip route show table 200 2>/dev/null", dump_t200_cb, NULL);
 
     log_msg(LOG_DEBUG, "==============================");
 }

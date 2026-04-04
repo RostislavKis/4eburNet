@@ -9,6 +9,7 @@
  */
 
 #include "routing/nftables.h"
+#include "net_utils.h"
 #include "phoenix.h"
 
 #include <stdio.h>
@@ -76,30 +77,12 @@ nft_result_t nft_exec(const char *cmd)
 
     log_msg(LOG_DEBUG, "nft: %s", cmd);
 
-    FILE *fp = popen(full_cmd, "r");
-    if (!fp) {
-        log_msg(LOG_ERROR, "nft: не удалось запустить: %s", strerror(errno));
-        return NFT_ERR_EXEC;
-    }
-
-    /* Читаем вывод (stderr перенаправлен в stdout) */
     char err_buf[NFT_ERR_BUF] = {0};
-    size_t total = 0;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t len = strlen(line);
-        if (total + len < sizeof(err_buf) - 1) {
-            memcpy(err_buf + total, line, len);
-            total += len;
-        }
-    }
-    err_buf[total] = '\0';
-
-    int status = pclose(fp);
+    int status = exec_cmd_capture(full_cmd, err_buf, sizeof(err_buf));
     if (status != 0) {
-        /* Убираем завершающий перенос строки из вывода */
-        if (total > 0 && err_buf[total - 1] == '\n')
-            err_buf[total - 1] = '\0';
+        size_t len = strlen(err_buf);
+        if (len > 0 && err_buf[len - 1] == '\n')
+            err_buf[len - 1] = '\0';
         log_msg(LOG_ERROR, "nft: ошибка (код %d): %s", status, err_buf);
         return NFT_ERR_RULE;
     }
@@ -129,32 +112,14 @@ static nft_result_t nft_exec_atomic(const char *config)
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", NFT_TMP_CONF);
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        log_msg(LOG_ERROR, "nft: не удалось запустить: %s", strerror(errno));
-        unlink(NFT_TMP_CONF);
-        return NFT_ERR_EXEC;
-    }
-
-    /* Читаем вывод ошибок */
     char err_buf[NFT_ERR_BUF] = {0};
-    size_t total = 0;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t len = strlen(line);
-        if (total + len < sizeof(err_buf) - 1) {
-            memcpy(err_buf + total, line, len);
-            total += len;
-        }
-    }
-    err_buf[total] = '\0';
-
-    int status = pclose(fp);
-    unlink(NFT_TMP_CONF);  /* всегда удаляем */
+    int status = exec_cmd_capture(cmd, err_buf, sizeof(err_buf));
+    unlink(NFT_TMP_CONF);
 
     if (status != 0) {
-        if (total > 0 && err_buf[total - 1] == '\n')
-            err_buf[total - 1] = '\0';
+        size_t len = strlen(err_buf);
+        if (len > 0 && err_buf[len - 1] == '\n')
+            err_buf[len - 1] = '\0';
         log_msg(LOG_ERROR, "nft: атомарное применение провалилось (код %d): %s",
                 status, err_buf);
         return NFT_ERR_RULE;
@@ -185,25 +150,9 @@ const char *nft_strerror(nft_result_t err)
 
 bool nft_table_exists(void)
 {
-    FILE *fp = popen("nft list tables 2>/dev/null", "r");
-    if (!fp)
-        return false;
-
-    /* Точное совпадение: "table inet phoenix\n", не "phoenix_backup" */
     char expected[64];
     snprintf(expected, sizeof(expected), "table inet %s", NFT_TABLE_NAME);
-
-    bool found = false;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, expected)) {
-            found = true;
-            break;
-        }
-    }
-
-    pclose(fp);
-    return found;
+    return exec_cmd_contains("nft list tables 2>/dev/null", expected);
 }
 
 /* ------------------------------------------------------------------ */
@@ -618,28 +567,12 @@ static nft_result_t nft_exec_file(const char *path)
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", path);
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        log_msg(LOG_ERROR, "nft: не удалось запустить: %s", strerror(errno));
-        return NFT_ERR_EXEC;
-    }
-
     char err_buf[NFT_ERR_BUF] = {0};
-    size_t total = 0;
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t len = strlen(line);
-        if (total + len < sizeof(err_buf) - 1) {
-            memcpy(err_buf + total, line, len);
-            total += len;
-        }
-    }
-    err_buf[total] = '\0';
-
-    int status = pclose(fp);
+    int status = exec_cmd_capture(cmd, err_buf, sizeof(err_buf));
     if (status != 0) {
-        if (total > 0 && err_buf[total - 1] == '\n')
-            err_buf[total - 1] = '\0';
+        size_t len = strlen(err_buf);
+        if (len > 0 && err_buf[len - 1] == '\n')
+            err_buf[len - 1] = '\0';
         log_msg(LOG_ERROR, "nft: batch провалился (код %d): %s",
                 status, err_buf);
         return NFT_ERR_RULE;
@@ -1033,15 +966,10 @@ static void vmap_count(const char *map_name)
              "nft list map inet " NFT_TABLE_NAME " %s 2>/dev/null"
              " | grep -c ':'", map_name);
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) return;
-
-    char line[32] = {0};
-    if (fgets(line, sizeof(line), fp)) {
-        int count = atoi(line);
-        log_msg(LOG_INFO, "  %s: %d записей", map_name, count);
-    }
-    pclose(fp);
+    char out[32] = {0};
+    exec_cmd_capture(cmd, out, sizeof(out));
+    int count = atoi(out);
+    log_msg(LOG_INFO, "  %s: %d записей", map_name, count);
 }
 
 void nft_vmap_stats(void)
@@ -1071,18 +999,8 @@ nft_result_t nft_offload_bypass_init(void)
      */
 
     /* Проверяем наличие flowtable в fw4 */
-    FILE *fp = popen("nft list flowtables 2>/dev/null", "r");
-    bool has_flowtable = false;
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp)) {
-            if (strstr(line, "flowtable")) {
-                has_flowtable = true;
-                break;
-            }
-        }
-        pclose(fp);
-    }
+    bool has_flowtable = exec_cmd_contains(
+        "nft list flowtables 2>/dev/null", "flowtable");
 
     if (!has_flowtable) {
         log_msg(LOG_INFO,
