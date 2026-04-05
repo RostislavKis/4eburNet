@@ -181,8 +181,8 @@ static int x25519_generate(uint8_t priv[32], uint8_t pub[32])
             wc_FreeRng(&rng);
             return -1;
         }
-        /* M-14: clamping */
-        clamp_curve25519_key(priv);
+        /* H-04: make_key уже делает clamping, повторный clamp убран.
+         * clamp остаётся только в noise_init() для user-provided key. */
         if (wc_curve25519_export_public(&key, pub, &plen) != 0) {
             wc_curve25519_free(&key);
             wc_FreeRng(&rng);
@@ -476,8 +476,8 @@ int noise_handshake_response_process(noise_state_t *ns,
 /*  noise_encrypt / noise_decrypt                                      */
 /* ------------------------------------------------------------------ */
 
-/* WireGuard лимиты: rekey после 2^64-2^16-1 пакетов или 180 секунд */
-#define NOISE_REJECT_AFTER_MESSAGES  (UINT64_MAX - (1ULL << 16) - 1)
+/* WireGuard лимиты: rekey после 2^64-2^4-1 пакетов или 180 секунд (H-05) */
+#define NOISE_REJECT_AFTER_MESSAGES  (UINT64_MAX - 15ULL)
 #define NOISE_REKEY_AFTER_MESSAGES   (1ULL << 60)
 #define NOISE_REJECT_AFTER_TIME      180
 
@@ -553,4 +553,11 @@ int noise_decrypt(noise_state_t *ns,
     *out_len = payload_len;
     ns->recv_counter = ctr + 1;
     return 0;
+}
+
+/* H-06: Обнуление ключевого материала при уничтожении состояния */
+void noise_state_cleanup(noise_state_t *ns)
+{
+    if (!ns) return;
+    explicit_bzero(ns, sizeof(*ns));
 }

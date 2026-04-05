@@ -204,13 +204,16 @@ int ss_handshake_start(ss_state_t *ss, int fd,
     memcpy(packet + pkt_len, tag, SS_TAG_LEN);
     pkt_len += SS_TAG_LEN;
 
-    /* Write loop для partial write на nonblocking fd (H-21) */
+    /* Write loop для nonblocking fd (H-01: EAGAIN = fatal для framed SS 2022) */
     size_t written = 0;
     while (written < pkt_len) {
         ssize_t w = write(fd, packet + written, pkt_len - written);
         if (w < 0) {
             if (errno == EINTR) continue;
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                log_msg(LOG_WARN, "SS: EAGAIN при handshake (partial frame)");
+                return -1;
+            }
             log_msg(LOG_WARN, "SS: не удалось отправить header (%zu/%zu)",
                     written, pkt_len);
             return -1;
@@ -273,13 +276,18 @@ static ssize_t ss_send_chunk(ss_state_t *ss, int fd,
     memcpy(packet + pkt_len, data_cipher, len); pkt_len += len;
     memcpy(packet + pkt_len, data_tag, SS_TAG_LEN); pkt_len += SS_TAG_LEN;
 
-    /* Write loop для partial write на nonblocking fd (H-22) */
+    /* Write loop (H-02: EAGAIN = fatal для framed SS 2022) */
     size_t written = 0;
     while (written < pkt_len) {
         ssize_t w = write(fd, packet + written, pkt_len - written);
         if (w < 0) {
             if (errno == EINTR) continue;
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                log_msg(LOG_WARN, "SS: EAGAIN при send_chunk (partial frame)");
+                free(data_cipher);
+                free(packet);
+                return -1;
+            }
             free(data_cipher);
             free(packet);
             return -1;

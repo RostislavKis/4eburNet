@@ -88,6 +88,7 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
     int cache_sz = cfg->dns.cache_size > 0 ? cfg->dns.cache_size : 256;
     dns_cache_init(&ds->cache, cache_sz);
 
+    ds->initialized = true;
     log_msg(LOG_INFO, "DNS демон запущен на порту %u (кэш: %d)", port, cache_sz);
     return 0;
 }
@@ -102,6 +103,7 @@ void dns_server_cleanup(dns_server_t *ds)
     if (ds->udp_fd >= 0) { close(ds->udp_fd); ds->udp_fd = -1; }
     if (ds->tcp_fd >= 0) { close(ds->tcp_fd); ds->tcp_fd = -1; }
     dns_cache_free(&ds->cache);
+    ds->initialized = false;
     log_msg(LOG_INFO, "DNS демон остановлен");
 }
 
@@ -187,28 +189,43 @@ static void handle_udp_query(dns_server_t *ds)
     if (n <= 0)
         return;
 
-    /* Rate limiting per source IP (H-13) */
-    uint32_t src_ip = 0;
-    if (client_addr.ss_family == AF_INET)
-        src_ip = ((struct sockaddr_in *)&client_addr)->sin_addr.s_addr;
+    /* H-10/H-11: Rate limiting для IPv4 и IPv6, 512 слотов, conservative collision */
+    uint8_t src_addr[16] = {0};
+    uint8_t src_addr_len = 0;
+    if (client_addr.ss_family == AF_INET) {
+        memcpy(src_addr, &((struct sockaddr_in *)&client_addr)->sin_addr, 4);
+        src_addr_len = 4;
+    } else if (client_addr.ss_family == AF_INET6) {
+        memcpy(src_addr, &((struct sockaddr_in6 *)&client_addr)->sin6_addr, 16);
+        src_addr_len = 16;
+    }
+
+    /* Хеш по всем байтам адреса (djb2) */
+    uint32_t addr_hash = 5381;
+    for (int ai = 0; ai < src_addr_len; ai++)
+        addr_hash = addr_hash * 33 + src_addr[ai];
 
     time_t now_t = time(NULL);
-    int slot = (int)(src_ip % 256);
-    if (ds->rate_table[slot].ip == src_ip) {
+    int slot = (int)(addr_hash % DNS_RATE_TABLE_SIZE);
+    if (ds->rate_table[slot].addr_len == src_addr_len &&
+        memcmp(ds->rate_table[slot].addr, src_addr, src_addr_len) == 0) {
         if (now_t - ds->rate_table[slot].window_start < DNS_RATE_WINDOW) {
             if (++ds->rate_table[slot].count > DNS_RATE_LIMIT) {
-                log_msg(LOG_DEBUG, "DNS: rate limit для %08x", src_ip);
+                log_msg(LOG_DEBUG, "DNS: rate limit (slot %d)", slot);
                 return;
             }
         } else {
             ds->rate_table[slot].window_start = now_t;
             ds->rate_table[slot].count = 1;
         }
-    } else {
-        ds->rate_table[slot].ip = src_ip;
+    } else if (ds->rate_table[slot].addr_len == 0) {
+        /* Пустой слот — занимаем */
+        memcpy(ds->rate_table[slot].addr, src_addr, src_addr_len);
+        ds->rate_table[slot].addr_len = src_addr_len;
         ds->rate_table[slot].count = 1;
         ds->rate_table[slot].window_start = now_t;
     }
+    /* H-11: collision — другой адрес в слоте, conservative: не сбрасываем */
 
     dns_query_t q;
     if (dns_parse_query(pkt, n, &q) < 0) {
