@@ -41,4 +41,9 @@ int exec_cmd_safe(const char *const argv[], char *out, size_t outlen);
    getrandom() с fallback на /dev/urandom. */
 int net_random_bytes(uint8_t *buf, size_t len);
 
+/* Экранирование строки для JSON (H-6).
+   Копирует src в dst с заменой " → \", \ → \\, управляющих → \uXXXX.
+   Возвращает количество записанных байт (без NUL). */
+int json_escape_str(const char *src, char *dst, size_t dst_size);
+
 #endif /* NET_UTILS_H */

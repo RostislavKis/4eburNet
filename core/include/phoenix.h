@@ -45,10 +45,16 @@ typedef enum {
 
 /* Коды команд IPC */
 typedef enum {
-    IPC_CMD_STATUS    = 1,  /* запрос статуса демона */
-    IPC_CMD_RELOAD    = 2,  /* перечитать конфиг */
-    IPC_CMD_STOP      = 3,  /* остановить демон */
-    IPC_CMD_STATS     = 4,  /* запрос статистики */
+    IPC_CMD_STATUS          = 1,  /* запрос статуса демона */
+    IPC_CMD_RELOAD          = 2,  /* перечитать конфиг */
+    IPC_CMD_STOP            = 3,  /* остановить демон */
+    IPC_CMD_STATS           = 4,  /* запрос статистики */
+    IPC_CMD_GROUP_LIST      = 20, /* список proxy groups */
+    IPC_CMD_GROUP_SELECT    = 21, /* ручной выбор сервера в group */
+    IPC_CMD_GROUP_TEST      = 22, /* запустить health-check группы */
+    IPC_CMD_PROVIDER_LIST   = 23, /* список rule providers */
+    IPC_CMD_PROVIDER_UPDATE = 24, /* принудительное обновление provider */
+    IPC_CMD_RULES_LIST      = 25, /* список traffic rules */
 } ipc_command_t;
 
 /* Коды ответов IPC */

@@ -74,6 +74,64 @@ typedef struct {
     char            comment[256];
 } device_config_t;
 
+/* Тип proxy-group */
+typedef enum {
+    PROXY_GROUP_SELECT       = 0,
+    PROXY_GROUP_URL_TEST     = 1,
+    PROXY_GROUP_FALLBACK     = 2,
+    PROXY_GROUP_LOAD_BALANCE = 3,
+} proxy_group_type_t;
+
+typedef struct {
+    char               name[64];
+    proxy_group_type_t type;
+    char               servers[512];   /* пробел-разделённый список */
+    char               url[512];       /* health-check URL */
+    int                interval;       /* сек */
+    int                timeout_ms;
+    int                tolerance_ms;
+    bool               enabled;
+} ProxyGroupConfig;
+
+/* Тип rule-provider */
+typedef enum {
+    RULE_PROVIDER_HTTP = 0,
+    RULE_PROVIDER_FILE = 1,
+} rule_provider_type_t;
+
+typedef enum {
+    RULE_FORMAT_DOMAIN    = 0,
+    RULE_FORMAT_IPCIDR    = 1,
+    RULE_FORMAT_CLASSICAL = 2,
+} rule_format_t;
+
+typedef struct {
+    char                 name[64];
+    rule_provider_type_t type;
+    char                 url[512];
+    char                 path[256];
+    rule_format_t        format;
+    int                  interval;    /* сек, 0=никогда */
+    bool                 enabled;
+} RuleProviderConfig;
+
+/* Тип traffic rule */
+typedef enum {
+    RULE_TYPE_DOMAIN         = 0,
+    RULE_TYPE_DOMAIN_SUFFIX  = 1,
+    RULE_TYPE_DOMAIN_KEYWORD = 2,
+    RULE_TYPE_IP_CIDR        = 3,
+    RULE_TYPE_RULE_SET       = 4,
+    RULE_TYPE_MATCH          = 5,
+} rule_type_t;
+
+typedef struct {
+    rule_type_t type;
+    char        value[256];
+    char        target[64];    /* имя group, DIRECT, REJECT */
+    int         priority;
+} TrafficRule;
+
 /* Основная конфигурация phoenixd */
 typedef struct PhoenixConfig {
     bool           enabled;
@@ -86,8 +144,14 @@ typedef struct PhoenixConfig {
     int            dns_rule_count;
     int            tai_utc_offset;      /* TAI-UTC в секундах, default 37 */
     char           lan_interface[32];   /* "br-lan" — для netdev hook */
-    device_config_t *devices;
-    int            device_count;
+    device_config_t      *devices;
+    int                   device_count;
+    ProxyGroupConfig     *proxy_groups;
+    int                   proxy_group_count;
+    RuleProviderConfig   *rule_providers;
+    int                   rule_provider_count;
+    TrafficRule          *traffic_rules;
+    int                   traffic_rule_count;
 } PhoenixConfig;
 
 /* Загрузка конфига из UCI-файла, возвращает 0 при успехе */

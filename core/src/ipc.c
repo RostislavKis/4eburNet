@@ -1,4 +1,7 @@
 #include "ipc.h"
+#include "proxy/proxy_group.h"
+#include "proxy/rule_provider.h"
+#include "proxy/rules_engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +15,19 @@
 #include <time.h>
 
 /* Размер буфера для ответов */
-#define IPC_RESPONSE_MAX 512
+#define IPC_RESPONSE_MAX 2048
+
+/* Контекст для команд proxy_group/rule_provider/rules_engine */
+static proxy_group_manager_t    *g_pgm = NULL;
+static rule_provider_manager_t  *g_rpm = NULL;
+static rules_engine_t           *g_re  = NULL;
+
+void ipc_set_3x_context(void *pgm, void *rpm, void *re)
+{
+    g_pgm = pgm;
+    g_rpm = rpm;
+    g_re  = re;
+}
 
 /* Backlog для listen() — количество ожидающих подключений */
 #define IPC_LISTEN_BACKLOG 8
@@ -154,6 +169,61 @@ void ipc_process(int server_fd, PhoenixState *state)
                  "{\"connections\":%lu,\"bytes_in\":0,\"bytes_out\":0}",
                  (unsigned long)state->connections_total);
         ipc_respond(client_fd, buf);
+        break;
+
+    case IPC_CMD_GROUP_LIST:
+        if (g_pgm) {
+            proxy_group_to_json(g_pgm, buf, sizeof(buf));
+            ipc_respond(client_fd, buf);
+        } else {
+            ipc_respond(client_fd, "{\"groups\":[]}");
+        }
+        break;
+
+    case IPC_CMD_GROUP_SELECT:
+        ipc_respond(client_fd, "{\"status\":\"not_implemented\"}");
+        break;
+
+    case IPC_CMD_GROUP_TEST:
+        if (g_pgm) {
+            proxy_group_tick(g_pgm);
+            ipc_respond(client_fd, "{\"status\":\"ok\"}");
+        } else {
+            ipc_respond(client_fd, "{\"error\":\"no groups\"}");
+        }
+        break;
+
+    case IPC_CMD_PROVIDER_LIST:
+        if (g_rpm) {
+            rule_provider_to_json(g_rpm, buf, sizeof(buf));
+            ipc_respond(client_fd, buf);
+        } else {
+            ipc_respond(client_fd, "{\"providers\":[]}");
+        }
+        break;
+
+    case IPC_CMD_PROVIDER_UPDATE:
+        ipc_respond(client_fd, "{\"status\":\"not_implemented\"}");
+        break;
+
+    case IPC_CMD_RULES_LIST:
+        if (g_re && g_re->sorted_rules) {
+            int p = 0;
+            p += snprintf(buf + p, sizeof(buf) - p, "{\"rules\":[");
+            for (int ri = 0; ri < g_re->rule_count &&
+                 p < (int)sizeof(buf) - 128; ri++) {
+                const TrafficRule *tr = &g_re->sorted_rules[ri];
+                if (ri > 0) p += snprintf(buf + p, sizeof(buf) - p, ",");
+                p += snprintf(buf + p, sizeof(buf) - p,
+                    "{\"type\":%d,\"value\":\"%s\",\"target\":\"%s\","
+                    "\"priority\":%d}",
+                    tr->type, tr->value, tr->target, tr->priority);
+            }
+            p += snprintf(buf + p, sizeof(buf) - p, "]}");
+            ipc_respond(client_fd, buf);
+        } else {
+            ipc_respond(client_fd, "{\"rules\":[]}");
+        }
         break;
 
     default:

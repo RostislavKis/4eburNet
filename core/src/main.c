@@ -12,6 +12,9 @@
 #include "dns/dns_server.h"
 #include "dns/dns_rules.h"
 #include "routing/device_policy.h"
+#include "proxy/proxy_group.h"
+#include "proxy/rule_provider.h"
+#include "proxy/rules_engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +38,9 @@ static dispatcher_state_t dispatcher_state;
 static rules_manager_t rules_state;
 static dns_server_t dns_state;
 static device_manager_t device_state;
+static proxy_group_manager_t pgm_state;
+static rule_provider_manager_t rpm_state;
+static rules_engine_t re_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -377,6 +383,14 @@ int main(int argc, char *argv[])
         log_msg(LOG_WARN, "Диспетчер не запущен");
     } else {
         dispatcher_set_context(&dispatcher_state, &cfg);
+
+        /* Proxy groups + rule providers + rules engine */
+        proxy_group_init(&pgm_state, &cfg);
+        rule_provider_init(&rpm_state, &cfg);
+        rule_provider_load_all(&rpm_state);
+        rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state);
+        dispatcher_set_rules_engine(&re_state);
+        ipc_set_3x_context(&pgm_state, &rpm_state, &re_state);
     }
 
     /* Установка обработчиков сигналов (M-10: SA_RESTART) */
@@ -472,6 +486,15 @@ int main(int argc, char *argv[])
         /* Relay события в своём epoll — timeout=0, не блокирует */
         dispatcher_tick(&dispatcher_state);
 
+        /* Периодические задачи: health-check групп и обновление провайдеров.
+         * tick_count инкрементируется в dispatcher_tick, здесь проверяем
+         * каждые ~30 сек (3000 тиков × 10мс) */
+        if (dispatcher_state.tick_count % 3000 == 0 &&
+            dispatcher_state.tick_count > 0) {
+            proxy_group_tick(&pgm_state);
+            rule_provider_tick(&rpm_state);
+        }
+
         /* Перезагрузка конфига по сигналу или IPC команде */
         if (state.reload) {
             log_msg(LOG_INFO, "Перезагрузка конфигурации...");
@@ -504,6 +527,15 @@ int main(int argc, char *argv[])
                     device_policy_init(&device_state, &cfg);
                     device_policy_apply(&device_state, cfg.lan_interface);
                 }
+                rules_engine_free(&re_state);
+                rule_provider_free(&rpm_state);
+                proxy_group_free(&pgm_state);
+                proxy_group_init(&pgm_state, &cfg);
+                rule_provider_init(&rpm_state, &cfg);
+                rule_provider_load_all(&rpm_state);
+                rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state);
+                dispatcher_set_rules_engine(&re_state);
+                ipc_set_3x_context(&pgm_state, &rpm_state, &re_state);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
@@ -519,6 +551,9 @@ cleanup:
     log_msg(LOG_INFO, "Завершение работы...");
     log_flush();
 
+    rules_engine_free(&re_state);
+    rule_provider_free(&rpm_state);
+    proxy_group_free(&pgm_state);
     device_policy_free(&device_state);
     device_policy_cleanup_nft();
     if (dns_state.initialized) {

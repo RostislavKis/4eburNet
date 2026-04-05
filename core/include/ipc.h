@@ -15,4 +15,7 @@ void ipc_cleanup(int server_fd);
 /* Отправляет IPC команду запущенному демону, возвращает ответ в buf */
 int  ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size);
 
+/* Установить контекст для IPC команд 20-25 */
+void ipc_set_3x_context(void *pgm, void *rpm, void *re);
+
 #endif /* IPC_H */
