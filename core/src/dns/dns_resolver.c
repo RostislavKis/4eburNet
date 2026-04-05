@@ -1,5 +1,6 @@
 #define _XOPEN_SOURCE 700
 #include "dns/dns_resolver.h"
+#include "net_utils.h"
 #include "phoenix.h"
 #include <string.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <arpa/inet.h>
 #include <sys/epoll.h>
 #include <time.h>
+#include <errno.h>
 
 void dns_pending_init(dns_pending_queue_t *q)
 {
@@ -36,10 +38,10 @@ int dns_pending_add(dns_pending_queue_t *q,
     dns_pending_t *p = &q->slots[idx];
     p->active = true;
     p->client_id = query->id;
-    /* Случайный upstream ID */
+    /* Случайный upstream ID (C-01: getrandom вместо предсказуемого LCG) */
     uint16_t uid;
-    /* Простой random из time + idx */
-    uid = (uint16_t)((time(NULL) * 1103515245 + idx) & 0xFFFF);
+    if (net_random_bytes((uint8_t *)&uid, sizeof(uid)) < 0)
+        uid = (uint16_t)(time(NULL) ^ idx);  /* аварийный fallback */
     p->upstream_id = uid;
 
     if (pkt_len > sizeof(p->query)) pkt_len = sizeof(p->query);
@@ -73,8 +75,15 @@ int dns_pending_add(dns_pending_queue_t *q,
     };
     inet_pton(AF_INET, upstream_ip, &uaddr.sin_addr);
 
-    sendto(p->upstream_fd, p->query, p->query_len, 0,
-           (struct sockaddr *)&uaddr, sizeof(uaddr));
+    ssize_t sent = sendto(p->upstream_fd, p->query, p->query_len, 0,
+                          (struct sockaddr *)&uaddr, sizeof(uaddr));
+    if (sent < 0) {
+        log_msg(LOG_DEBUG, "DNS pending: sendto: %s", strerror(errno));
+        close(p->upstream_fd);
+        p->upstream_fd = -1;
+        p->active = false;
+        return -1;
+    }
 
     q->count++;
     return idx;

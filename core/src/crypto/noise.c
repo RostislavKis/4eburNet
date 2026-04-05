@@ -533,17 +533,13 @@ int noise_decrypt(noise_state_t *ns,
     uint64_t ctr;
     memcpy(&ctr, cipher + 8, 8);
 
-    /* Replay protection: counter должен быть > последнего принятого */
-    if (ns->recv_counter > 0 && ctr <= ns->recv_counter - 1) {
-        log_msg(LOG_DEBUG, "Noise: replay атака (ctr=%llu, ожидали >%llu)",
+    /* Strict ordering: пакеты должны приходить по возрастанию counter.
+     * Out-of-order через bitmap sliding window — в v2. */
+    if (ctr < ns->recv_counter) {
+        log_msg(LOG_DEBUG, "Noise: replay/старый пакет "
+                "(ctr=%llu < ожидали %llu)",
                 (unsigned long long)ctr,
-                (unsigned long long)(ns->recv_counter - 1));
-        return -1;
-    }
-
-    /* Sliding window для out-of-order пакетов: допускаем отставание до 64 */
-    if (ns->recv_counter > 64 && ctr < ns->recv_counter - 64) {
-        log_msg(LOG_DEBUG, "Noise: слишком старый пакет");
+                (unsigned long long)ns->recv_counter);
         return -1;
     }
 

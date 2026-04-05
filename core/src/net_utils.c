@@ -16,6 +16,10 @@
 #include <sys/wait.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/syscall.h>
+#include <stdint.h>
 #include <arpa/inet.h>
 
 extern char **environ;
@@ -165,4 +169,33 @@ int exec_cmd_safe(const char *const argv[], char *out, size_t outlen)
     int status;
     waitpid(pid, &status, 0);
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+/* ------------------------------------------------------------------ */
+/*  net_random_bytes — криптографически безопасный random (C-01)        */
+/* ------------------------------------------------------------------ */
+
+int net_random_bytes(uint8_t *buf, size_t len)
+{
+#ifdef __NR_getrandom
+    size_t done = 0;
+    while (done < len) {
+        ssize_t r = syscall(__NR_getrandom, buf + done, len - done, 0);
+        if (r < 0 && errno == EINTR) continue;
+        if (r < 0) goto fallback;
+        done += (size_t)r;
+    }
+    return 0;
+fallback:
+#endif
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    size_t total = 0;
+    while (total < len) {
+        ssize_t n = read(fd, buf + total, len - total);
+        if (n <= 0) { close(fd); return -1; }
+        total += (size_t)n;
+    }
+    close(fd);
+    return 0;
 }
