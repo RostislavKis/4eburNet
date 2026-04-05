@@ -9,6 +9,7 @@
 #include "dns/dns_upstream.h"
 #include "phoenix.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -217,31 +218,39 @@ static void handle_udp_query(dns_server_t *ds)
     /* Определить action */
     dns_action_t action = dns_rules_match(q.qname);
 
+    /* L-16: response и reply на heap (4096×2 = 8KB слишком много для стека роутера) */
+    uint8_t *response = malloc(DNS_MAX_PACKET);
+    uint8_t *reply = malloc(DNS_MAX_PACKET);
+    if (!response || !reply) {
+        free(response); free(reply);
+        return;
+    }
+
     if (action == DNS_ACTION_BLOCK) {
-        uint8_t nxdomain[DNS_MAX_PACKET];
-        int nx_len = dns_build_nxdomain(&q, nxdomain, sizeof(nxdomain));
+        /* Для nxdomain используем reply буфер (response не нужен одновременно) */
+        int nx_len = dns_build_nxdomain(&q, reply, DNS_MAX_PACKET);
         if (nx_len > 0) {
-            if (sendto(ds->udp_fd, nxdomain, nx_len, 0,
+            if (sendto(ds->udp_fd, reply, nx_len, 0,
                        (struct sockaddr *)&client_addr, client_len) < 0)
                 log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
             log_msg(LOG_DEBUG, "DNS: %s → NXDOMAIN (blocked)", q.qname);
         }
+        free(response); free(reply);
         return;
     }
 
     /* Запрос к upstream */
-    uint8_t response[DNS_MAX_PACKET];
     ssize_t resp_n = resolve_query(ds, action, pkt, n,
-                                   response, sizeof(response));
+                                   response, DNS_MAX_PACKET);
     if (resp_n <= 0) {
         log_msg(LOG_DEBUG, "DNS: %s — upstream не ответил", q.qname);
+        free(response); free(reply);
         return;
     }
 
     /* Подставить ID клиента и отправить */
-    uint8_t reply[DNS_MAX_PACKET];
     int reply_len = dns_build_forward_reply(&q, response, resp_n,
-                                            reply, sizeof(reply));
+                                            reply, DNS_MAX_PACKET);
     if (reply_len > 0) {
         if (sendto(ds->udp_fd, reply, reply_len, 0,
                    (struct sockaddr *)&client_addr, client_len) < 0)
@@ -261,6 +270,8 @@ static void handle_udp_query(dns_server_t *ds)
                 action == DNS_ACTION_PROXY  ? "proxy" : "default",
                 ttl);
     }
+    free(response);
+    free(reply);
 }
 
 /* Обработка TCP DNS (accept + read + process + write + close)

@@ -24,7 +24,8 @@ typedef struct {
     /* Junk packets */
     uint8_t  jc;
     uint16_t jmin, jmax;
-    /* CPS signature packets */
+    /* CPS signature packets (5 строк по 256 байт = 1280 байт.
+     * Приемлемо: max 8 серверов = ~10KB суммарно.) */
     char     i1[256], i2[256], i3[256], i4[256], i5[256];
     /* Keepalive */
     uint16_t keepalive;

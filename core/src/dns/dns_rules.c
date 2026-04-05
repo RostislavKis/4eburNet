@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 
 /* Внутренний массив правил */
 static struct {
@@ -22,6 +23,10 @@ int dns_rules_init(const PhoenixConfig *cfg)
     if (cfg->dns_rule_count == 0)
         return 0;
 
+    if (cfg->dns_rule_count > INT_MAX - 256) {
+        log_msg(LOG_ERROR, "DNS rules: слишком много правил");
+        return -1;
+    }
     g_rules.capacity = cfg->dns_rule_count + 256;
     g_rules.patterns = calloc(g_rules.capacity, sizeof(char *));
     g_rules.actions  = calloc(g_rules.capacity, sizeof(dns_action_t));

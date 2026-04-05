@@ -57,7 +57,7 @@ void device_policy_free(device_manager_t *dm)
 int device_policy_add(device_manager_t *dm, const device_config_t *dev)
 {
     if (dm->count >= dm->capacity) {
-        int new_cap = dm->capacity + 16;
+        int new_cap = dm->capacity < 16 ? 16 : dm->capacity * 2;
         device_config_t *n = realloc(dm->devices,
             (size_t)new_cap * sizeof(device_config_t));
         if (!n) return -1;

@@ -6,6 +6,7 @@
 #include <time.h>
 #include <stdbool.h>
 
+/* Максимальный размер DNS пакета (EDNS0 совместимо) */
 #define DNS_MAX_PACKET 4096
 
 typedef struct {

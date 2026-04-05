@@ -1,7 +1,8 @@
 CC = musl-gcc
 CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -pipe -D_GNU_SOURCE -static
-INCLUDES = -Iinclude -I/usr/local/musl-wolfssl/include
-LDFLAGS = -L/usr/local/musl-wolfssl/lib -lwolfssl -lm
+WOLFSSL_PREFIX ?= /usr/local/musl-wolfssl
+INCLUDES = -Iinclude -I$(WOLFSSL_PREFIX)/include
+LDFLAGS = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
 SRCDIR = src
 BUILDDIR = ../../build
 SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c \
@@ -23,6 +24,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dns/dns_server.c
 TARGET = $(BUILDDIR)/phoenixd
 
+# StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
 
 all: $(TARGET)

@@ -63,6 +63,7 @@ static uint32_t random_u32(void)
 static uint32_t rand_in_range(uint32_t min, uint32_t max)
 {
     if (min >= max) return min;
+    /* Modulo bias пренебрежимо мал для обфускации */
     return (random_u32() % (max - min + 1)) + min;
 }
 

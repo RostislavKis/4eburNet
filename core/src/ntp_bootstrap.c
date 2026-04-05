@@ -29,6 +29,9 @@ static const struct {
     const char *host;
 } bootstrap_hosts[] = NTP_BOOTSTRAP_HOSTS;
 
+/* HTTP порт для bootstrap */
+#define NTP_HTTP_PORT   80
+
 /* Размер буфера для HTTP ответа */
 #define HTTP_BUF_SIZE   1024
 
@@ -84,7 +87,7 @@ static int try_host(const char *ip, const char *host)
     /* Адрес сервера */
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
-        .sin_port   = htons(80),
+        .sin_port   = htons(NTP_HTTP_PORT),
     };
     if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) {
         close(fd);

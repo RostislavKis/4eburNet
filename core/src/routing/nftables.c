@@ -37,17 +37,41 @@
 /*  nft_exec — выполнить одиночную команду nft                        */
 /* ------------------------------------------------------------------ */
 
-/* Валидация CIDR строки — только безопасные символы (S-02) */
+/* Валидация CIDR строки — только безопасные символы (S-02, L-26) */
 static bool validate_cidr(const char *cidr)
 {
     if (!cidr || !cidr[0])
         return false;
+
+    size_t len = strlen(cidr);
+    /* IPv6 + /128 = максимум 43 символа */
+    if (len > 43)
+        return false;
+
+    int slash_count = 0;
+    bool after_slash = false;
     for (const char *p = cidr; *p; p++) {
         char c = *p;
+        /* Пробелы запрещены */
+        if (c == ' ' || c == '\t')
+            return false;
+        if (c == '/') {
+            slash_count++;
+            if (slash_count > 1)
+                return false;
+            after_slash = true;
+            continue;
+        }
+        /* После '/' — только цифры (длина маски) */
+        if (after_slash) {
+            if (!(c >= '0' && c <= '9'))
+                return false;
+            continue;
+        }
         if (!((c >= '0' && c <= '9') ||
               (c >= 'a' && c <= 'f') ||
               (c >= 'A' && c <= 'F') ||
-              c == '.' || c == ':' || c == '/'))
+              c == '.' || c == ':'))
             return false;
     }
     return strpbrk(cidr, "0123456789") != NULL;
@@ -1059,8 +1083,10 @@ static void vmap_count(const char *map_name)
 
     char out[32] = {0};
     exec_cmd_capture(cmd, out, sizeof(out));
-    int count = atoi(out);
-    log_msg(LOG_INFO, "  %s: %d записей", map_name, count);
+    char *endptr;
+    long count = strtol(out, &endptr, 10);
+    if (endptr == out) count = 0;
+    log_msg(LOG_INFO, "  %s: %ld записей", map_name, count);
 }
 
 void nft_vmap_stats(void)

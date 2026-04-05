@@ -14,6 +14,9 @@
 /* Размер буфера для ответов */
 #define IPC_RESPONSE_MAX 512
 
+/* Backlog для listen() — количество ожидающих подключений */
+#define IPC_LISTEN_BACKLOG 8
+
 /* Отправка строки в подключённый сокет */
 static void ipc_respond(int client_fd, const char *json)
 {
@@ -63,7 +66,7 @@ int ipc_init(void)
         return -1;
     }
 
-    if (listen(fd, 5) < 0) {
+    if (listen(fd, IPC_LISTEN_BACKLOG) < 0) {
         log_msg(LOG_ERROR, "listen() не удался");
         close(fd);
         unlink(PHOENIX_IPC_SOCKET);

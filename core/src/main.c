@@ -24,6 +24,10 @@
 #include <errno.h>
 #include <limits.h>
 
+/* Параметры master epoll */
+#define EPOLL_MAX_EVENTS  32
+#define EPOLL_TIMEOUT_MS  10
+
 /* Глобальное состояние — доступно из обработчиков сигналов */
 static PhoenixState state;
 static tproxy_state_t tproxy_state;
@@ -76,7 +80,9 @@ static pid_t check_pid_file(void)
     }
 
     pid_t pid = 0;
-    if (fscanf(f, "%d", &pid) == 1 && pid > 0) {
+    int pid_int = 0;
+    if (fscanf(f, "%d", &pid_int) == 1 && pid_int > 0) {
+        pid = (pid_t)pid_int;
         /* Проверяем, жив ли процесс */
         if (kill(pid, 0) == 0) {
             fclose(f);
@@ -431,8 +437,8 @@ int main(int argc, char *argv[])
 
     while (state.running) {
         /* Единственный blocking wait — 10мс таймаут */
-        struct epoll_event events[32];
-        int n = epoll_wait(master_epoll, events, 32, 10);
+        struct epoll_event events[EPOLL_MAX_EVENTS];
+        int n = epoll_wait(master_epoll, events, EPOLL_MAX_EVENTS, EPOLL_TIMEOUT_MS);
 
         for (int i = 0; i < n; i++) {
             int fd = events[i].data.fd;

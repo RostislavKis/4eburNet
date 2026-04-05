@@ -7,6 +7,7 @@
 #include "phoenix.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -235,9 +236,16 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
         close(fd); return -1;
     }
 
-    /* HTTP GET запрос */
-    char http_req[2048];
-    int req_len = snprintf(http_req, sizeof(http_req),
+    /* HTTP GET запрос (L-15: heap вместо стека) */
+    char *http_req = malloc(2048);
+    uint8_t *http_buf = malloc(8192);
+    if (!http_req || !http_buf) {
+        free(http_req); free(http_buf);
+        tls_close(&tls); close(fd);
+        return -1;
+    }
+
+    int req_len = snprintf(http_req, 2048,
         "GET %s?dns=%s HTTP/1.0\r\n"
         "Host: %s\r\n"
         "Accept: application/dns-message\r\n"
@@ -246,24 +254,25 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
         path, b64, host);
 
     if (tls_send(&tls, http_req, req_len) != req_len) {
+        free(http_req); free(http_buf);
         tls_close(&tls); close(fd); return -1;
     }
 
     /* Читаем HTTP ответ */
-    uint8_t http_buf[4096];
     ssize_t total = 0;
-    while (total < (ssize_t)sizeof(http_buf) - 1) {
-        ssize_t n = tls_recv(&tls, http_buf + total,
-                             sizeof(http_buf) - 1 - total);
+    while (total < 8191) {
+        ssize_t n = tls_recv(&tls, http_buf + total, 8191 - total);
         if (n <= 0) break;
         total += n;
     }
     tls_close(&tls);
     close(fd);
+    free(http_req);
 
     /* M-27: chunked encoding не поддерживается */
     if (strstr((char *)http_buf, "Transfer-Encoding: chunked")) {
         log_msg(LOG_WARN, "DoH: chunked encoding не поддерживается");
+        free(http_buf);
         return -1;
     }
 
@@ -276,11 +285,12 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
             break;
         }
     }
-    if (!body) return -1;
+    if (!body) { free(http_buf); return -1; }
 
     size_t body_len = total - (body - http_buf);
-    if (body_len < 12 || body_len > resp_buflen) return -1;
+    if (body_len < 12 || body_len > resp_buflen) { free(http_buf); return -1; }
 
     memcpy(response, body, body_len);
+    free(http_buf);
     return (ssize_t)body_len;
 }

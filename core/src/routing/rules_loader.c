@@ -92,6 +92,12 @@ int rules_add_source(rules_manager_t *rm,
         return -1;
     }
 
+    /* L-24: проверка path traversal */
+    if (strstr(path, "..") != NULL) {
+        log_msg(LOG_WARN, "rules_loader: опасный путь: %s", path);
+        return -1;
+    }
+
     rules_source_t *s = &rm->sources[rm->source_count];
     snprintf(s->path, sizeof(s->path), "%s", path);
     s->type = type;

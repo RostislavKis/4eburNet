@@ -163,6 +163,8 @@ void blake3_hasher_init_derive_key(blake3_hasher *self,
 void blake3_hasher_update(blake3_hasher *self,
                           const void *input, size_t input_len)
 {
+    /* Ограничение: single-chunk <= 1024 байт.
+     * Для SS2022 KDF достаточно (64 байта PSK||salt). */
     const uint8_t *data = input;
 
     while (input_len > 0) {
