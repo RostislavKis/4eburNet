@@ -14,6 +14,7 @@
 #include "proxy/protocols/trojan.h"
 #include "proxy/protocols/shadowsocks.h"
 #include "proxy/protocols/awg.h"
+#include "proxy/rules_engine.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -50,12 +51,18 @@
  * Сейчас безопасно — однопоточная архитектура, один экземпляр (M-09). */
 static dispatcher_state_t *g_dispatcher = NULL;
 static const PhoenixConfig *g_config    = NULL;
+static rules_engine_t     *g_rules_engine = NULL;
 
 void dispatcher_set_context(dispatcher_state_t *ds,
                             const PhoenixConfig *cfg)
 {
     g_dispatcher = ds;
     g_config     = cfg;
+}
+
+void dispatcher_set_rules_engine(rules_engine_t *re)
+{
+    g_rules_engine = re;
 }
 
 /* ------------------------------------------------------------------ */
@@ -740,7 +747,58 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     const PhoenixConfig *cfg = g_config;
 
     /* Выбрать сервер через health-check */
-    int idx = dispatcher_select_server(ds, cfg);
+    int idx;
+    if (g_rules_engine && g_rules_engine->rule_count > 0) {
+        idx = rules_engine_get_server(g_rules_engine, NULL, &conn->dst);
+        if (idx == -2) {
+            log_msg(LOG_DEBUG, "relay: REJECT (rules engine)");
+            close(conn->fd);
+            return;
+        }
+        if (idx == -1) {
+            /* DIRECT: relay напрямую к dst без прокси */
+            char dst_str[64];
+            net_format_addr(&conn->dst, dst_str, sizeof(dst_str));
+            log_msg(LOG_DEBUG, "relay: DIRECT → %s", dst_str);
+
+            relay_conn_t *r = relay_alloc(ds);
+            if (!r) { close(conn->fd); return; }
+
+            r->client_fd  = conn->fd;
+            r->dst        = conn->dst;
+            r->created_at = time(NULL);
+            r->server_idx = -1;
+
+            int dfd = socket(conn->dst.ss_family,
+                             SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+            if (dfd < 0) { relay_free(ds, r); return; }
+            r->upstream_fd = dfd;
+
+            socklen_t slen = (conn->dst.ss_family == AF_INET6)
+                ? sizeof(struct sockaddr_in6)
+                : sizeof(struct sockaddr_in);
+            int rc = connect(dfd, (struct sockaddr *)&conn->dst, slen);
+            if (rc < 0 && errno != EINPROGRESS) {
+                relay_free(ds, r);
+                return;
+            }
+
+            r->use_tls = false;
+            r->state   = (rc == 0) ? RELAY_ACTIVE : RELAY_CONNECTING;
+
+            struct epoll_event ev = { .events = EPOLLIN | EPOLLET };
+            ev.data.ptr = &r->ep_client;
+            epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->client_fd, &ev);
+            ev.data.ptr = &r->ep_upstream;
+            ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
+            epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->upstream_fd, &ev);
+
+            ds->total_accepted++;
+            return;
+        }
+    } else {
+        idx = dispatcher_select_server(ds, cfg);
+    }
     if (idx < 0) {
         log_msg(LOG_WARN, "relay: нет доступных серверов");
         close(conn->fd);

@@ -35,6 +35,7 @@ typedef struct relay_conn relay_conn_t;
 struct xhttp_state;   /* из vless_xhttp.h */
 struct ss_state;      /* из shadowsocks.h */
 struct awg_state;     /* из awg.h — awg_state_t */
+struct rules_engine;  /* из rules_engine.h */
 
 /*
  * Тег для epoll data.ptr — различает client_fd и upstream_fd
@@ -118,6 +119,7 @@ typedef struct {
 int  dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile);
 void dispatcher_set_context(dispatcher_state_t *ds,
                             const PhoenixConfig *cfg);
+void dispatcher_set_rules_engine(struct rules_engine *re);
 void dispatcher_tick(dispatcher_state_t *ds);
 void dispatcher_cleanup(dispatcher_state_t *ds);
 void dispatcher_stats(const dispatcher_state_t *ds,
