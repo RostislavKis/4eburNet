@@ -72,7 +72,7 @@ static time_t parse_http_date(const char *date_str)
 static int try_host(const char *ip, const char *host)
 {
     /* Создаём TCP сокет */
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0)
         return -1;
 

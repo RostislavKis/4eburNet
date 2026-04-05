@@ -209,6 +209,27 @@ void device_policy_cleanup_nft(void)
 /*  JSON для IPC                                                       */
 /* ------------------------------------------------------------------ */
 
+/* Экранирование строки для JSON (H-10) */
+static void json_escape(const char *in, char *out, size_t outlen)
+{
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j + 2 < outlen; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '"' || c == '\\') {
+            if (j + 3 >= outlen) break;
+            out[j++] = '\\';
+            out[j++] = (char)c;
+        } else if (c < 0x20) {
+            if (j + 7 >= outlen) break;
+            snprintf(out + j, outlen - j, "\\u%04x", c);
+            j += 6;
+        } else {
+            out[j++] = (char)c;
+        }
+    }
+    out[j] = '\0';
+}
+
 int device_policy_to_json(const device_manager_t *dm,
                           char *buf, size_t buflen)
 {
@@ -222,6 +243,13 @@ int device_policy_to_json(const device_manager_t *dm,
         else if (d->policy == DEVICE_POLICY_BYPASS) pol = "bypass";
         else if (d->policy == DEVICE_POLICY_BLOCK) pol = "block";
 
+        /* Экранировать строковые поля (H-10) */
+        char esc_name[128], esc_alias[128], esc_group[128], esc_comment[256];
+        json_escape(d->name, esc_name, sizeof(esc_name));
+        json_escape(d->alias, esc_alias, sizeof(esc_alias));
+        json_escape(d->server_group, esc_group, sizeof(esc_group));
+        json_escape(d->comment, esc_comment, sizeof(esc_comment));
+
         if (i > 0) pos += snprintf(buf + pos, buflen - pos, ",");
         pos += snprintf(buf + pos, buflen - pos,
             "{\"name\":\"%s\",\"alias\":\"%s\","
@@ -229,10 +257,10 @@ int device_policy_to_json(const device_manager_t *dm,
             "\"server_group\":\"%s\","
             "\"enabled\":%s,\"priority\":%d,"
             "\"comment\":\"%s\"}",
-            d->name, d->alias, d->mac_str, pol,
-            d->server_group,
+            esc_name, esc_alias, d->mac_str, pol,
+            esc_group,
             d->enabled ? "true" : "false", d->priority,
-            d->comment);
+            esc_comment);
     }
 
     pos += snprintf(buf + pos, buflen - pos, "]}");

@@ -35,7 +35,7 @@ int ipc_init(void)
     /* Удаляем старый сокет, если остался */
     unlink(PHOENIX_IPC_SOCKET);
 
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         log_msg(LOG_ERROR, "Не удалось создать Unix-сокет");
         return -1;
@@ -152,7 +152,7 @@ void ipc_cleanup(int server_fd)
 
 int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
 {
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0)
         return -1;
 

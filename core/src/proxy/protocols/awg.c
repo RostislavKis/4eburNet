@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+#include <sys/syscall.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -28,16 +29,28 @@
 /*  Вспомогательные                                                    */
 /* ------------------------------------------------------------------ */
 
-static void random_fill(uint8_t *buf, size_t len)
+static int random_fill(uint8_t *buf, size_t len)
 {
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd >= 0) { read(fd, buf, len); close(fd); }
+#ifdef __NR_getrandom
+    ssize_t rc = syscall(__NR_getrandom, buf, len, 0);
+    if (rc == (ssize_t)len) return 0;
+#endif
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    size_t done = 0;
+    while (done < len) {
+        ssize_t n = read(fd, buf + done, len - done);
+        if (n <= 0) { close(fd); return -1; }
+        done += (size_t)n;
+    }
+    close(fd);
+    return 0;
 }
 
 static uint32_t random_u32(void)
 {
-    uint32_t v;
-    random_fill((uint8_t *)&v, 4);
+    uint32_t v = 0;
+    random_fill((uint8_t *)&v, 4);  /* при ошибке v=0, допустимо для junk */
     return v;
 }
 
@@ -230,20 +243,33 @@ static size_t awg_add_padding(uint8_t *pkt, size_t pkt_len, uint16_t s_max)
 int awg_handshake_start(awg_state_t *awg,
                         const char *server_ip, uint16_t server_port)
 {
-    /* UDP сокет */
-    awg->udp_fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-    if (awg->udp_fd < 0) return -1;
+    /* UDP сокет с поддержкой IPv4 и IPv6 (H-09) */
+    struct sockaddr_storage ss;
+    memset(&ss, 0, sizeof(ss));
+    socklen_t ss_len;
 
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port   = htons(server_port),
-    };
-    if (inet_pton(AF_INET, server_ip, &addr.sin_addr) != 1) {
-        close(awg->udp_fd); awg->udp_fd = -1;
+    if (inet_pton(AF_INET, server_ip,
+                  &((struct sockaddr_in *)&ss)->sin_addr) == 1) {
+        ((struct sockaddr_in *)&ss)->sin_family = AF_INET;
+        ((struct sockaddr_in *)&ss)->sin_port   = htons(server_port);
+        ss_len = sizeof(struct sockaddr_in);
+        awg->udp_fd = socket(AF_INET,
+                             SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    } else if (inet_pton(AF_INET6, server_ip,
+                         &((struct sockaddr_in6 *)&ss)->sin6_addr) == 1) {
+        ((struct sockaddr_in6 *)&ss)->sin6_family = AF_INET6;
+        ((struct sockaddr_in6 *)&ss)->sin6_port   = htons(server_port);
+        ss_len = sizeof(struct sockaddr_in6);
+        awg->udp_fd = socket(AF_INET6,
+                             SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    } else {
+        log_msg(LOG_ERROR, "AWG: невалидный IP: %s", server_ip);
         return -1;
     }
 
-    if (connect(awg->udp_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 &&
+    if (awg->udp_fd < 0) return -1;
+
+    if (connect(awg->udp_fd, (struct sockaddr *)&ss, ss_len) < 0 &&
         errno != EINPROGRESS) {
         close(awg->udp_fd); awg->udp_fd = -1;
         return -1;
