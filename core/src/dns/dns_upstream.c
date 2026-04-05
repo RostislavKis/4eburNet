@@ -23,7 +23,7 @@ ssize_t dns_upstream_query(const char *server_ip, uint16_t server_port,
                            uint8_t *response, size_t resp_buflen,
                            int timeout_ms)
 {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return -1;
 
     /* Жёсткий потолок 500ms для защиты event loop (C-02) */
@@ -73,7 +73,7 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
                       const uint8_t *query, size_t query_len,
                       uint8_t *response, size_t resp_buflen)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return -1;
 
     /* Таймаут 1 сек для защиты event loop (C-02) */
@@ -190,7 +190,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     }
 
     /* TCP + TLS подключение */
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return -1;
 
     /* Таймаут 1 сек для защиты event loop (C-02) */

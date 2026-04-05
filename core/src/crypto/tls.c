@@ -93,13 +93,14 @@ int tls_global_init(void)
     return 0;
 }
 
-/* Предварительное объявление кэша CTX (определён ниже) */
-static WOLFSSL_CTX *g_ctx_cache[4];
+/* Предварительное объявление кэша CTX (определён ниже)
+   Ключ кэша: fingerprint * 2 + verify_cert (H-06) */
+static WOLFSSL_CTX *g_ctx_cache[8];
 
 void tls_global_cleanup(void)
 {
-    /* Освободить кэш CTX (H-04) */
-    for (int i = 0; i < 4; i++) {
+    /* Освободить кэш CTX (H-04, H-06) */
+    for (int i = 0; i < 8; i++) {
         if (g_ctx_cache[i]) {
             wolfSSL_CTX_free(g_ctx_cache[i]);
             g_ctx_cache[i] = NULL;
@@ -150,8 +151,9 @@ static void apply_ssl_fingerprint(WOLFSSL *ssl, tls_fingerprint_t fp)
 static WOLFSSL_CTX *get_or_create_ctx(tls_fingerprint_t fp,
                                       bool verify_cert)
 {
-    int idx = (int)fp;
-    if (idx < 0 || idx >= 4) idx = 0;
+    /* Ключ кэша учитывает verify_cert (H-06) */
+    int idx = (int)fp * 2 + (verify_cert ? 1 : 0);
+    if (idx < 0 || idx >= 8) return NULL;
 
     if (g_ctx_cache[idx])
         return g_ctx_cache[idx];
