@@ -31,11 +31,12 @@ typedef struct {
 static provider_cache_t s_cache[MAX_PROVIDER_CACHE];
 static int s_cache_count = 0;
 
-/* Сортировка по priority ASC */
+/* Сортировка по priority ASC (M-05: без integer overflow) */
 static int cmp_priority(const void *a, const void *b)
 {
-    return ((const TrafficRule *)a)->priority -
-           ((const TrafficRule *)b)->priority;
+    int pa = ((const TrafficRule *)a)->priority;
+    int pb = ((const TrafficRule *)b)->priority;
+    return (pa > pb) - (pa < pb);
 }
 
 /* Сравнение строк для qsort/bsearch */
@@ -207,26 +208,50 @@ static bool suffix_match(const char *domain, const char *suffix)
     return false;
 }
 
-/* CIDR match: ip_str содержит "1.2.3.0/24", dst — sockaddr */
+/* CIDR match: IPv4 + IPv6 (H-05) */
 static bool cidr_match(const struct sockaddr_storage *dst, const char *cidr)
 {
-    if (!dst || dst->ss_family != AF_INET) return false;
+    if (!dst) return false;
 
     char ip_str[64];
-    int prefix = 32;
+    int prefix = -1;
     snprintf(ip_str, sizeof(ip_str), "%s", cidr);
 
     char *slash = strchr(ip_str, '/');
     if (slash) { *slash = '\0'; prefix = atoi(slash + 1); }
 
-    struct in_addr net;
-    if (inet_pton(AF_INET, ip_str, &net) != 1) return false;
+    if (dst->ss_family == AF_INET) {
+        if (prefix < 0) prefix = 32;
+        if (prefix > 32) return false;
+        struct in_addr net;
+        if (inet_pton(AF_INET, ip_str, &net) != 1) return false;
+        const struct sockaddr_in *s4 = (const struct sockaddr_in *)dst;
+        uint32_t mask = prefix == 0
+            ? 0U : htonl(~((1U << (32 - prefix)) - 1));
+        return (s4->sin_addr.s_addr & mask) == (net.s_addr & mask);
+    }
 
-    const struct sockaddr_in *s4 = (const struct sockaddr_in *)dst;
-    uint32_t mask = prefix == 0 ? 0 : ~((1U << (32 - prefix)) - 1);
-    mask = htonl(mask);
+    if (dst->ss_family == AF_INET6) {
+        if (prefix < 0) prefix = 128;
+        if (prefix > 128) return false;
+        struct in6_addr net6;
+        if (inet_pton(AF_INET6, ip_str, &net6) != 1) return false;
+        const struct sockaddr_in6 *s6 = (const struct sockaddr_in6 *)dst;
+        /* Побайтовое сравнение с маской */
+        int full_bytes = prefix / 8;
+        int rem_bits   = prefix % 8;
+        if (memcmp(&s6->sin6_addr, &net6, full_bytes) != 0)
+            return false;
+        if (rem_bits > 0) {
+            uint8_t mask8 = (uint8_t)(0xFF << (8 - rem_bits));
+            if ((s6->sin6_addr.s6_addr[full_bytes] & mask8) !=
+                (net6.s6_addr[full_bytes] & mask8))
+                return false;
+        }
+        return true;
+    }
 
-    return (s4->sin_addr.s_addr & mask) == (net.s_addr & mask);
+    return false;
 }
 
 /* C-4: проверить RULE-SET provider по домену — in-memory binary search */

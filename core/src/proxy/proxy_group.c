@@ -33,13 +33,19 @@ int proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg)
     pgm->cfg = cfg;
     if (cfg->proxy_group_count == 0) return 0;
 
-    pgm->groups = calloc(cfg->proxy_group_count, sizeof(proxy_group_state_t));
-    if (!pgm->groups) return -1;
-    pgm->count = cfg->proxy_group_count;
+    /* M-07: считаем только enabled группы */
+    int enabled = 0;
+    for (int g = 0; g < cfg->proxy_group_count; g++)
+        if (cfg->proxy_groups[g].enabled) enabled++;
+    if (enabled == 0) return 0;
 
-    for (int g = 0; g < pgm->count; g++) {
+    pgm->groups = calloc(enabled, sizeof(proxy_group_state_t));
+    if (!pgm->groups) return -1;
+
+    for (int g = 0; g < cfg->proxy_group_count; g++) {
         const ProxyGroupConfig *gc = &cfg->proxy_groups[g];
-        proxy_group_state_t *gs = &pgm->groups[g];
+        if (!gc->enabled) continue;
+        proxy_group_state_t *gs = &pgm->groups[pgm->count];
 
         snprintf(gs->name, sizeof(gs->name), "%s", gc->name);
         gs->type = gc->type;
@@ -69,6 +75,7 @@ int proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg)
 
         log_msg(LOG_DEBUG, "Группа %s: тип %d, %d серверов",
                 gs->name, gs->type, gs->server_count);
+        pgm->count++;
     }
 
     log_msg(LOG_INFO, "Proxy groups: %d загружено", pgm->count);
@@ -249,28 +256,34 @@ int proxy_group_select_manual(proxy_group_manager_t *pgm,
 int proxy_group_to_json(const proxy_group_manager_t *pgm,
                         char *buf, size_t buflen)
 {
+    if (!buflen) return 0;
     int pos = 0;
-    pos += snprintf(buf + pos, buflen - pos, "{\"groups\":[");
-    for (int g = 0; g < pgm->count; g++) {
+
+    /* H-01: guard — snprintf только если есть место */
+#define JS(fmt, ...) do { \
+    if ((size_t)pos < buflen - 1) \
+        pos += snprintf(buf + pos, buflen - (size_t)pos, fmt, ##__VA_ARGS__); \
+} while(0)
+
+    JS("{\"groups\":[");
+    for (int g = 0; g < pgm->count && (size_t)pos < buflen - 1; g++) {
         const proxy_group_state_t *gs = &pgm->groups[g];
-        if (g > 0) pos += snprintf(buf + pos, buflen - pos, ",");
-        /* H-6: экранируем name для JSON */
+        if (g > 0) JS(",");
         char esc_name[128];
         json_escape_str(gs->name, esc_name, sizeof(esc_name));
-        pos += snprintf(buf + pos, buflen - pos,
-            "{\"name\":\"%s\",\"type\":%d,\"selected\":%d,\"servers\":[",
+        JS("{\"name\":\"%s\",\"type\":%d,\"selected\":%d,\"servers\":[",
             esc_name, gs->type, gs->selected_idx);
-        for (int i = 0; i < gs->server_count; i++) {
-            if (i > 0) pos += snprintf(buf + pos, buflen - pos, ",");
-            pos += snprintf(buf + pos, buflen - pos,
-                "{\"idx\":%d,\"available\":%s,\"latency\":%u,\"fails\":%u}",
+        for (int i = 0; i < gs->server_count && (size_t)pos < buflen - 1; i++) {
+            if (i > 0) JS(",");
+            JS("{\"idx\":%d,\"available\":%s,\"latency\":%u,\"fails\":%u}",
                 gs->servers[i].server_idx,
                 gs->servers[i].available ? "true" : "false",
                 gs->servers[i].latency_ms,
                 gs->servers[i].fail_count);
         }
-        pos += snprintf(buf + pos, buflen - pos, "]}");
+        JS("]}");
     }
-    pos += snprintf(buf + pos, buflen - pos, "]}");
+    JS("]}");
+#undef JS
     return pos;
 }

@@ -1,4 +1,5 @@
 #include "ipc.h"
+#include "net_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -210,15 +211,20 @@ void ipc_process(int server_fd, PhoenixState *state)
             int p = 0;
             p += snprintf(buf + p, sizeof(buf) - p, "{\"rules\":[");
             for (int ri = 0; ri < g_re->rule_count &&
-                 p < (int)sizeof(buf) - 128; ri++) {
+                 (size_t)p < sizeof(buf) - 256; ri++) {
                 const TrafficRule *tr = &g_re->sorted_rules[ri];
-                if (ri > 0) p += snprintf(buf + p, sizeof(buf) - p, ",");
-                p += snprintf(buf + p, sizeof(buf) - p,
+                if (ri > 0) p += snprintf(buf + p, sizeof(buf) - (size_t)p, ",");
+                /* H-02: экранируем value и target для JSON */
+                char esc_val[512], esc_tgt[128];
+                json_escape_str(tr->value,  esc_val, sizeof(esc_val));
+                json_escape_str(tr->target, esc_tgt, sizeof(esc_tgt));
+                p += snprintf(buf + p, sizeof(buf) - (size_t)p,
                     "{\"type\":%d,\"value\":\"%s\",\"target\":\"%s\","
                     "\"priority\":%d}",
-                    tr->type, tr->value, tr->target, tr->priority);
+                    tr->type, esc_val, esc_tgt, tr->priority);
             }
-            p += snprintf(buf + p, sizeof(buf) - p, "]}");
+            if ((size_t)p < sizeof(buf) - 2)
+                p += snprintf(buf + p, sizeof(buf) - (size_t)p, "]}");
             ipc_respond(client_fd, buf);
         } else {
             ipc_respond(client_fd, "{\"rules\":[]}");
