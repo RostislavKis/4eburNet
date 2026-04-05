@@ -73,9 +73,10 @@ int ipc_init(void)
         return -1;
     }
 
-    /* Неблокирующий режим */
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    /* Неблокирующий режим (M-18: проверка F_GETFL) */
+    int flags = fcntl(fd, F_GETFL);
+    if (flags >= 0)
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
     log_msg(LOG_INFO, "IPC сокет создан: %s", PHOENIX_IPC_SOCKET);
     return fd;

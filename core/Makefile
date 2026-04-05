@@ -59,7 +59,8 @@ PHOENIX_SOURCES = \
 	$(PKG_BUILD_DIR)/src/dns/dns_cache.c \
 	$(PKG_BUILD_DIR)/src/dns/dns_rules.c \
 	$(PKG_BUILD_DIR)/src/dns/dns_upstream.c \
-	$(PKG_BUILD_DIR)/src/dns/dns_server.c
+	$(PKG_BUILD_DIR)/src/dns/dns_server.c \
+	$(PKG_BUILD_DIR)/src/dns/dns_resolver.c
 
 define Build/Compile
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \

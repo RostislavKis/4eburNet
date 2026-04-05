@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /* Максимальная длина строки в конфиге */
 #define MAX_LINE 1024
@@ -202,7 +204,9 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "awg_i5") == 0) {
         snprintf(srv->awg_i5, sizeof(srv->awg_i5), "%s", value);
     } else if (strcmp(key, "awg_keepalive") == 0) {
-        srv->awg_keepalive = (uint16_t)strtol(value, NULL, 10);
+        /* M-17: range validation */
+        long v = strtol(value, NULL, 10);
+        srv->awg_keepalive = (v >= 0 && v <= 65535) ? (uint16_t)v : 25;
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
     }
@@ -217,8 +221,11 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
 
 int config_load(const char *path, PhoenixConfig *cfg)
 {
-    FILE *f = fopen(path, "r");
+    /* L-11: O_CLOEXEC через open()+fdopen() */
+    int cfg_fd = open(path, O_RDONLY | O_CLOEXEC);
+    FILE *f = (cfg_fd >= 0) ? fdopen(cfg_fd, "r") : NULL;
     if (!f) {
+        if (cfg_fd >= 0) close(cfg_fd);
         log_msg(LOG_ERROR, "Не удалось открыть конфиг: %s", path);
         return -1;
     }

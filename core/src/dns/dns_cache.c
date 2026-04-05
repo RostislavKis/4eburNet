@@ -116,15 +116,26 @@ void dns_cache_put(dns_cache_t *c,
         }
     }
 
-    /* Если нет места — evict LRU tail */
-    if (target < 0) {
-        if (c->lru_tail >= 0) {
-            target = c->lru_tail;
-            c->entries[target].used = false;
-            c->count--;
-        } else {
-            target = 0;
+    /* M-03: если нет свободного слота — evict LRU tail, затем probe заново */
+    if (target < 0 && c->lru_tail >= 0) {
+        int evict = c->lru_tail;
+        /* Удалить из LRU */
+        if (c->lru_head == evict) c->lru_head = c->entries[evict].next;
+        c->lru_tail = c->entries[evict].prev;
+        if (c->entries[evict].prev >= 0)
+            c->entries[c->entries[evict].prev].next = -1;
+        c->entries[evict].used = false;
+        c->entries[evict].prev = c->entries[evict].next = -1;
+        c->count--;
+
+        /* Попробовать найти слот в НАШЕМ probe sequence */
+        for (int i = 0; i < DNS_CACHE_PROBE_MAX && i < c->capacity; i++) {
+            int idx2 = (h + i) % c->capacity;
+            if (!c->entries[idx2].used) { target = idx2; break; }
         }
+        if (target < 0) target = evict;  /* fallback — используем освободившийся */
+    } else if (target < 0) {
+        target = 0;
     }
 
     dns_cache_entry_t *e = &c->entries[target];

@@ -63,6 +63,8 @@ static void noise_hkdf2(const uint8_t ck[32], const void *data, size_t len,
     blake2s_hmac(key_out, 32, prk, 32, buf, 33);
 
     explicit_bzero(prk, sizeof(prk));
+    /* L-01: обнулить buf с ключевым материалом */
+    explicit_bzero(buf, sizeof(buf));
 }
 
 /* HKDF3: (ck, data) → (ck_out, k1, k2) */
@@ -85,6 +87,8 @@ static void noise_hkdf3(const uint8_t ck[32], const void *data, size_t len,
     blake2s_hmac(k2, 32, prk, 32, buf, 33);
 
     explicit_bzero(prk, sizeof(prk));
+    /* L-01: обнулить buf с ключевым материалом */
+    explicit_bzero(buf, sizeof(buf));
 }
 
 /* AEAD encrypt: ChaCha20-Poly1305 */
@@ -346,7 +350,9 @@ int noise_handshake_init_create(noise_state_t *ns,
 
     /* EncryptAndHash(timestamp) → encrypted_timestamp(28) */
     uint8_t timestamp[12];
-    /* TAI64N: seconds + 2^62 + TAI-UTC(37 сек с 2017) */
+    /* TAI-UTC = 37 сек (актуально 2017-01-01 -> по сей день, 2026).
+     * Обновить при добавлении leap second.
+     * Источник: https://www.ietf.org/timezones/data/leap-seconds.list */
     #define TAI64N_BASE (4611686018427387904ULL + 37)
     uint64_t tai = (uint64_t)time(NULL) + TAI64N_BASE;
     timestamp[0] = (uint8_t)(tai >> 56);
@@ -498,12 +504,18 @@ int noise_encrypt(noise_state_t *ns,
     if (ns->send_counter == NOISE_REKEY_AFTER_MESSAGES)
         log_msg(LOG_INFO, "Noise: рекомендуется rekey (2^60 пакетов)");
 
-    /* H-04: проверка TTL ключа (180 сек) */
+    /* H-04: проверка TTL ключа (180 сек)
+     * M-09: защита от wrap time_t на 32-bit mipsel */
+    {
+    time_t now_hs = time(NULL);
+    time_t elapsed = (now_hs >= ns->handshake_time)
+        ? (now_hs - ns->handshake_time) : 0;
     if (ns->handshake_time > 0 &&
-        time(NULL) - ns->handshake_time > NOISE_REJECT_AFTER_TIME) {
+        elapsed > (time_t)NOISE_REJECT_AFTER_TIME) {
         log_msg(LOG_DEBUG, "Noise: ключ устарел (>180s), нужен rekey");
         ns->handshake_complete = false;
         return -1;
+    }
     }
 
     /* Transport header: msg_type(4) + receiver_index(4) + counter(8) */
