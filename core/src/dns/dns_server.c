@@ -109,7 +109,9 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
     return 0;
 }
 
-/* Выбрать upstream и отправить запрос */
+/* Выбрать upstream и отправить запрос
+ * TODO: перевести на асинхронный резолвинг — сейчас блокирует main loop
+ * на время upstream таймаута (до 2 сек UDP, до 5 сек DoT/DoH) (M-16, C-02). */
 static ssize_t resolve_query(dns_server_t *ds, dns_action_t action,
                              const uint8_t *query, size_t query_len,
                              uint8_t *response, size_t resp_buflen)
