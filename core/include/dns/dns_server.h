@@ -9,6 +9,12 @@ typedef struct {
     int               tcp_fd;
     dns_cache_t       cache;
     const PhoenixConfig *cfg;
+    /* Per-source rate limiting (H-13: DNS amplification) */
+    struct {
+        uint32_t ip;
+        uint32_t count;
+        time_t   window_start;
+    } rate_table[256];
 } dns_server_t;
 
 int  dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg);

@@ -193,8 +193,10 @@ nft_result_t nft_init(void)
      *   Статические правила: block → локальные → bypass → accept
      *   Динамические правила (proxy/tproxy) добавляются через mode_set_*
      */
-    char config[NFT_ATOMIC_MAX];
-    int n = snprintf(config, sizeof(config),
+    /* M-35: heap вместо 16KB стека */
+    char *config = malloc(NFT_ATOMIC_MAX);
+    if (!config) return NFT_ERR_EXEC;
+    int n = snprintf(config, NFT_ATOMIC_MAX,
         "table inet " NFT_TABLE_NAME " {\n"
         "\n"
         "    set " NFT_SET_BYPASS " {\n"
@@ -266,12 +268,14 @@ nft_result_t nft_init(void)
         NFT_PRIO_FORWARD,
         NFT_PRIO_OUTPUT);
 
-    if (n < 0 || (size_t)n >= sizeof(config)) {
+    if (n < 0 || (size_t)n >= NFT_ATOMIC_MAX) {
         log_msg(LOG_ERROR, "nft: конфиг таблицы не поместился в буфер");
+        free(config);
         return NFT_ERR_EXEC;
     }
 
     nft_result_t rc = nft_exec_atomic(config);
+    free(config);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "Таблица nftables создана");
     else
@@ -420,8 +424,10 @@ nft_result_t nft_tproxy_disable(void)
 static nft_result_t apply_mode(const char *pre_suffix,
                                const char *fwd_suffix)
 {
-    char config[NFT_ATOMIC_MAX];
-    int n = snprintf(config, sizeof(config),
+    /* M-35: heap вместо 16KB стека */
+    char *config = malloc(NFT_ATOMIC_MAX);
+    if (!config) return NFT_ERR_EXEC;
+    int n = snprintf(config, NFT_ATOMIC_MAX,
         "flush chain inet " NFT_TABLE_NAME " " NFT_CHAIN_PRE "\n"
         "flush chain inet " NFT_TABLE_NAME " " NFT_CHAIN_FWD "\n"
         "\n"
@@ -452,12 +458,15 @@ static nft_result_t apply_mode(const char *pre_suffix,
         pre_suffix  ? pre_suffix  : "",
         fwd_suffix  ? fwd_suffix  : "");
 
-    if (n < 0 || (size_t)n >= sizeof(config)) {
+    if (n < 0 || (size_t)n >= NFT_ATOMIC_MAX) {
         log_msg(LOG_ERROR, "nft: конфиг режима не поместился в буфер");
+        free(config);
         return NFT_ERR_EXEC;
     }
 
-    return nft_exec_atomic(config);
+    nft_result_t rc = nft_exec_atomic(config);
+    free(config);
+    return rc;
 }
 
 nft_result_t nft_mode_set_rules(void)
@@ -717,8 +726,10 @@ nft_result_t nft_vmap_create(void)
      *
      * proxy_addrs остаётся обычным set — tproxy нельзя в verdict map.
      */
-    char config[NFT_ATOMIC_MAX];
-    int n = snprintf(config, sizeof(config),
+    /* M-35: heap вместо 16KB стека */
+    char *config = malloc(NFT_ATOMIC_MAX);
+    if (!config) return NFT_ERR_EXEC;
+    int n = snprintf(config, NFT_ATOMIC_MAX,
         "table inet " NFT_TABLE_NAME " {\n"
         "    map " NFT_VMAP_BLOCK " {\n"
         "        type ipv4_addr : verdict\n"
@@ -738,10 +749,13 @@ nft_result_t nft_vmap_create(void)
         "    }\n"
         "}\n");
 
-    if (n < 0 || (size_t)n >= sizeof(config))
+    if (n < 0 || (size_t)n >= NFT_ATOMIC_MAX) {
+        free(config);
         return NFT_ERR_EXEC;
+    }
 
     nft_result_t rc = nft_exec_atomic(config);
+    free(config);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "Verdict maps созданы (block/bypass x IPv4/IPv6)");
     else
@@ -752,14 +766,17 @@ nft_result_t nft_vmap_create(void)
 
 nft_result_t nft_vmap_flush_all(void)
 {
-    char config[NFT_ATOMIC_MAX];
-    snprintf(config, sizeof(config),
+    /* M-35: heap */
+    char *config = malloc(NFT_ATOMIC_MAX);
+    if (!config) return NFT_ERR_EXEC;
+    snprintf(config, NFT_ATOMIC_MAX,
         "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BLOCK "\n"
         "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BLOCK6 "\n"
         "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BYPASS "\n"
         "flush map inet " NFT_TABLE_NAME " " NFT_VMAP_BYPASS6 "\n");
 
     nft_result_t rc = nft_exec_atomic(config);
+    free(config);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "Verdict maps очищены");
     return rc;
@@ -1082,8 +1099,10 @@ nft_result_t nft_offload_bypass_init(void)
         return NFT_OK;
     }
 
-    char config[NFT_ATOMIC_MAX];
-    int n = snprintf(config, sizeof(config),
+    /* M-35: heap */
+    char *config = malloc(NFT_ATOMIC_MAX);
+    if (!config) return NFT_ERR_EXEC;
+    int n = snprintf(config, NFT_ATOMIC_MAX,
         "table inet " NFT_TABLE_NAME " {\n"
         "    chain " NFT_CHAIN_OFFLOAD " {\n"
         "        type filter hook forward priority %d; policy accept;\n"
@@ -1096,10 +1115,13 @@ nft_result_t nft_offload_bypass_init(void)
         "}\n",
         NFT_PRIO_OFFLOAD);
 
-    if (n < 0 || (size_t)n >= sizeof(config))
+    if (n < 0 || (size_t)n >= NFT_ATOMIC_MAX) {
+        free(config);
         return NFT_ERR_EXEC;
+    }
 
     nft_result_t rc = nft_exec_atomic(config);
+    free(config);
     if (rc == NFT_OK)
         log_msg(LOG_INFO,
             "HW Offload bypass инициализирован (priority %d)",

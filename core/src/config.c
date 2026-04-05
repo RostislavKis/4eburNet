@@ -163,19 +163,26 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "awg_h4") == 0) {
         snprintf(srv->awg_h4, sizeof(srv->awg_h4), "%s", value);
     } else if (strcmp(key, "awg_s1") == 0) {
-        srv->awg_s1 = (uint16_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_s1 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
     } else if (strcmp(key, "awg_s2") == 0) {
-        srv->awg_s2 = (uint16_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_s2 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
     } else if (strcmp(key, "awg_s3") == 0) {
-        srv->awg_s3 = (uint16_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_s3 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
     } else if (strcmp(key, "awg_s4") == 0) {
-        srv->awg_s4 = (uint16_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_s4 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
     } else if (strcmp(key, "awg_jc") == 0) {
-        srv->awg_jc = (uint8_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_jc = (v >= 0 && v <= 255) ? (uint8_t)v : 0;
     } else if (strcmp(key, "awg_jmin") == 0) {
-        srv->awg_jmin = (uint16_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_jmin = (v >= 0 && v <= 65535) ? (uint16_t)v : 0;
     } else if (strcmp(key, "awg_jmax") == 0) {
-        srv->awg_jmax = (uint16_t)strtol(value, NULL, 10);
+        long v = strtol(value, NULL, 10);
+        srv->awg_jmax = (v >= 0 && v <= 65535) ? (uint16_t)v : 0;
     } else if (strcmp(key, "awg_i1") == 0) {
         snprintf(srv->awg_i1, sizeof(srv->awg_i1), "%s", value);
     } else if (strcmp(key, "awg_i2") == 0) {
@@ -191,6 +198,13 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
     }
+
+    /* M-08: jmin <= jmax проверка */
+    if (srv->awg_jmin > srv->awg_jmax && srv->awg_jmax > 0) {
+        uint16_t tmp = srv->awg_jmin;
+        srv->awg_jmin = srv->awg_jmax;
+        srv->awg_jmax = tmp;
+    }
 }
 
 int config_load(const char *path, PhoenixConfig *cfg)
@@ -204,8 +218,8 @@ int config_load(const char *path, PhoenixConfig *cfg)
     /* Инициализация структуры */
     memset(cfg, 0, sizeof(*cfg));
     cfg->enabled = false;
-    strcpy(cfg->log_level, "info");
-    strcpy(cfg->mode, "rules");
+    snprintf(cfg->log_level, sizeof(cfg->log_level), "%s", "info");
+    snprintf(cfg->mode, sizeof(cfg->mode), "%s", "rules");
 
     /* Временные массивы на heap (H-11: ~191KB на стеке → calloc) */
     ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));
@@ -334,9 +348,10 @@ int config_load(const char *path, PhoenixConfig *cfg)
                 else if (strcmp(key, "upstream_port") == 0) {
                     long v = strtol(value, NULL, 10);
                     d->upstream_port = (v > 0 && v <= 65535) ? (uint16_t)v : 53;
-                } else if (strcmp(key, "cache_size") == 0)
-                    d->cache_size = (int)strtol(value, NULL, 10);
-                else if (strcmp(key, "cache_ttl_max") == 0)
+                } else if (strcmp(key, "cache_size") == 0) {
+                    int cs = (int)strtol(value, NULL, 10);
+                    d->cache_size = (cs > 0) ? cs : 256;
+                } else if (strcmp(key, "cache_ttl_max") == 0)
                     d->cache_ttl_max = (int)strtol(value, NULL, 10);
                 else if (strcmp(key, "doh_enabled") == 0)
                     d->doh_enabled = (strcmp(value, "1") == 0);

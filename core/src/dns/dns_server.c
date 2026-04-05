@@ -100,11 +100,13 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
 
     if (ds->udp_fd >= 0) {
         ev.data.fd = ds->udp_fd;
-        epoll_ctl(master_epoll_fd, EPOLL_CTL_ADD, ds->udp_fd, &ev);
+        if (epoll_ctl(master_epoll_fd, EPOLL_CTL_ADD, ds->udp_fd, &ev) < 0)
+            log_msg(LOG_WARN, "DNS: epoll_ctl ADD udp: %s", strerror(errno));
     }
     if (ds->tcp_fd >= 0) {
         ev.data.fd = ds->tcp_fd;
-        epoll_ctl(master_epoll_fd, EPOLL_CTL_ADD, ds->tcp_fd, &ev);
+        if (epoll_ctl(master_epoll_fd, EPOLL_CTL_ADD, ds->tcp_fd, &ev) < 0)
+            log_msg(LOG_WARN, "DNS: epoll_ctl ADD tcp: %s", strerror(errno));
     }
     return 0;
 }
@@ -153,10 +155,14 @@ static ssize_t resolve_query(dns_server_t *ds, dns_action_t action,
                              response, resp_buflen, 2000);
 }
 
+/* Per-source rate limiting (H-13: DNS amplification) */
+#define DNS_RATE_LIMIT  100
+#define DNS_RATE_WINDOW 1
+
 /* Обработка одного UDP DNS запроса */
 static void handle_udp_query(dns_server_t *ds)
 {
-    uint8_t pkt[512];
+    uint8_t pkt[DNS_MAX_PACKET];
     struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
@@ -164,6 +170,29 @@ static void handle_udp_query(dns_server_t *ds)
                          (struct sockaddr *)&client_addr, &client_len);
     if (n <= 0)
         return;
+
+    /* Rate limiting per source IP (H-13) */
+    uint32_t src_ip = 0;
+    if (client_addr.ss_family == AF_INET)
+        src_ip = ((struct sockaddr_in *)&client_addr)->sin_addr.s_addr;
+
+    time_t now_t = time(NULL);
+    int slot = (int)(src_ip % 256);
+    if (ds->rate_table[slot].ip == src_ip) {
+        if (now_t - ds->rate_table[slot].window_start < DNS_RATE_WINDOW) {
+            if (++ds->rate_table[slot].count > DNS_RATE_LIMIT) {
+                log_msg(LOG_DEBUG, "DNS: rate limit для %08x", src_ip);
+                return;
+            }
+        } else {
+            ds->rate_table[slot].window_start = now_t;
+            ds->rate_table[slot].count = 1;
+        }
+    } else {
+        ds->rate_table[slot].ip = src_ip;
+        ds->rate_table[slot].count = 1;
+        ds->rate_table[slot].window_start = now_t;
+    }
 
     dns_query_t q;
     if (dns_parse_query(pkt, n, &q) < 0) {
@@ -178,8 +207,9 @@ static void handle_udp_query(dns_server_t *ds)
     const uint8_t *cached = dns_cache_get(&ds->cache, q.qname, q.qtype,
                                           &resp_len, q.id);
     if (cached) {
-        sendto(ds->udp_fd, cached, resp_len, 0,
-               (struct sockaddr *)&client_addr, client_len);
+        if (sendto(ds->udp_fd, cached, resp_len, 0,
+                   (struct sockaddr *)&client_addr, client_len) < 0)
+            log_msg(LOG_DEBUG, "DNS: sendto (cache): %s", strerror(errno));
         log_msg(LOG_DEBUG, "DNS: %s из кэша", q.qname);
         return;
     }
@@ -188,18 +218,19 @@ static void handle_udp_query(dns_server_t *ds)
     dns_action_t action = dns_rules_match(q.qname);
 
     if (action == DNS_ACTION_BLOCK) {
-        uint8_t nxdomain[512];
+        uint8_t nxdomain[DNS_MAX_PACKET];
         int nx_len = dns_build_nxdomain(&q, nxdomain, sizeof(nxdomain));
         if (nx_len > 0) {
-            sendto(ds->udp_fd, nxdomain, nx_len, 0,
-                   (struct sockaddr *)&client_addr, client_len);
+            if (sendto(ds->udp_fd, nxdomain, nx_len, 0,
+                       (struct sockaddr *)&client_addr, client_len) < 0)
+                log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
             log_msg(LOG_DEBUG, "DNS: %s → NXDOMAIN (blocked)", q.qname);
         }
         return;
     }
 
     /* Запрос к upstream */
-    uint8_t response[512];
+    uint8_t response[DNS_MAX_PACKET];
     ssize_t resp_n = resolve_query(ds, action, pkt, n,
                                    response, sizeof(response));
     if (resp_n <= 0) {
@@ -208,12 +239,13 @@ static void handle_udp_query(dns_server_t *ds)
     }
 
     /* Подставить ID клиента и отправить */
-    uint8_t reply[512];
+    uint8_t reply[DNS_MAX_PACKET];
     int reply_len = dns_build_forward_reply(&q, response, resp_n,
                                             reply, sizeof(reply));
     if (reply_len > 0) {
-        sendto(ds->udp_fd, reply, reply_len, 0,
-               (struct sockaddr *)&client_addr, client_len);
+        if (sendto(ds->udp_fd, reply, reply_len, 0,
+                   (struct sockaddr *)&client_addr, client_len) < 0)
+            log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
 
         /* Положить в кэш */
         uint32_t ttl = dns_extract_min_ttl(response, resp_n);
@@ -231,7 +263,9 @@ static void handle_udp_query(dns_server_t *ds)
     }
 }
 
-/* Обработка TCP DNS (accept + read + process + write + close) */
+/* Обработка TCP DNS (accept + read + process + write + close)
+ * TODO: async TCP DNS handler — v2. Текущий блокирующий вариант
+ * ограничен SO_RCVTIMEO=2s, допустимо для малой нагрузки. */
 static void handle_tcp_query(dns_server_t *ds)
 {
     /* Blocking сокет с таймаутом вместо NONBLOCK+MSG_WAITALL (H-07) */
@@ -249,11 +283,11 @@ static void handle_tcp_query(dns_server_t *ds)
         close(client); return;
     }
     uint16_t qlen = ((uint16_t)len_buf[0] << 8) | len_buf[1];
-    if (qlen < 12 || qlen > 512) {
+    if (qlen < 12 || qlen > DNS_MAX_PACKET) {
         close(client); return;
     }
 
-    uint8_t pkt[512];
+    uint8_t pkt[DNS_MAX_PACKET];
     if (recv(client, pkt, qlen, MSG_WAITALL) != qlen) {
         close(client); return;
     }
@@ -264,7 +298,7 @@ static void handle_tcp_query(dns_server_t *ds)
     }
 
     /* Та же логика что для UDP */
-    uint8_t response[512];
+    uint8_t response[DNS_MAX_PACKET];
     ssize_t resp_n;
 
     dns_action_t action = dns_rules_match(q.qname);
@@ -281,11 +315,13 @@ static void handle_tcp_query(dns_server_t *ds)
     }
 
     if (resp_n > 0) {
-        uint8_t tcp_reply[514];
+        uint8_t tcp_reply[2 + DNS_MAX_PACKET];
         tcp_reply[0] = (resp_n >> 8) & 0xFF;
         tcp_reply[1] = resp_n & 0xFF;
         memcpy(tcp_reply + 2, response, resp_n);
-        write(client, tcp_reply, 2 + resp_n);
+        ssize_t w = write(client, tcp_reply, 2 + resp_n);
+        if (w < 0)
+            log_msg(LOG_DEBUG, "DNS TCP: write: %s", strerror(errno));
     }
 
     close(client);
