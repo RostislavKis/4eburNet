@@ -606,8 +606,13 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
             n = ss_recv(r->ss, r->upstream_fd,
                         ds->relay_buf, ds->relay_buf_size);
             if (n <= 0) return n;
-            /* H-19: возвращать реальное число записанных байт */
-            ssize_t w = write(r->client_fd, ds->relay_buf, n);
+            /* M-06: partial write = fatal для framed SS 2022 */
+            ssize_t w = write(r->client_fd, ds->relay_buf, (size_t)n);
+            if (w < 0) return -1;
+            if (w < n) {
+                log_msg(LOG_DEBUG, "relay: SS partial write %zd/%zd", w, n);
+                return -1;
+            }
             return w;
         }
     }
@@ -760,6 +765,13 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
             dispatcher_server_result(ds, idx, false);
             relay_free(ds, r);
         } else {
+            /* L-05: AWG client_fd в epoll (чтение от клиента) */
+            struct epoll_event cev = {
+                .events = EPOLLIN | EPOLLET,
+                .data.ptr = &r->ep_client,
+            };
+            if (epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->client_fd, &cev) < 0)
+                log_msg(LOG_WARN, "AWG: epoll_ctl client_fd: %s", strerror(errno));
             ds->total_accepted++;
             char dst_str[64];
             net_format_addr(&r->dst, dst_str, sizeof(dst_str));
@@ -832,6 +844,9 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
         relay_conn_t *r = ep->relay;
         uint32_t ev = events[i].events;
+
+        /* M-05: guard — relay уже освобождён другим событием в этом batch */
+        if (r->state == RELAY_DONE) continue;
 
         /* Ошибка или разрыв */
         if (ev & (EPOLLERR | EPOLLHUP)) {
@@ -1154,6 +1169,13 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             relay_free(ds, r);
                             goto next_event_xhttp;
                         }
+                        /* M-07: partial write fatal для chunked stream */
+                        if (wr < n) {
+                            log_msg(LOG_DEBUG, "relay: XHTTP partial write %zd/%zd",
+                                    wr, (ssize_t)n);
+                            relay_free(ds, r);
+                            goto next_event_xhttp;
+                        }
                         r->bytes_out += (uint64_t)wr;
                         r->last_active = now;
                         continue;
@@ -1218,6 +1240,13 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             if (errno != EAGAIN && errno != EPIPE)
                                 log_msg(LOG_DEBUG, "relay: AWG write ошибка: %s",
                                         strerror(errno));
+                            relay_free(ds, r);
+                            break;
+                        }
+                        /* M-08: partial write fatal для UDP framing */
+                        if (wr < n) {
+                            log_msg(LOG_DEBUG, "relay: AWG partial write %zd/%zd",
+                                    wr, (ssize_t)n);
                             relay_free(ds, r);
                             break;
                         }

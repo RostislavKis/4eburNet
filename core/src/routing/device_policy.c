@@ -195,7 +195,9 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
         return -1;
     }
 
-    exec_cmd("nft delete table netdev phoenix_dev 2>/dev/null");
+    /* M-14: exec_cmd_safe вместо shell */
+    const char *const del_argv[] = {"nft", "delete", "table", "netdev", "phoenix_dev", NULL};
+    exec_cmd_safe(del_argv, NULL, 0);
 
     /* H-13: mkstemp для безопасного создания tmp файла (TOCTOU fix) */
     char tmppath[] = "/tmp/phoenix_dev_XXXXXX";
@@ -209,10 +211,9 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
         return -1;
     }
 
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", tmppath);
     char err[512] = {0};
-    int rc = exec_cmd_capture(cmd, err, sizeof(err));
+    const char *const apply_argv[] = {"nft", "-f", tmppath, NULL};
+    int rc = exec_cmd_safe(apply_argv, err, sizeof(err));
     unlink(tmppath);
 
     if (rc != 0) {
@@ -235,7 +236,8 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
 
 void device_policy_cleanup_nft(void)
 {
-    exec_cmd("nft delete table netdev phoenix_dev 2>/dev/null");
+    const char *const cleanup_argv[] = {"nft", "delete", "table", "netdev", "phoenix_dev", NULL};
+    exec_cmd_safe(cleanup_argv, NULL, 0);
     log_msg(LOG_DEBUG, "Device policy: netdev таблица удалена");
 }
 
@@ -278,10 +280,12 @@ int device_policy_to_json(const device_manager_t *dm,
         else if (d->policy == DEVICE_POLICY_BYPASS) pol = "bypass";
         else if (d->policy == DEVICE_POLICY_BLOCK) pol = "block";
 
-        /* Экранировать строковые поля (H-10) */
+        /* Экранировать строковые поля (H-10, L-10: mac_str тоже) */
         char esc_name[128], esc_alias[128], esc_group[128], esc_comment[256];
+        char esc_mac[64];
         json_escape(d->name, esc_name, sizeof(esc_name));
         json_escape(d->alias, esc_alias, sizeof(esc_alias));
+        json_escape(d->mac_str, esc_mac, sizeof(esc_mac));
         json_escape(d->server_group, esc_group, sizeof(esc_group));
         json_escape(d->comment, esc_comment, sizeof(esc_comment));
 
@@ -294,7 +298,7 @@ int device_policy_to_json(const device_manager_t *dm,
             "\"server_group\":\"%s\","
             "\"enabled\":%s,\"priority\":%d,"
             "\"comment\":\"%s\"}",
-            esc_name, esc_alias, d->mac_str, pol,
+            esc_name, esc_alias, esc_mac, pol,
             esc_group,
             d->enabled ? "true" : "false", d->priority,
             esc_comment);
