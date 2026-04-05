@@ -13,6 +13,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -199,8 +200,10 @@ static int http_fetch(const char *url, const char *dest_path)
 /* Подсчитать строки в файле (не пустые, не комментарии) */
 static int count_rules(const char *path)
 {
-    FILE *f = fopen(path, "r");
-    if (!f) return 0;
+    /* L-03: O_CLOEXEC */
+    int cfd = open(path, O_RDONLY | O_CLOEXEC);
+    FILE *f = (cfd >= 0) ? fdopen(cfd, "r") : NULL;
+    if (!f) { if (cfd >= 0) close(cfd); return 0; }
     int count = 0;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -243,6 +246,7 @@ int rule_provider_load_all(rule_provider_manager_t *rpm)
     return 0;
 }
 
+/* H-04: максимум 1 провайдер за вызов — не блокируем event loop */
 void rule_provider_tick(rule_provider_manager_t *rpm)
 {
     time_t now = time(NULL);
@@ -264,6 +268,7 @@ void rule_provider_tick(rule_provider_manager_t *rpm)
                         ps->name, ps->rule_count);
             }
         }
+        return;  /* только один провайдер за вызов */
     }
 }
 
@@ -290,20 +295,27 @@ int rule_provider_update(rule_provider_manager_t *rpm, const char *name)
 int rule_provider_to_json(const rule_provider_manager_t *rpm,
                           char *buf, size_t buflen)
 {
+    if (!buflen) return 0;
     int pos = 0;
-    pos += snprintf(buf + pos, buflen - pos, "{\"providers\":[");
-    for (int i = 0; i < rpm->count; i++) {
+
+    /* H-01: guard — snprintf только если есть место */
+#define JS(fmt, ...) do { \
+    if ((size_t)pos < buflen - 1) \
+        pos += snprintf(buf + pos, buflen - (size_t)pos, fmt, ##__VA_ARGS__); \
+} while(0)
+
+    JS("{\"providers\":[");
+    for (int i = 0; i < rpm->count && (size_t)pos < buflen - 1; i++) {
         const rule_provider_state_t *ps = &rpm->providers[i];
-        if (i > 0) pos += snprintf(buf + pos, buflen - pos, ",");
-        /* H-6: экранируем name для JSON */
+        if (i > 0) JS(",");
         char esc_name[128];
         json_escape_str(ps->name, esc_name, sizeof(esc_name));
-        pos += snprintf(buf + pos, buflen - pos,
-            "{\"name\":\"%s\",\"loaded\":%s,\"rules\":%d,"
+        JS("{\"name\":\"%s\",\"loaded\":%s,\"rules\":%d,"
             "\"last_update\":%ld,\"next_update\":%ld}",
             esc_name, ps->loaded ? "true" : "false", ps->rule_count,
             (long)ps->last_update, (long)ps->next_update);
     }
-    pos += snprintf(buf + pos, buflen - pos, "]}");
+    JS("]}");
+#undef JS
     return pos;
 }

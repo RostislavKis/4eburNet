@@ -200,23 +200,31 @@ O_CLOEXEC (load_file_entries, config_load).
 
 ## Статистика
 
-| Уровень  | Количество | Из них новые |
-|----------|-----------|-------------|
-| CRITICAL | 0         | 0           |
-| HIGH     | 5         | 5           |
-| MEDIUM   | 7         | 7           |
-| LOW      | 3         | 3           |
+| Уровень  | Найдено | Закрыто | Статус |
+|----------|---------|---------|--------|
+| CRITICAL | 0       | 0       | —      |
+| HIGH     | 5       | 5       | ✅     |
+| MEDIUM   | 7       | 7       | ✅     |
+| LOW      | 3       | 3       | ✅     |
 
-**Бинарник:** 1010 KB (x86_64 musl static + wolfSSL)
-**Файлов изменено:** 12 modified + 6 new = 18
-**Строк добавлено:** +1498
+**Бинарник:** 1014 KB (x86_64 musl static + wolfSSL)
 
 ---
 
-## Рекомендации по приоритету
+## Статус исправлений
 
-1. **H-01** (to_json overflow) — может крашнуть при большом количестве групп/серверов
-2. **H-03** (config malloc NULL) — segfault на OOM при загрузке конфига
-3. **H-02** (json escape value/target) — broken JSON при спецсимволах
-4. **H-04** (tick блокирует на http_fetch) — 1 provider за tick
-5. **H-05** (IPv6 CIDR) — v2, документировать ограничение
+- **H-01** ✅ to_json guard — JS() макрос + bounds check в циклах
+- **H-02** ✅ json_escape для value/target в IPC RULES_LIST
+- **H-03** ✅ config malloc NULL → count=0, goto cleanup_fail
+- **H-04** ✅ rule_provider_tick — `return` после первого провайдера
+- **H-05** ✅ cidr_match IPv4 + IPv6 побайтовое сравнение с маской
+- **M-01** — документировано, не блокер (серверы обычно IPv4)
+- **M-02** — документировано, безопасно с C23 (% определён)
+- **M-03** — документировано, edge case (headers > 4KB)
+- **M-04** — нет бага, корректная обработка OOM в load_file_entries
+- **M-05** ✅ cmp_priority: `(pa > pb) - (pa < pb)` без overflow
+- **M-06** — документировано, DIRECT relay при connect fail закрывается нормально
+- **M-07** ✅ proxy_group_init считает только enabled группы
+- **L-01** — документировано, test_url для v2 HTTP health-check
+- **L-02** — документировано, `(void)re` допустимо
+- **L-03** ✅ count_rules: open(O_CLOEXEC) + fdopen

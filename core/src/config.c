@@ -566,25 +566,40 @@ int config_load(const char *path, PhoenixConfig *cfg)
         cfg->device_count = dev_count;
     }
 
-    /* proxy groups */
+    /* proxy groups (H-03: NULL → count=0) */
     if (pg_count > 0) {
         cfg->proxy_groups = malloc((size_t)pg_count * sizeof(ProxyGroupConfig));
-        if (cfg->proxy_groups)
-            memcpy(cfg->proxy_groups, pg_tmp, (size_t)pg_count * sizeof(ProxyGroupConfig));
+        if (!cfg->proxy_groups) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для proxy_groups");
+            config_free(cfg);
+            goto cleanup_fail;
+        }
+        memcpy(cfg->proxy_groups, pg_tmp,
+               (size_t)pg_count * sizeof(ProxyGroupConfig));
+        cfg->proxy_group_count = pg_count;
     }
-    cfg->proxy_group_count = pg_count;
     if (rp_count > 0) {
         cfg->rule_providers = malloc((size_t)rp_count * sizeof(RuleProviderConfig));
-        if (cfg->rule_providers)
-            memcpy(cfg->rule_providers, rp_tmp, (size_t)rp_count * sizeof(RuleProviderConfig));
+        if (!cfg->rule_providers) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для rule_providers");
+            config_free(cfg);
+            goto cleanup_fail;
+        }
+        memcpy(cfg->rule_providers, rp_tmp,
+               (size_t)rp_count * sizeof(RuleProviderConfig));
+        cfg->rule_provider_count = rp_count;
     }
-    cfg->rule_provider_count = rp_count;
     if (tr_count > 0) {
         cfg->traffic_rules = malloc((size_t)tr_count * sizeof(TrafficRule));
-        if (cfg->traffic_rules)
-            memcpy(cfg->traffic_rules, tr_tmp, (size_t)tr_count * sizeof(TrafficRule));
+        if (!cfg->traffic_rules) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для traffic_rules");
+            config_free(cfg);
+            goto cleanup_fail;
+        }
+        memcpy(cfg->traffic_rules, tr_tmp,
+               (size_t)tr_count * sizeof(TrafficRule));
+        cfg->traffic_rule_count = tr_count;
     }
-    cfg->traffic_rule_count = tr_count;
 
     free(servers); free(dns_rules); free(devices_tmp);
     free(pg_tmp); free(rp_tmp); free(tr_tmp);
