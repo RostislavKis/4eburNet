@@ -18,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/syscall.h>
 
 /* Константы WireGuard (не менять) */
 static const char CONSTRUCTION[] =
@@ -162,10 +163,31 @@ static int x25519_generate(uint8_t priv[32], uint8_t pub[32])
     return rc;
 }
 
-static void random_bytes(uint8_t *buf, size_t len)
+static int random_bytes(uint8_t *buf, size_t len)
 {
-    int fd = open("/dev/urandom", 0);
-    if (fd >= 0) { read(fd, buf, len); close(fd); }
+    /* getrandom() доступен в Linux 3.17+ и OpenWrt 21+ */
+#ifdef __NR_getrandom
+    ssize_t rc = syscall(__NR_getrandom, buf, len, 0);
+    if (rc == (ssize_t)len) return 0;
+#endif
+    /* Fallback: /dev/urandom с O_RDONLY|O_CLOEXEC */
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        log_msg(LOG_ERROR, "random_bytes: /dev/urandom недоступен");
+        return -1;
+    }
+    size_t done = 0;
+    while (done < len) {
+        ssize_t n = read(fd, buf + done, len - done);
+        if (n <= 0) {
+            close(fd);
+            log_msg(LOG_ERROR, "random_bytes: read ошибка");
+            return -1;
+        }
+        done += (size_t)n;
+    }
+    close(fd);
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -181,12 +203,19 @@ int noise_init(noise_state_t *ns,
     memcpy(ns->local_static_private, local_priv, 32);
     memcpy(ns->remote_static_public, remote_pub, 32);
 
-    /* Вычислить наш public key из private */
+    /* Вычислить наш public key из private (C-05: корректный импорт) */
     curve25519_key key;
     wc_curve25519_init(&key);
-    word32 plen = 32;
-    wc_curve25519_import_private_raw(local_priv, 32, local_priv, 32, &key);
-    wc_curve25519_export_public(&key, ns->local_static_public, &plen);
+    if (wc_curve25519_import_private(local_priv, 32, &key) != 0) {
+        wc_curve25519_free(&key);
+        return -1;
+    }
+    word32 pub_len = 32;
+    if (wc_curve25519_export_public(&key, ns->local_static_public,
+                                     &pub_len) != 0) {
+        wc_curve25519_free(&key);
+        return -1;
+    }
     wc_curve25519_free(&key);
 
     if (has_psk && psk) {
@@ -205,7 +234,8 @@ int noise_init(noise_state_t *ns,
     mix_hash(ns->hash, remote_pub, 32);
 
     /* Sender Index */
-    random_bytes((uint8_t *)&ns->local_index, 4);
+    if (random_bytes((uint8_t *)&ns->local_index, 4) < 0)
+        return -1;
 
     return 0;
 }

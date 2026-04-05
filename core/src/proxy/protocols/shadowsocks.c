@@ -218,16 +218,21 @@ ssize_t ss_send(ss_state_t *ss, int fd,
                         len_plain, 2, len_cipher, len_tag) != 0)
         return -1;
 
-    /* Шифруем данные */
-    uint8_t data_cipher[16384];
+    /* Шифруем данные (C-04: malloc вместо 32KB стека) */
+    uint8_t *data_cipher = malloc(len + SS_TAG_LEN);
+    if (!data_cipher) return -1;
     uint8_t data_tag[SS_TAG_LEN];
 
     if (ss_aead_encrypt(ss->session_key, ss->send_nonce,
-                        data, len, data_cipher, data_tag) != 0)
+                        data, len, data_cipher, data_tag) != 0) {
+        free(data_cipher);
         return -1;
+    }
 
     /* Отправить: [len_cipher+tag][data_cipher+tag] */
-    uint8_t packet[16384 + 64];
+    size_t total = 2 + SS_TAG_LEN + len + SS_TAG_LEN;
+    uint8_t *packet = malloc(total);
+    if (!packet) { free(data_cipher); return -1; }
     size_t pkt_len = 0;
 
     memcpy(packet + pkt_len, len_cipher, 2);    pkt_len += 2;
@@ -236,6 +241,8 @@ ssize_t ss_send(ss_state_t *ss, int fd,
     memcpy(packet + pkt_len, data_tag, SS_TAG_LEN); pkt_len += SS_TAG_LEN;
 
     ssize_t sent = write(fd, packet, pkt_len);
+    free(data_cipher);
+    free(packet);
     if (sent != (ssize_t)pkt_len)
         return -1;
 

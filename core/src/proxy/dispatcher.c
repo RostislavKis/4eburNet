@@ -1173,8 +1173,15 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     ssize_t n = xhttp_recv_chunk(
                         r->xhttp, ds->relay_buf, ds->relay_buf_size);
                     if (n > 0) {
-                        write(r->client_fd, ds->relay_buf, n);
-                        r->bytes_out += n;
+                        ssize_t wr = write(r->client_fd, ds->relay_buf, (size_t)n);
+                        if (wr < 0) {
+                            if (errno != EAGAIN && errno != EPIPE)
+                                log_msg(LOG_DEBUG, "relay: XHTTP write ошибка: %s",
+                                        strerror(errno));
+                            relay_free(ds, r);
+                            goto next_event_xhttp;
+                        }
+                        r->bytes_out += (uint64_t)wr;
                         r->last_active = time(NULL);
                         continue;
                     }
@@ -1188,6 +1195,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
             }
             if (r->state == RELAY_CLOSING)
                 relay_free(ds, r);
+            next_event_xhttp:
             break;
 
         /* --- AWG состояния --- */
@@ -1232,8 +1240,15 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     uint8_t buf[2048];
                     ssize_t n = awg_recv(r->awg, buf, sizeof(buf));
                     if (n > 0) {
-                        write(r->client_fd, buf, n);
-                        r->bytes_out += n;
+                        ssize_t wr = write(r->client_fd, buf, (size_t)n);
+                        if (wr < 0) {
+                            if (errno != EAGAIN && errno != EPIPE)
+                                log_msg(LOG_DEBUG, "relay: AWG write ошибка: %s",
+                                        strerror(errno));
+                            relay_free(ds, r);
+                            break;
+                        }
+                        r->bytes_out += (uint64_t)wr;
                         r->last_active = time(NULL);
                     }
                 } else if (arc < 0) {
