@@ -80,7 +80,9 @@ static bool validate_cidr(const char *cidr)
 /* Валидация nft команды — запрет shell-метасимволов (S-01, H-27) */
 static bool validate_nft_cmd(const char *cmd)
 {
-    const char *forbidden = "|&;`$()<>'\"{}#\n\r\\";
+    /* {} необходимы для nft синтаксиса (set elements).
+     * Защита от injection через {} — на уровне validate_cidr() и valid_nft_name(). */
+    const char *forbidden = "|&;`$()<>'\"#\n\r\\";
     for (const char *p = forbidden; *p; p++)
         if (strchr(cmd, *p))
             return false;
@@ -338,6 +340,10 @@ nft_result_t nft_set_add_addr(const char *set_name, const char *cidr)
         log_msg(LOG_ERROR, "nft: невалидное имя set: %s", set_name);
         return NFT_ERR_EXEC;
     }
+    if (!validate_cidr(cidr)) {
+        log_msg(LOG_ERROR, "nft: невалидный CIDR: %s", cidr);
+        return NFT_ERR_EXEC;
+    }
     char cmd[NFT_CMD_MAX];
     snprintf(cmd, sizeof(cmd),
              "add element inet " NFT_TABLE_NAME " %s { %s }",
@@ -349,6 +355,10 @@ nft_result_t nft_set_del_addr(const char *set_name, const char *cidr)
 {
     if (!valid_nft_name(set_name)) {
         log_msg(LOG_ERROR, "nft: невалидное имя set: %s", set_name);
+        return NFT_ERR_EXEC;
+    }
+    if (!validate_cidr(cidr)) {
+        log_msg(LOG_ERROR, "nft: невалидный CIDR: %s", cidr);
         return NFT_ERR_EXEC;
     }
     char cmd[NFT_CMD_MAX];
