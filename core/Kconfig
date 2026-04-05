@@ -1,5 +1,6 @@
 # Флаги компиляции phoenix-core
-# TODO: добавить #ifdef CONFIG_PHOENIX_* в код или убрать неиспользуемые (L-01)
+# Kconfig интеграция запланирована для OpenWrt SDK build.
+# В dev-сборке (Makefile.dev) все протоколы включены.
 
 config PHOENIX_SHADOWSOCKS
     bool "Поддержка Shadowsocks"

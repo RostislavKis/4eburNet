@@ -3,11 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 DeviceProfile rm_detect_profile(void)
 {
-    FILE *f = fopen("/proc/meminfo", "r");
+    int memfd = open("/proc/meminfo", O_RDONLY | O_CLOEXEC);
+    FILE *f = (memfd >= 0) ? fdopen(memfd, "r") : NULL;
     if (!f) {
+        if (memfd >= 0) close(memfd);
         log_msg(LOG_WARN, "Не удалось прочитать /proc/meminfo, профиль MICRO");
         return DEVICE_MICRO;
     }
@@ -80,8 +84,10 @@ bool rm_quic_enabled(DeviceProfile profile)
 void rm_apply_oom_settings(void)
 {
     /* Повышаем OOM score — лучше убить роутер, чем системные процессы */
-    FILE *f = fopen("/proc/self/oom_score_adj", "w");
+    int oom_fd = open("/proc/self/oom_score_adj", O_WRONLY | O_CLOEXEC);
+    FILE *f = (oom_fd >= 0) ? fdopen(oom_fd, "w") : NULL;
     if (!f) {
+        if (oom_fd >= 0) close(oom_fd);
         log_msg(LOG_WARN, "Не удалось записать oom_score_adj");
         return;
     }

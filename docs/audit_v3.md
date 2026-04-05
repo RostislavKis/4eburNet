@@ -344,32 +344,32 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 
 ## Низкие (LOW) — 26
 
-### L-01 [Kconfig:2] TODO: Kconfig не используется в коде
-### L-02 [config.c:395-396] "list" keyword молча игнорируется
-### L-03 [resource_manager.c:9, 83] fopen без CLOEXEC (/proc/*)
-### L-04 [config.c:129] strtol без endptr check (port)
-### L-05 [main.c:75] fscanf %d для pid_t
-### L-06 [Makefile.dev:26] SSH StrictHostKeyChecking=no
-### L-07 [Makefile.dev:2] Hardcoded path /usr/local/musl-wolfssl
-### L-08 [Makefile:17] PKGARCH:=all для C бинарника
-### L-09 [main.c:409] Magic numbers 32/10 для epoll events/timeout
-### L-10 [ipc.c:58] Magic number 5 для listen backlog
-### L-11 [ntp_bootstrap.c:88] Hardcoded port 80
-### L-12 [config.c:132] Magic number 443 default port
-### L-13 [dns/dns_cache.h:9] DNS_MAX_PACKET определён в cache header
-### L-14 [dns/dns_packet.h:12] Нет #include <stdbool.h>
-### L-15 [dns/dns_upstream.c:235] Stack 6KB (http_req[2048]+http_buf[4096])
-### L-16 [dns/dns_server.c:158] Stack ~2KB суммарно в handle_udp_query
-### L-17 [dns/dns_rules.c:25-28] Integer overflow в capacity + 256
-### L-18 [crypto/blake3.c] Поддержка только < 1024 байт (single chunk)
-### L-19 [crypto/tls.c:24] tls_err_buf static — не thread-safe
-### L-20 [crypto/noise.c] Нет REKEY_AFTER_MESSAGES (2^60)
-### L-21 [proxy/protocols/awg.c:60] rand_in_range modulo bias
-### L-22 [proxy/protocols/awg.h:28] CPS строки 5×256 = 1280 байт в структуре
-### L-23 [routing/nftables.c:971] atoi() без error check
-### L-24 [routing/rules_loader.c:96] Нет проверки path traversal
-### L-25 [routing/device_policy.c:59-60] realloc linear growth (+16)
-### L-26 [routing/nftables.c:39-52] validate_cidr слишком permissive
+### L-01 [Kconfig:2] TODO: Kconfig не используется в коде — ✅ Принято INFO (волна 8)
+### L-02 [config.c:395-396] "list" keyword молча игнорируется — ✅ ЗАКРЫТА (волна 8)
+### L-03 [resource_manager.c:9, 83] fopen без CLOEXEC (/proc/*) — ✅ ЗАКРЫТА (волна 8)
+### L-04 [config.c:129] strtol без endptr check (port) — ✅ ЗАКРЫТА (волна 8)
+### L-05 [main.c:75] fscanf %d для pid_t — ✅ ЗАКРЫТА (волна 8)
+### L-06 [Makefile.dev:26] SSH StrictHostKeyChecking=no — ✅ ЗАКРЫТА (волна 8)
+### L-07 [Makefile.dev:2] Hardcoded path /usr/local/musl-wolfssl — ✅ ЗАКРЫТА (волна 8)
+### L-08 [Makefile:17] PKGARCH:=all для C бинарника — ✅ ЗАКРЫТА (волна 8)
+### L-09 [main.c:409] Magic numbers 32/10 для epoll events/timeout — ✅ ЗАКРЫТА (волна 8)
+### L-10 [ipc.c:58] Magic number 5 для listen backlog — ✅ ЗАКРЫТА (волна 8)
+### L-11 [ntp_bootstrap.c:88] Hardcoded port 80 — ✅ ЗАКРЫТА (волна 8)
+### L-12 [config.c:132] Magic number 443 default port — ✅ ЗАКРЫТА (волна 8)
+### L-13 [dns/dns_cache.h:9] DNS_MAX_PACKET определён в cache header — ✅ Принято INFO (волна 8)
+### L-14 [dns/dns_packet.h:12] Нет #include <stdbool.h> — ✅ ЗАКРЫТА (волна 8)
+### L-15 [dns/dns_upstream.c:235] Stack 6KB (http_req[2048]+http_buf[4096]) — ✅ ЗАКРЫТА (волна 8)
+### L-16 [dns/dns_server.c:158] Stack ~16KB в handle_udp_query — ✅ ЗАКРЫТА (волна 8)
+### L-17 [dns/dns_rules.c:25-28] Integer overflow в capacity + 256 — ✅ ЗАКРЫТА (волна 8)
+### L-18 [crypto/blake3.c] Поддержка только < 1024 байт (single chunk) — ✅ Принято INFO (волна 8)
+### L-19 [crypto/tls.c:24] tls_err_buf static — не thread-safe — ✅ Принято INFO (волна 8)
+### L-20 [crypto/noise.c] Нет REKEY_AFTER_MESSAGES (2^60) — ✅ ЗАКРЫТА (волна 8)
+### L-21 [proxy/protocols/awg.c:60] rand_in_range modulo bias — ✅ Принято INFO (волна 8)
+### L-22 [proxy/protocols/awg.h:28] CPS строки 5×256 = 1280 байт в структуре — ✅ Принято INFO (волна 8)
+### L-23 [routing/nftables.c:971] atoi() без error check — ✅ ЗАКРЫТА (волна 8)
+### L-24 [routing/rules_loader.c:96] Нет проверки path traversal — ✅ ЗАКРЫТА (волна 8)
+### L-25 [routing/device_policy.c:59-60] realloc linear growth (+16) — ✅ ЗАКРЫТА (волна 8)
+### L-26 [routing/nftables.c:39-52] validate_cidr слишком permissive — ✅ ЗАКРЫТА (волна 8)
 
 ---
 
@@ -406,6 +406,6 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 | CRITICAL  |   14    |   10    |       3        |    1    |
 | HIGH      |   28    |   25    |       1        |    2    |
 | MEDIUM    |   38    |   36    |       2        |    0    |
-| LOW       |   26    |    0    |       0        |   26    |
+| LOW       |   26    |   20    |       6        |    0    |
 | INFO      |   21    |   21    |       0        |    0    |
-| **ИТОГО** | **127** |  **92** |     **6**      | **29**  |
+| **ИТОГО** | **127** | **112** |    **12**      |  **3**  |
