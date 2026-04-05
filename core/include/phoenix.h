@@ -95,5 +95,6 @@ void log_msg(log_level_t level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 void log_flush(void);
 void log_close(void);
+void log_set_daemon_mode(bool daemon);
 
 #endif /* PHOENIX_H */

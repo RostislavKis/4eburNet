@@ -102,9 +102,12 @@ static int try_host(const char *ip, const char *host)
     /* Отправляем HTTP HEAD */
     char req[256];
     int req_len = snprintf(req, sizeof(req), HTTP_REQ_FMT, host);
-    if (send(fd, req, req_len, 0) != req_len) {
-        close(fd);
-        return -1;
+    /* Цикл partial write */
+    size_t sent = 0;
+    while (sent < (size_t)req_len) {
+        ssize_t n = send(fd, req + sent, (size_t)req_len - sent, 0);
+        if (n <= 0) { close(fd); return -1; }
+        sent += (size_t)n;
     }
 
     /* Читаем ответ (HEAD не содержит тела, но читаем буфер

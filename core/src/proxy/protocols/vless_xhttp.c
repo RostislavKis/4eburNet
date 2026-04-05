@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sys/syscall.h>
 
 /* ------------------------------------------------------------------ */
 /*  xhttp_session_id_gen                                               */
@@ -24,22 +25,35 @@
 void xhttp_session_id_gen(xhttp_session_id_t *sid)
 {
     uint8_t bytes[16];
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd >= 0) {
-        ssize_t n = read(fd, bytes, sizeof(bytes));
-        close(fd);
-        if (n == sizeof(bytes)) {
-            for (int i = 0; i < 16; i++)
-                snprintf(sid->hex + i * 2, 3, "%02x", bytes[i]);
-            return;
+
+    /* getrandom() — без открытия fd (Linux 3.17+) */
+#ifdef __NR_getrandom
+    if (syscall(__NR_getrandom, bytes, sizeof(bytes), 0) == (ssize_t)sizeof(bytes))
+        goto encode;
+#endif
+
+    /* Fallback: /dev/urandom с O_CLOEXEC */
+    {
+        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            ssize_t n = read(fd, bytes, sizeof(bytes));
+            close(fd);
+            if (n == (ssize_t)sizeof(bytes))
+                goto encode;
         }
     }
-    /* Fallback: pid + time */
+
+    /* Аварийный fallback: pid + time */
     snprintf(sid->hex, sizeof(sid->hex),
              "%08x%08x%08x%08x",
              (unsigned)getpid(), (unsigned)time(NULL),
              (unsigned)getpid() ^ 0xDEADBEEF,
              (unsigned)time(NULL) ^ 0xCAFEBABE);
+    return;
+
+encode:
+    for (int i = 0; i < 16; i++)
+        snprintf(sid->hex + i * 2, 3, "%02x", bytes[i]);
 }
 
 /* ------------------------------------------------------------------ */

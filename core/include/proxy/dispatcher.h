@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <time.h>
+#define DISPATCHER_MAX_HEALTH  64
 
 /* Состояние relay соединения */
 typedef enum {
@@ -91,7 +92,7 @@ typedef struct {
         time_t    last_success;
         uint32_t  fail_count;
         bool      available;
-    } health[8];                        /* до 8 серверов */
+    } health[DISPATCHER_MAX_HEALTH];    /* до DISPATCHER_MAX_HEALTH серверов */
     int             health_count;       /* 0 = не инициализирован */
     time_t          health_reset_at;    /* следующий health reset (M-07) */
 } dispatcher_state_t;

@@ -208,8 +208,10 @@ int main(int argc, char *argv[])
     }
 
     /* Демонизация, если запрошена */
-    if (daemon_mode)
+    if (daemon_mode) {
         daemonize();
+        log_set_daemon_mode(true);
+    }
 
     /* Инициализация логирования (пока с уровнем по умолчанию) */
     log_init(PHOENIX_LOG_FILE, LOG_INFO);

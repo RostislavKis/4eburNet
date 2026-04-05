@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <time.h>
+#include <stdbool.h>
 
 #define DNS_MAX_PACKET 512
 

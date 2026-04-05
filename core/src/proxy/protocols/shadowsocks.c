@@ -16,6 +16,7 @@
 #include "phoenix.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -295,7 +296,25 @@ ssize_t ss_recv(ss_state_t *ss, int fd,
     }
 
     size_t data_len = ss->recv_data_need - SS_TAG_LEN;
-    if (data_len > buflen) data_len = buflen;
+
+    if (data_len > buflen) {
+        /* Дешифруем полный блок во временный буфер, копируем buflen */
+        uint8_t *tmp = malloc(data_len);
+        if (!tmp) return -1;
+
+        if (ss_aead_decrypt(ss->session_key, ss->recv_nonce,
+                            ss->recv_data_buf, data_len,
+                            ss->recv_data_buf + data_len,
+                            tmp) != 0) {
+            free(tmp);
+            log_msg(LOG_WARN, "SS: ошибка дешифрования данных");
+            return -1;
+        }
+        memcpy(buf, tmp, buflen);
+        free(tmp);
+        ss->recv_len_done = false;
+        return (ssize_t)buflen;
+    }
 
     if (ss_aead_decrypt(ss->session_key, ss->recv_nonce,
                         ss->recv_data_buf, data_len,
