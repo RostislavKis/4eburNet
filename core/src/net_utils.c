@@ -199,3 +199,34 @@ fallback:
     close(fd);
     return 0;
 }
+
+/* ------------------------------------------------------------------ */
+/*  json_escape_str — экранирование строки для JSON (H-6)              */
+/* ------------------------------------------------------------------ */
+
+int json_escape_str(const char *src, char *dst, size_t dst_size)
+{
+    if (!src || !dst || dst_size < 2) {
+        if (dst && dst_size > 0) dst[0] = '\0';
+        return 0;
+    }
+
+    size_t pos = 0;
+    for (; *src && pos + 1 < dst_size; src++) {
+        unsigned char c = (unsigned char)*src;
+        if (c == '"' || c == '\\') {
+            if (pos + 2 >= dst_size) break;
+            dst[pos++] = '\\';
+            dst[pos++] = (char)c;
+        } else if (c < 0x20) {
+            /* Управляющие символы → \uXXXX */
+            if (pos + 6 >= dst_size) break;
+            pos += (size_t)snprintf(dst + pos, dst_size - pos,
+                                     "\\u%04x", c);
+        } else {
+            dst[pos++] = (char)c;
+        }
+    }
+    dst[pos] = '\0';
+    return (int)pos;
+}

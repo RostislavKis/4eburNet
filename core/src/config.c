@@ -24,10 +24,16 @@ typedef enum {
     SECTION_DNS,
     SECTION_DNS_RULE,
     SECTION_DEVICE_POLICY,
+    SECTION_PROXY_GROUP,
+    SECTION_RULE_PROVIDER,
+    SECTION_TRAFFIC_RULE,
 } section_type_t;
 
-#define MAX_DNS_RULES 256
-#define MAX_DEVICES   64
+#define MAX_DNS_RULES      256
+#define MAX_DEVICES        64
+#define MAX_PROXY_GROUPS   32
+#define MAX_RULE_PROVIDERS 16
+#define MAX_TRAFFIC_RULES  512
 
 /* Удаление окружающих кавычек из строки */
 static void strip_quotes(char *s)
@@ -244,11 +250,15 @@ int config_load(const char *path, PhoenixConfig *cfg)
     ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));
     DnsRule *dns_rules = calloc(MAX_DNS_RULES, sizeof(DnsRule));
     device_config_t *devices_tmp = calloc(MAX_DEVICES, sizeof(device_config_t));
-    if (!servers || !dns_rules || !devices_tmp) {
+    ProxyGroupConfig *pg_tmp = calloc(MAX_PROXY_GROUPS, sizeof(ProxyGroupConfig));
+    RuleProviderConfig *rp_tmp = calloc(MAX_RULE_PROVIDERS, sizeof(RuleProviderConfig));
+    TrafficRule *tr_tmp = calloc(MAX_TRAFFIC_RULES, sizeof(TrafficRule));
+    int pg_count = 0, rp_count = 0, tr_count = 0;
+
+    if (!servers || !dns_rules || !devices_tmp || !pg_tmp || !rp_tmp || !tr_tmp) {
         log_msg(LOG_ERROR, "Конфиг: нет памяти для временных массивов");
-        free(servers);
-        free(dns_rules);
-        free(devices_tmp);
+        free(servers); free(dns_rules); free(devices_tmp);
+        free(pg_tmp); free(rp_tmp); free(tr_tmp);
         fclose(f);
         return -1;
     }
@@ -308,6 +318,24 @@ int config_load(const char *path, PhoenixConfig *cfg)
                             sizeof(servers[srv_count].name) - 1);
                 }
                 srv_count++;
+            } else if (strcmp(type, "proxy_group") == 0) {
+                section = SECTION_PROXY_GROUP;
+                if (pg_count < MAX_PROXY_GROUPS) {
+                    if (name) snprintf(pg_tmp[pg_count].name,
+                        sizeof(pg_tmp[pg_count].name), "%s", name);
+                    pg_count++;
+                }
+            } else if (strcmp(type, "rule_provider") == 0) {
+                section = SECTION_RULE_PROVIDER;
+                if (rp_count < MAX_RULE_PROVIDERS) {
+                    if (name) snprintf(rp_tmp[rp_count].name,
+                        sizeof(rp_tmp[rp_count].name), "%s", name);
+                    rp_count++;
+                }
+            } else if (strcmp(type, "traffic_rule") == 0) {
+                section = SECTION_TRAFFIC_RULE;
+                if (tr_count < MAX_TRAFFIC_RULES)
+                    tr_count++;
             } else if (strcmp(type, "dns") == 0) {
                 section = SECTION_DNS;
             } else if (strcmp(type, "device_policy") == 0) {
@@ -398,6 +426,70 @@ int config_load(const char *path, PhoenixConfig *cfg)
                         snprintf(dr->pattern, sizeof(dr->pattern), "%s", value);
                 }
                 break;
+            case SECTION_PROXY_GROUP:
+                if (pg_count > 0) {
+                    ProxyGroupConfig *g = &pg_tmp[pg_count - 1];
+                    if (strcmp(key, "type") == 0) {
+                        if (strcmp(value, "select") == 0) g->type = PROXY_GROUP_SELECT;
+                        else if (strcmp(value, "url-test") == 0) g->type = PROXY_GROUP_URL_TEST;
+                        else if (strcmp(value, "fallback") == 0) g->type = PROXY_GROUP_FALLBACK;
+                        else if (strcmp(value, "load-balance") == 0) g->type = PROXY_GROUP_LOAD_BALANCE;
+                    }
+                    else if (strcmp(key, "servers") == 0)
+                        snprintf(g->servers, sizeof(g->servers), "%s", value);
+                    else if (strcmp(key, "url") == 0)
+                        snprintf(g->url, sizeof(g->url), "%s", value);
+                    else if (strcmp(key, "interval") == 0)
+                        g->interval = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "timeout_ms") == 0)
+                        g->timeout_ms = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "tolerance_ms") == 0)
+                        g->tolerance_ms = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "enabled") == 0)
+                        g->enabled = (strcmp(value, "1") == 0);
+                }
+                break;
+            case SECTION_RULE_PROVIDER:
+                if (rp_count > 0) {
+                    RuleProviderConfig *rp = &rp_tmp[rp_count - 1];
+                    if (strcmp(key, "type") == 0) {
+                        if (strcmp(value, "http") == 0) rp->type = RULE_PROVIDER_HTTP;
+                        else rp->type = RULE_PROVIDER_FILE;
+                    }
+                    else if (strcmp(key, "url") == 0)
+                        snprintf(rp->url, sizeof(rp->url), "%s", value);
+                    else if (strcmp(key, "path") == 0)
+                        snprintf(rp->path, sizeof(rp->path), "%s", value);
+                    else if (strcmp(key, "format") == 0) {
+                        if (strcmp(value, "domain") == 0) rp->format = RULE_FORMAT_DOMAIN;
+                        else if (strcmp(value, "ipcidr") == 0) rp->format = RULE_FORMAT_IPCIDR;
+                        else rp->format = RULE_FORMAT_CLASSICAL;
+                    }
+                    else if (strcmp(key, "interval") == 0)
+                        rp->interval = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "enabled") == 0)
+                        rp->enabled = (strcmp(value, "1") == 0);
+                }
+                break;
+            case SECTION_TRAFFIC_RULE:
+                if (tr_count > 0) {
+                    TrafficRule *tr = &tr_tmp[tr_count - 1];
+                    if (strcmp(key, "type") == 0) {
+                        if (strcmp(value, "DOMAIN") == 0) tr->type = RULE_TYPE_DOMAIN;
+                        else if (strcmp(value, "DOMAIN-SUFFIX") == 0) tr->type = RULE_TYPE_DOMAIN_SUFFIX;
+                        else if (strcmp(value, "DOMAIN-KEYWORD") == 0) tr->type = RULE_TYPE_DOMAIN_KEYWORD;
+                        else if (strcmp(value, "IP-CIDR") == 0) tr->type = RULE_TYPE_IP_CIDR;
+                        else if (strcmp(value, "RULE-SET") == 0) tr->type = RULE_TYPE_RULE_SET;
+                        else if (strcmp(value, "MATCH") == 0) tr->type = RULE_TYPE_MATCH;
+                    }
+                    else if (strcmp(key, "value") == 0)
+                        snprintf(tr->value, sizeof(tr->value), "%s", value);
+                    else if (strcmp(key, "target") == 0)
+                        snprintf(tr->target, sizeof(tr->target), "%s", value);
+                    else if (strcmp(key, "priority") == 0)
+                        tr->priority = (int)strtol(value, NULL, 10);
+                }
+                break;
             case SECTION_DEVICE_POLICY:
                 if (dev_count > 0) {
                     device_config_t *d = &devices_tmp[dev_count - 1];
@@ -474,12 +566,31 @@ int config_load(const char *path, PhoenixConfig *cfg)
         cfg->device_count = dev_count;
     }
 
-    free(servers);
-    free(dns_rules);
-    free(devices_tmp);
+    /* proxy groups */
+    if (pg_count > 0) {
+        cfg->proxy_groups = malloc((size_t)pg_count * sizeof(ProxyGroupConfig));
+        if (cfg->proxy_groups)
+            memcpy(cfg->proxy_groups, pg_tmp, (size_t)pg_count * sizeof(ProxyGroupConfig));
+    }
+    cfg->proxy_group_count = pg_count;
+    if (rp_count > 0) {
+        cfg->rule_providers = malloc((size_t)rp_count * sizeof(RuleProviderConfig));
+        if (cfg->rule_providers)
+            memcpy(cfg->rule_providers, rp_tmp, (size_t)rp_count * sizeof(RuleProviderConfig));
+    }
+    cfg->rule_provider_count = rp_count;
+    if (tr_count > 0) {
+        cfg->traffic_rules = malloc((size_t)tr_count * sizeof(TrafficRule));
+        if (cfg->traffic_rules)
+            memcpy(cfg->traffic_rules, tr_tmp, (size_t)tr_count * sizeof(TrafficRule));
+    }
+    cfg->traffic_rule_count = tr_count;
 
-    log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, DNS правил: %d, устройств: %d)",
-            path, srv_count, dns_rule_count, dev_count);
+    free(servers); free(dns_rules); free(devices_tmp);
+    free(pg_tmp); free(rp_tmp); free(tr_tmp);
+
+    log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, групп: %d, правил: %d)",
+            path, srv_count, pg_count, tr_count);
     return 0;
 
 cleanup_fail:
@@ -487,11 +598,17 @@ cleanup_fail:
     free(servers);
     free(dns_rules);
     free(devices_tmp);
+    free(pg_tmp);
+    free(rp_tmp);
+    free(tr_tmp);
     return -1;
 }
 
 void config_free(PhoenixConfig *cfg)
 {
+    free(cfg->proxy_groups);   cfg->proxy_groups = NULL;
+    free(cfg->rule_providers); cfg->rule_providers = NULL;
+    free(cfg->traffic_rules);  cfg->traffic_rules = NULL;
     if (cfg->devices) {
         free(cfg->devices);
         cfg->devices = NULL;
