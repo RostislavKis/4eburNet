@@ -120,7 +120,7 @@ static void daemonize(void)
         exit(0);
 
     /* Явное перенаправление fd 0/1/2 через dup2 */
-    int devnull = open("/dev/null", O_RDWR);
+    int devnull = open("/dev/null", O_RDWR | O_CLOEXEC);
     if (devnull >= 0) {
         dup2(devnull, STDIN_FILENO);
         dup2(devnull, STDOUT_FILENO);
@@ -388,7 +388,10 @@ int main(int argc, char *argv[])
         if (listen_fds[i] < 0) continue;
         mev.events  = EPOLLIN;
         mev.data.fd = listen_fds[i];
-        epoll_ctl(master_epoll, EPOLL_CTL_ADD, listen_fds[i], &mev);
+        if (epoll_ctl(master_epoll, EPOLL_CTL_ADD, listen_fds[i], &mev) < 0) {
+            log_msg(LOG_WARN, "epoll_ctl ADD fd %d: %s",
+                    listen_fds[i], strerror(errno));
+        }
     }
 
     /* DNS fd в master epoll */

@@ -25,6 +25,7 @@ typedef struct {
     uint32_t local_index;
     uint32_t remote_index;
     bool     handshake_complete;
+    time_t   handshake_time;   /* когда завершился handshake (H-04) */
 } noise_state_t;
 
 /* Размеры пакетов WireGuard (до AWG обфускации) */

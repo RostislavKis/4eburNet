@@ -31,4 +31,9 @@ bool exec_cmd_contains(const char *cmd, const char *needle);
 int exec_cmd_capture(const char *cmd,
                      char *err_buf, size_t err_size);
 
+/* Безопасное выполнение через posix_spawn без shell (H-07).
+   argv — массив аргументов, NULL-terminated.
+   out/outlen — опциональный буфер для stdout+stderr. */
+int exec_cmd_safe(const char *const argv[], char *out, size_t outlen);
+
 #endif /* NET_UTILS_H */
