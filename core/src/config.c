@@ -205,16 +205,22 @@ int config_load(const char *path, PhoenixConfig *cfg)
     strcpy(cfg->log_level, "info");
     strcpy(cfg->mode, "rules");
 
-    /* Временный массив серверов */
-    ServerConfig servers[MAX_SERVERS];
-    int srv_count = 0;
+    /* Временные массивы на heap (H-11: ~191KB на стеке → calloc) */
+    ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));
+    DnsRule *dns_rules = calloc(MAX_DNS_RULES, sizeof(DnsRule));
+    device_config_t *devices_tmp = calloc(MAX_DEVICES, sizeof(device_config_t));
+    if (!servers || !dns_rules || !devices_tmp) {
+        log_msg(LOG_ERROR, "Конфиг: нет памяти для временных массивов");
+        free(servers);
+        free(dns_rules);
+        free(devices_tmp);
+        fclose(f);
+        return -1;
+    }
 
-    /* Временные массивы */
-    DnsRule dns_rules[MAX_DNS_RULES];
+    int srv_count = 0;
     int dns_rule_count = 0;
     cfg->dns_rule_count = 0;
-
-    device_config_t devices_tmp[MAX_DEVICES];
     int dev_count = 0;
     cfg->device_count = 0;
 
@@ -246,8 +252,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
             char *name = next_token(&cursor);
             if (!type) {
                 log_msg(LOG_ERROR, "Ошибка в строке %d: нет типа секции", line_num);
-                fclose(f);
-                return -1;
+                goto cleanup_fail;
             }
 
             if (name)
@@ -259,8 +264,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
                 if (srv_count >= MAX_SERVERS) {
                     log_msg(LOG_ERROR, "Строка %d: превышен лимит серверов (%d)",
                             line_num, MAX_SERVERS);
-                    fclose(f);
-                    return -1;
+                    goto cleanup_fail;
                 }
                 section = SECTION_SERVER;
                 memset(&servers[srv_count], 0, sizeof(ServerConfig));
@@ -298,8 +302,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
 
             if (!key || !value) {
                 log_msg(LOG_ERROR, "Строка %d: неполная опция", line_num);
-                fclose(f);
-                return -1;
+                goto cleanup_fail;
             }
 
             strip_quotes(key);
@@ -396,13 +399,14 @@ int config_load(const char *path, PhoenixConfig *cfg)
     }
 
     fclose(f);
+    f = NULL;
 
     /* Копируем серверы в динамический массив */
     if (srv_count > 0) {
         cfg->servers = malloc((size_t)srv_count * sizeof(ServerConfig));
         if (!cfg->servers) {
             log_msg(LOG_ERROR, "Не удалось выделить память для серверов");
-            return -1;
+            goto cleanup_fail;
         }
         memcpy(cfg->servers, servers, (size_t)srv_count * sizeof(ServerConfig));
     }
@@ -414,7 +418,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
         if (!cfg->dns_rules) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для dns_rules");
             config_free(cfg);
-            return -1;
+            goto cleanup_fail;
         }
         memcpy(cfg->dns_rules, dns_rules,
                (size_t)dns_rule_count * sizeof(DnsRule));
@@ -427,16 +431,27 @@ int config_load(const char *path, PhoenixConfig *cfg)
         if (!cfg->devices) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для devices");
             config_free(cfg);
-            return -1;
+            goto cleanup_fail;
         }
         memcpy(cfg->devices, devices_tmp,
                (size_t)dev_count * sizeof(device_config_t));
         cfg->device_count = dev_count;
     }
 
+    free(servers);
+    free(dns_rules);
+    free(devices_tmp);
+
     log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, DNS правил: %d, устройств: %d)",
             path, srv_count, dns_rule_count, dev_count);
     return 0;
+
+cleanup_fail:
+    if (f) fclose(f);
+    free(servers);
+    free(dns_rules);
+    free(devices_tmp);
+    return -1;
 }
 
 void config_free(PhoenixConfig *cfg)

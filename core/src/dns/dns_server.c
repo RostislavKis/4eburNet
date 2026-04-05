@@ -232,10 +232,14 @@ static void handle_udp_query(dns_server_t *ds)
 /* Обработка TCP DNS (accept + read + process + write + close) */
 static void handle_tcp_query(dns_server_t *ds)
 {
-    int client = accept4(ds->tcp_fd, NULL, NULL,
-                         SOCK_NONBLOCK | SOCK_CLOEXEC);
+    /* Blocking сокет с таймаутом вместо NONBLOCK+MSG_WAITALL (H-07) */
+    int client = accept4(ds->tcp_fd, NULL, NULL, SOCK_CLOEXEC);
     if (client < 0)
         return;
+
+    struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     /* Читаем [2 bytes length][DNS query] */
     uint8_t len_buf[2];

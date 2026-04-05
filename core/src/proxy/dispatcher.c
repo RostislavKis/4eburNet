@@ -40,8 +40,7 @@
 /* Частота проверки таймаутов (раз в N тиков) */
 #define RELAY_TIMEOUT_CHECK     100
 
-/* Размер pipe буфера для splice */
-#define SPLICE_PIPE_SIZE        65536
+/* splice удалён: shared pipe = data corruption (H-12, C-05) */
 
 /* ------------------------------------------------------------------ */
 /*  Глобальный контекст (handle_conn вызывается без аргумента ds)      */
@@ -614,27 +613,6 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
          * Клиент → upstream
          * Читаем из client_fd (всегда plain TCP)
          */
-        if (!r->use_tls && ds->has_splice) {
-            /* splice: client → pipe → upstream (zero-copy) */
-            n = splice(r->client_fd, NULL, ds->splice_pipe[1], NULL,
-                       SPLICE_PIPE_SIZE, SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
-            if (n <= 0)
-                return n;
-            ssize_t written = 0;
-            while (written < n) {
-                ssize_t w = splice(ds->splice_pipe[0], NULL,
-                                   r->upstream_fd, NULL,
-                                   n - written,
-                                   SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
-                if (w < 0) {
-                    if (errno == EAGAIN) break;
-                    return -1;
-                }
-                written += w;
-            }
-            return written;
-        }
-
         /* read/write (или TLS upstream) */
         n = read(r->client_fd, ds->relay_buf, ds->relay_buf_size);
         if (n <= 0)
@@ -689,9 +667,7 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
 {
     memset(ds, 0, sizeof(*ds));
-    ds->epoll_fd       = -1;
-    ds->splice_pipe[0] = -1;
-    ds->splice_pipe[1] = -1;
+    ds->epoll_fd = -1;
 
     /* Лимит соединений по профилю */
     switch (profile) {
@@ -729,16 +705,7 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
         return -1;
     }
 
-    /*
-     * splice отключён — один pipe на всех даёт data corruption
-     * при partial write (аудит C-05). TLS relay (основной путь)
-     * использует tls_send/recv через userspace буфер.
-     */
-    ds->has_splice = false;
-    ds->splice_pipe[0] = -1;
-    ds->splice_pipe[1] = -1;
-    log_msg(LOG_DEBUG,
-        "splice отключён (data corruption fix, аудит C-05)");
+    /* splice удалён: shared pipe = data corruption (H-12, C-05) */
 
     ds->health_reset_at = time(NULL) + 30;  /* первый health reset через 30 сек */
 
@@ -1336,11 +1303,6 @@ void dispatcher_cleanup(dispatcher_state_t *ds)
         free(ds->relay_buf);
         ds->relay_buf = NULL;
     }
-
-    if (ds->splice_pipe[0] >= 0) { close(ds->splice_pipe[0]); }
-    if (ds->splice_pipe[1] >= 0) { close(ds->splice_pipe[1]); }
-    ds->splice_pipe[0] = -1;
-    ds->splice_pipe[1] = -1;
 
     if (ds->epoll_fd >= 0) { close(ds->epoll_fd); ds->epoll_fd = -1; }
 

@@ -77,8 +77,7 @@ typedef struct {
     relay_conn_t   *conns;              /* массив соединений */
     int             conns_count;        /* текущее количество активных */
     int             conns_max;          /* лимит (из профиля устройства) */
-    bool            has_splice;         /* ядро поддерживает splice() */
-    int             splice_pipe[2];    /* pipe для splice (однопоточный) */
+    /* splice удалён: shared pipe = data corruption (H-12, C-05) */
     uint8_t        *relay_buf;         /* буфер для read/write relay */
     size_t          relay_buf_size;    /* размер буфера (по профилю) */
     int             next_free;          /* clock-hand подсказка (H-05) */
