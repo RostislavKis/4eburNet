@@ -122,9 +122,11 @@ uint32_t dns_extract_min_ttl(const uint8_t *reply, size_t len)
     for (uint16_t i = 0; i < qdcount && pos < len; i++) {
         while (pos < len && reply[pos] != 0) {
             if ((reply[pos] & 0xC0) == 0xC0) { pos += 2; goto skip_done; }
-            pos += 1 + reply[pos];
+            uint8_t label_len = reply[pos];
+            if (pos + 1 + label_len > len) return 60;  /* защита от OOB */
+            pos += 1 + label_len;
         }
-        pos++;  /* root label */
+        if (pos < len) pos++;  /* root label */
         skip_done:
         pos += 4; /* QTYPE + QCLASS */
     }
@@ -133,8 +135,17 @@ uint32_t dns_extract_min_ttl(const uint8_t *reply, size_t len)
     uint32_t min_ttl = 86400;
     for (uint16_t i = 0; i < ancount && pos + 10 < len; i++) {
         /* Пропустить NAME */
-        if ((reply[pos] & 0xC0) == 0xC0) pos += 2;
-        else { while (pos < len && reply[pos]) pos += 1 + reply[pos]; pos++; }
+        if (pos >= len) break;
+        if ((reply[pos] & 0xC0) == 0xC0) {
+            pos += 2;
+        } else {
+            while (pos < len && reply[pos]) {
+                uint8_t label_len = reply[pos];
+                if (pos + 1 + label_len > len) return 60;
+                pos += 1 + label_len;
+            }
+            if (pos < len) pos++;
+        }
         /* TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2) */
         if (pos + 10 > len) break;
         uint32_t ttl = ((uint32_t)reply[pos+4] << 24) |

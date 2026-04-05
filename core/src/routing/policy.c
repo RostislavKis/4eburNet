@@ -200,6 +200,12 @@ policy_result_t policy_init_tproxy(void)
 
 policy_result_t policy_init_tun(const char *dev)
 {
+    if (!valid_ifname(dev)) {
+        log_msg(LOG_ERROR, "policy: невалидное имя интерфейса: %s",
+                dev ? dev : "(null)");
+        return POLICY_ERR_EXEC;
+    }
+
     policy_result_t rc;
 
     /* IPv4: ip rule fwmark 0x02 → table 200 */

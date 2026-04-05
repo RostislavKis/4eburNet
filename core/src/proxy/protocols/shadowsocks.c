@@ -74,7 +74,7 @@ static int ss_aead_encrypt(uint8_t key[32], uint8_t nonce[SS_NONCE_LEN],
                                           NULL, 0,
                                           plain, plain_len,
                                           cipher, tag);
-    nonce_increment(nonce);
+    if (rc == 0) nonce_increment(nonce);
     return rc;
 }
 
@@ -88,7 +88,7 @@ static int ss_aead_decrypt(uint8_t key[32], uint8_t nonce[SS_NONCE_LEN],
                                           NULL, 0,
                                           cipher, cipher_len,
                                           tag, plain);
-    nonce_increment(nonce);
+    if (rc == 0) nonce_increment(nonce);
     return rc;
 }
 
