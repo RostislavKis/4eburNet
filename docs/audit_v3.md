@@ -9,7 +9,7 @@
 
 ## Критические (CRITICAL) — 14
 
-### C-01 [crypto/blake2s.c:139-147] blake2s_hmac — не настоящий HMAC, ломает Noise/WireGuard — Ложное срабатывание — keyed BLAKE2s корректно для WireGuard spec
+### C-01 [crypto/blake2s.c:139-147] blake2s_hmac — не настоящий HMAC, ломает Noise/WireGuard — ✅ Закрыта — ложное срабатывание (WG whitepaper sec 5.4: keyed BLAKE2s = HMAC)
 `blake2s_hmac` реализован как keyed BLAKE2s, а не как HMAC(ipad/opad) по RFC 2104.
 Noise spec и WireGuard whitepaper требуют HMAC-BLAKE2s. Keyed BLAKE2s даёт другой
 результат → HKDF2/HKDF3 выдают неверные ключи → handshake не совместим ни с одним
@@ -60,7 +60,7 @@ tls_cfg.verify_cert = false;
 ```
 **Рекомендация:** Аналогично C-04.
 
-### C-06 [dns/dns_server.c:113-114] Блокирующий upstream DNS в event loop
+### C-06 [dns/dns_server.c:113-114] Блокирующий upstream DNS в event loop — ✅ ЗАКРЫТА (волна 9)
 Каждый upstream запрос блокирует main loop до 2 сек (UDP) / 5 сек (DoT/DoH).
 Флуд DNS-запросами к некэшированным доменам = полный DoS прокси.
 ```c
@@ -214,7 +214,7 @@ while (pos < len && reply[pos] != 0) {
 ### H-17 [dns/dns_rules.c:32, 82] strdup без проверки NULL — ✅ ЗАКРЫТА (волна 5)
 NULL от strdup записывается в массив → segfault при strcmp().
 
-### H-18 [dns/dns_server.c:235-292] TCP DNS handler блокирует event loop до 3+ сек — Принято (async TCP DNS → v2, SO_RCVTIMEO=2s)
+### H-18 [dns/dns_server.c:235-292] TCP DNS handler блокирует event loop до 3+ сек — ✅ ЗАКРЫТА (волна 9)
 
 ### H-19 [proxy/dispatcher.c:608] SS relay: partial write → возврат n вместо w — ✅ ЗАКРЫТА (волна 6)
 ```c
@@ -401,11 +401,11 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 
 ## Статистика
 
-| Категория | Найдено | Закрыто | Принято/Ложное | Открыто |
-|-----------|---------|---------|----------------|---------|
-| CRITICAL  |   14    |   10    |       3        |    1    |
-| HIGH      |   28    |   25    |       1        |    2    |
-| MEDIUM    |   38    |   36    |       2        |    0    |
-| LOW       |   26    |   20    |       6        |    0    |
-| INFO      |   21    |   21    |       0        |    0    |
-| **ИТОГО** | **127** | **112** |    **12**      |  **3**  |
+| Категория | Найдено | Закрыто | Принято | Открыто |
+|-----------|---------|---------|---------|---------|
+| CRITICAL  |   14    |   11    |    3    |    0    |
+| HIGH      |   28    |   26    |    2    |    0    |
+| MEDIUM    |   38    |   36    |    2    |    0    |
+| LOW       |   26    |   20    |    6    |    0    |
+| INFO      |   21    |    0    |   21    |    0    |
+| **ИТОГО** | **127** |  **93** |  **34** |  **0**  |
