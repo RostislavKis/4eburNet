@@ -5,19 +5,24 @@
 #include "dns/dns_resolver.h"
 #include "config.h"
 
+/* H-10/H-11: расширенный rate table для IPv4+IPv6 */
+#define DNS_RATE_TABLE_SIZE 512
+
 typedef struct {
     int               udp_fd;
     int               tcp_fd;
     int               master_epoll_fd;
+    bool              initialized;    /* H-08: guard для epoll dispatch */
     dns_cache_t       cache;
     dns_pending_queue_t pending;
     const PhoenixConfig *cfg;
-    /* Per-source rate limiting (H-13: DNS amplification) */
+    /* Per-source rate limiting (H-10/H-11: IPv4+IPv6, 512 слотов) */
     struct {
-        uint32_t ip;
+        uint8_t  addr[16];    /* IPv4 (4 байта) или IPv6 (16 байт) */
+        uint8_t  addr_len;    /* 4 = IPv4, 16 = IPv6 */
         uint32_t count;
         time_t   window_start;
-    } rate_table[256];
+    } rate_table[DNS_RATE_TABLE_SIZE];
 } dns_server_t;
 
 int  dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg);

@@ -62,7 +62,7 @@ struct relay_conn {
     bool                    client_eof; /* клиент отправил FIN */
     bool                    upstream_eof; /* upstream отправил FIN */
     int                     server_idx; /* индекс сервера в cfg->servers[] */
-    uint8_t                 vless_resp_buf[2]; /* буфер частичного VLESS ответа */
+    uint8_t                 vless_resp_buf[3]; /* [0]=ver, [1]=addons_len, [2]=addons_read */
     uint8_t                 vless_resp_len;    /* байт прочитано (0-2) */
     /* XHTTP транспорт */
     struct xhttp_state     *xhttp;            /* NULL если не XHTTP */

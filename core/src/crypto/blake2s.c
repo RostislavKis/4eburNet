@@ -5,6 +5,7 @@
 
 #include "crypto/blake2s.h"
 #include <string.h>
+#include <strings.h>  /* explicit_bzero */
 
 #define BLAKE2S_BLOCK  64
 #define BLAKE2S_OUT    32
@@ -86,6 +87,8 @@ void blake2s_init(blake2s_state_t *s, size_t outlen,
         memcpy(block, key, keylen);
         s->t[0] = BLAKE2S_BLOCK;
         blake2s_compress(s, block);
+        /* H-07: обнулить ключевой материал на стеке */
+        explicit_bzero(block, sizeof(block));
     }
 }
 

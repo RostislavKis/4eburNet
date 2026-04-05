@@ -269,6 +269,9 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     close(fd);
     free(http_req);
 
+    /* H-14: NUL-терминация перед strstr (буфер 8192, total < 8191) */
+    http_buf[total] = '\0';
+
     /* M-27: chunked encoding не поддерживается */
     if (strstr((char *)http_buf, "Transfer-Encoding: chunked")) {
         log_msg(LOG_WARN, "DoH: chunked encoding не поддерживается");
