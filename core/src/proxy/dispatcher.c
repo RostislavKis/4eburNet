@@ -395,6 +395,7 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
         r->xhttp = NULL;
     }
     if (r->ss) {
+        ss_cleanup(r->ss);  /* C-08: освободить overflow буфер */
         free(r->ss);
         r->ss = NULL;
     }
@@ -605,8 +606,9 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
             n = ss_recv(r->ss, r->upstream_fd,
                         ds->relay_buf, ds->relay_buf_size);
             if (n <= 0) return n;
+            /* H-19: возвращать реальное число записанных байт */
             ssize_t w = write(r->client_fd, ds->relay_buf, n);
-            return (w > 0) ? n : w;
+            return w;
         }
     }
 

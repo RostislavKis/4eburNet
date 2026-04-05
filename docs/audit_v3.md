@@ -76,7 +76,7 @@ struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) }; // 8!
 ```
 **Рекомендация:** Заменить `sizeof(buf)` на `TPROXY_UDP_BUF`.
 
-### C-08 [proxy/protocols/shadowsocks.c:296-317] SS recv: данные больше buflen теряются
+### C-08 [proxy/protocols/shadowsocks.c:296-317] SS recv: данные больше buflen теряются — ✅ ЗАКРЫТА (волна 6)
 Когда расшифрованный чанк > buflen, лишние байты безвозвратно уничтожаются.
 ```c
 memcpy(buf, tmp, buflen);  // копируем только buflen
@@ -144,19 +144,19 @@ uint64_t tai = (uint64_t)time(NULL) + 4611686018427387914ULL;
 ```
 **Рекомендация:** Исправить на `4611686018427387904ULL + 37`.
 
-### H-02 [crypto/noise.c:422] Нет REJECT_AFTER_MESSAGES — nonce может переполниться
+### H-02 [crypto/noise.c:422] Нет REJECT_AFTER_MESSAGES — nonce может переполниться — ✅ ЗАКРЫТА (волна 6)
 `send_counter++` без проверки на 2^64. WireGuard: REJECT_AFTER_MESSAGES = 2^64 - 2^16 - 1.
 ```c
 uint64_t ctr = ns->send_counter++;
 ```
 
-### H-03 [crypto/noise.c:178-179] getrandom() partial read не обрабатывается
+### H-03 [crypto/noise.c:178-179] getrandom() partial read не обрабатывается — ✅ ЗАКРЫТА (волна 6)
 Short read или EINTR от getrandom() молча переходит к /dev/urandom fallback.
 
-### H-04 [crypto/noise.c:401-406] Нет REJECT_AFTER_TIME (180 сек)
+### H-04 [crypto/noise.c:401-406] Нет REJECT_AFTER_TIME (180 сек) — ✅ ЗАКРЫТА (волна 6)
 Ключи handshake не имеют TTL. WireGuard требует rekeying после 180 секунд.
 
-### H-05 [crypto/tls.c:187-189] reality_key/reality_short_id — сырые указатели, не deep copy
+### H-05 [crypto/tls.c:187-189] reality_key/reality_short_id — сырые указатели, не deep copy — ✅ ЗАКРЫТА (волна 6)
 При перезагрузке конфига — dangling pointer.
 ```c
 conn->config.reality_key = config->reality_key;
@@ -168,29 +168,29 @@ wc_curve25519_export_private_raw(&key, priv, &plen);
 wc_curve25519_export_public(&key, pub, &plen);
 ```
 
-### H-07 [src/net_utils.c:37-65] Shell injection через popen() — системный риск
+### H-07 [src/net_utils.c:37-65] Shell injection через popen() — системный риск — ✅ ЗАКРЫТА (волна 6)
 Все `exec_cmd*` передают строку напрямую в `popen()` = `/bin/sh -c`.
 **Рекомендация:** `exec_argv()` через `posix_spawn` / `fork+execvp`.
 
-### H-08 [src/main.c:123] open("/dev/null") без O_CLOEXEC в daemonize()
+### H-08 [src/main.c:123] open("/dev/null") без O_CLOEXEC в daemonize() — ✅ ЗАКРЫТА (волна 6)
 ```c
 int devnull = open("/dev/null", O_RDWR);
 ```
 
-### H-09 [src/main.c:391] epoll_ctl return value не проверяется
+### H-09 [src/main.c:391] epoll_ctl return value не проверяется — ✅ ЗАКРЫТА (волна 6)
 ```c
 epoll_ctl(master_epoll, EPOLL_CTL_ADD, listen_fds[i], &mev);
 ```
 
-### H-10 [src/ipc.c:83-84] IPC recv без retry при EAGAIN/short read
+### H-10 [src/ipc.c:83-84] IPC recv без retry при EAGAIN/short read — ✅ ЗАКРЫТА (волна 6)
 ```c
 ssize_t n = recv(client_fd, &hdr, sizeof(hdr), MSG_DONTWAIT);
 if (n != sizeof(hdr)) { ... }
 ```
 
-### H-11 [src/ipc.c:193-194] IPC response read без loop для short reads
+### H-11 [src/ipc.c:193-194] IPC response read без loop для short reads — ✅ ЗАКРЫТА (волна 6)
 
-### H-12 [src/ntp_bootstrap.c:152-153] Время из неаутентифицированного HTTP ответа
+### H-12 [src/ntp_bootstrap.c:152-153] Время из неаутентифицированного HTTP ответа — ✅ ЗАКРЫТА (волна 6)
 Атакующий через MITM может установить произвольное время → TLS replay.
 **Рекомендация:** Sanity check: время в пределах ±1 год от compile time.
 
@@ -216,20 +216,20 @@ NULL от strdup записывается в массив → segfault при st
 
 ### H-18 [dns/dns_server.c:235-292] TCP DNS handler блокирует event loop до 3+ сек
 
-### H-19 [proxy/dispatcher.c:608] SS relay: partial write → возврат n вместо w
+### H-19 [proxy/dispatcher.c:608] SS relay: partial write → возврат n вместо w — ✅ ЗАКРЫТА (волна 6)
 ```c
 ssize_t w = write(r->client_fd, ds->relay_buf, n);
 return (w > 0) ? n : w;  // должно быть w, не n
 ```
 
-### H-20 [proxy/dispatcher.c:624] TLS relay: partial write не обрабатывается
+### H-20 [proxy/dispatcher.c:624] TLS relay: partial write не обрабатывается — ✅ ЗАКРЫТА (волна 6)
 
-### H-21 [proxy/protocols/shadowsocks.c:183-188] SS handshake: partial write = fatal error
+### H-21 [proxy/protocols/shadowsocks.c:183-188] SS handshake: partial write = fatal error — ✅ ЗАКРЫТА (волна 6)
 На nonblocking сокете write() может вернуть short write. Данные уже отправлены частично.
 
-### H-22 [proxy/protocols/shadowsocks.c:243-248] SS send: та же проблема
+### H-22 [proxy/protocols/shadowsocks.c:243-248] SS send: та же проблема — ✅ ЗАКРЫТА (волна 6)
 
-### H-23 [proxy/protocols/vless.c:130-159] Блокирующий select() loop 5 сек в event loop
+### H-23 [proxy/protocols/vless.c:130-159] Блокирующий select() loop 5 сек в event loop — ✅ ЗАКРЫТА (волна 6)
 **Рекомендация:** Удалить блокирующий `vless_read_response`, оставить только step API.
 
 ### H-24 [proxy/protocols/awg.c:231-237] Stack buffer overflow через user-controlled padding — ✅ ЗАКРЫТА (волна 5)
@@ -239,10 +239,10 @@ return (w > 0) ? n : w;  // должно быть w, не n
 random_fill(pkt + pkt_len, pad);  // нет проверки границ
 ```
 
-### H-25 [proxy/protocols/awg.c:53-54] random_u32 возвращает 0 при ошибке
+### H-25 [proxy/protocols/awg.c:53-54] random_u32 возвращает 0 при ошибке — ✅ ЗАКРЫТА (волна 6)
 Все обфускация AWG становится детерминированной (нулевой).
 
-### H-26 [proxy/protocols/shadowsocks.c:44-51] /dev/urandom без O_CLOEXEC
+### H-26 [proxy/protocols/shadowsocks.c:44-51] /dev/urandom без O_CLOEXEC — ✅ ЗАКРЫТА (волна 6)
 ```c
 int fd = open("/dev/urandom", O_RDONLY);
 ```
@@ -366,9 +366,9 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 
 | Категория | Найдено | Закрыто | Принято/Ложное |
 |-----------|---------|---------|----------------|
-| CRITICAL  |   14    |    9    |       3        |
-| HIGH      |   28    |    9    |       0        |
+| CRITICAL  |   14    |   10    |       3        |
+| HIGH      |   28    |   24    |       0        |
 | MEDIUM    |   38    |    0    |       0        |
 | LOW       |   26    |    0    |       0        |
 | INFO      |   21    |   21   |       0        |
-| **ИТОГО** | **127** |  **39** |     **3**      |
+| **ИТОГО** | **127** |  **55** |     **3**      |

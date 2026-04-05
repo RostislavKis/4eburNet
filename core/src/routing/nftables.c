@@ -127,12 +127,10 @@ static nft_result_t nft_exec_atomic(const char *config)
     fputs(config, f);
     fclose(f);
 
-    /* Запускаем nft -f с файлом — stderr доступен через popen "r" */
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", tmppath);
-
+    /* Запускаем nft -f через posix_spawn без shell (H-07) */
+    const char *const nft_argv[] = {"nft", "-f", tmppath, NULL};
     char err_buf[NFT_ERR_BUF] = {0};
-    int status = exec_cmd_capture(cmd, err_buf, sizeof(err_buf));
+    int status = exec_cmd_safe(nft_argv, err_buf, sizeof(err_buf));
     unlink(tmppath);
 
     if (status != 0) {
@@ -595,11 +593,10 @@ nft_result_t nft_mode_set_tun(void)
 
 static nft_result_t nft_exec_file(const char *path)
 {
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", path);
-
+    /* posix_spawn без shell (H-07) */
+    const char *const nft_argv[] = {"nft", "-f", path, NULL};
     char err_buf[NFT_ERR_BUF] = {0};
-    int status = exec_cmd_capture(cmd, err_buf, sizeof(err_buf));
+    int status = exec_cmd_safe(nft_argv, err_buf, sizeof(err_buf));
     if (status != 0) {
         size_t len = strlen(err_buf);
         if (len > 0 && err_buf[len - 1] == '\n')
