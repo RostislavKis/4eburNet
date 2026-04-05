@@ -15,8 +15,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 /* Максимальный размер команды nft */
 #define NFT_CMD_MAX     4096
@@ -51,13 +53,23 @@ static bool validate_cidr(const char *cidr)
     return strpbrk(cidr, "0123456789") != NULL;
 }
 
-/* Валидация nft команды — запрет shell-метасимволов (S-01) */
+/* Валидация nft команды — запрет shell-метасимволов (S-01, H-27) */
 static bool validate_nft_cmd(const char *cmd)
 {
-    const char *forbidden = "|&;`$()<>";
+    const char *forbidden = "|&;`$()<>'\"{}#\n\r\\";
     for (const char *p = forbidden; *p; p++)
         if (strchr(cmd, *p))
             return false;
+    return true;
+}
+
+/* Валидация имён set/map для nft (C-13) */
+static bool valid_nft_name(const char *s)
+{
+    if (!s || !s[0]) return false;
+    if (!isalpha((unsigned char)s[0]) && s[0] != '_') return false;
+    for (const char *p = s + 1; *p; p++)
+        if (!isalnum((unsigned char)*p) && *p != '_') return false;
     return true;
 }
 
@@ -98,11 +110,18 @@ static nft_result_t nft_exec_atomic(const char *config)
 {
     log_msg(LOG_DEBUG, "nft: атомарное применение (%zu байт)", strlen(config));
 
-    /* Записываем конфиг во временный файл (tmpfs — не Flash) */
-    FILE *f = fopen(NFT_TMP_CONF, "w");
+    /* mkstemp для безопасного создания tmp файла (H-28) */
+    char tmppath[] = "/tmp/phoenix_nft_XXXXXX";
+    int tmpfd = mkstemp(tmppath);
+    if (tmpfd < 0) {
+        log_msg(LOG_ERROR, "nft: mkstemp: %s", strerror(errno));
+        return NFT_ERR_EXEC;
+    }
+    fchmod(tmpfd, 0600);
+    FILE *f = fdopen(tmpfd, "w");
     if (!f) {
-        log_msg(LOG_ERROR, "nft: не удалось создать %s: %s",
-                NFT_TMP_CONF, strerror(errno));
+        close(tmpfd);
+        unlink(tmppath);
         return NFT_ERR_EXEC;
     }
     fputs(config, f);
@@ -110,11 +129,11 @@ static nft_result_t nft_exec_atomic(const char *config)
 
     /* Запускаем nft -f с файлом — stderr доступен через popen "r" */
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", NFT_TMP_CONF);
+    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", tmppath);
 
     char err_buf[NFT_ERR_BUF] = {0};
     int status = exec_cmd_capture(cmd, err_buf, sizeof(err_buf));
-    unlink(NFT_TMP_CONF);
+    unlink(tmppath);
 
     if (status != 0) {
         size_t len = strlen(err_buf);
@@ -289,6 +308,10 @@ void nft_cleanup(void)
 
 nft_result_t nft_set_add_addr(const char *set_name, const char *cidr)
 {
+    if (!valid_nft_name(set_name)) {
+        log_msg(LOG_ERROR, "nft: невалидное имя set: %s", set_name);
+        return NFT_ERR_EXEC;
+    }
     char cmd[NFT_CMD_MAX];
     snprintf(cmd, sizeof(cmd),
              "add element inet " NFT_TABLE_NAME " %s { %s }",
@@ -298,6 +321,10 @@ nft_result_t nft_set_add_addr(const char *set_name, const char *cidr)
 
 nft_result_t nft_set_del_addr(const char *set_name, const char *cidr)
 {
+    if (!valid_nft_name(set_name)) {
+        log_msg(LOG_ERROR, "nft: невалидное имя set: %s", set_name);
+        return NFT_ERR_EXEC;
+    }
     char cmd[NFT_CMD_MAX];
     snprintf(cmd, sizeof(cmd),
              "delete element inet " NFT_TABLE_NAME " %s { %s }",
@@ -307,6 +334,10 @@ nft_result_t nft_set_del_addr(const char *set_name, const char *cidr)
 
 nft_result_t nft_set_flush(const char *set_name)
 {
+    if (!valid_nft_name(set_name)) {
+        log_msg(LOG_ERROR, "nft: невалидное имя set: %s", set_name);
+        return NFT_ERR_EXEC;
+    }
     char cmd[NFT_CMD_MAX];
     snprintf(cmd, sizeof(cmd),
              "flush set inet " NFT_TABLE_NAME " %s", set_name);
@@ -595,14 +626,24 @@ nft_result_t nft_set_load_file(const char *set_name,
         result->errors = 0;
     }
 
+    if (!valid_nft_name(set_name)) {
+        log_msg(LOG_ERROR, "nft: невалидное имя set: %s", set_name);
+        return NFT_ERR_EXEC;
+    }
+
     FILE *f = fopen(filepath, "r");
     if (!f) {
         log_msg(LOG_WARN, "nft: файл не найден: %s", filepath);
         return NFT_ERR_NOTFOUND;
     }
 
-    FILE *batch = fopen(NFT_TMP_CONF, "w");
-    if (!batch) { fclose(f); return NFT_ERR_EXEC; }
+    /* mkstemp для batch файла (H-28) */
+    char batchpath[] = "/tmp/phoenix_nft_XXXXXX";
+    int batchfd = mkstemp(batchpath);
+    if (batchfd < 0) { fclose(f); return NFT_ERR_EXEC; }
+    fchmod(batchfd, 0600);
+    FILE *batch = fdopen(batchfd, "w");
+    if (!batch) { close(batchfd); unlink(batchpath); fclose(f); return NFT_ERR_EXEC; }
 
     fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
             set_name);
@@ -624,13 +665,18 @@ nft_result_t nft_set_load_file(const char *set_name,
         if (batch_count >= NFT_BATCH_MAX) {
             fprintf(batch, "}\n");
             fclose(batch);
-            nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
-            unlink(NFT_TMP_CONF);
+            nft_result_t rc = nft_exec_file(batchpath);
+            unlink(batchpath);
             if (rc != NFT_OK) total_errors += batch_count;
             else total_loaded += batch_count;
 
-            batch = fopen(NFT_TMP_CONF, "w");
-            if (!batch) { fclose(f); break; }
+            char newpath[] = "/tmp/phoenix_nft_XXXXXX";
+            int newfd = mkstemp(newpath);
+            if (newfd < 0) { fclose(f); break; }
+            fchmod(newfd, 0600);
+            memcpy(batchpath, newpath, sizeof(batchpath));
+            batch = fdopen(newfd, "w");
+            if (!batch) { close(newfd); unlink(batchpath); fclose(f); break; }
             fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
                     set_name);
             batch_count = 0;
@@ -641,13 +687,13 @@ nft_result_t nft_set_load_file(const char *set_name,
     if (batch_count > 0) {
         fprintf(batch, "}\n");
         fclose(batch);
-        nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
-        unlink(NFT_TMP_CONF);
+        nft_result_t rc = nft_exec_file(batchpath);
+        unlink(batchpath);
         if (rc != NFT_OK) total_errors += batch_count;
         else total_loaded += batch_count;
     } else {
         fclose(batch);
-        unlink(NFT_TMP_CONF);
+        unlink(batchpath);
     }
 
     if (result) {
@@ -736,6 +782,11 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
         result->errors = 0;
     }
 
+    if (!valid_nft_name(map_name)) {
+        log_msg(LOG_ERROR, "nft: невалидное имя map: %s", map_name);
+        return NFT_ERR_EXEC;
+    }
+
     if (count == 0)
         return NFT_OK;
 
@@ -755,11 +806,17 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
         if (batch > NFT_BATCH_MAX)
             batch = NFT_BATCH_MAX;
 
-        /* Записываем batch напрямую в файл */
-        FILE *f = fopen(NFT_TMP_CONF, "w");
+        /* mkstemp для batch файла (H-28) */
+        char tmppath[] = "/tmp/phoenix_nft_XXXXXX";
+        int tmpfd = mkstemp(tmppath);
+        if (tmpfd < 0) {
+            log_msg(LOG_ERROR, "nft: mkstemp: %s", strerror(errno));
+            return NFT_ERR_EXEC;
+        }
+        fchmod(tmpfd, 0600);
+        FILE *f = fdopen(tmpfd, "w");
         if (!f) {
-            log_msg(LOG_ERROR, "nft: не удалось создать %s: %s",
-                    NFT_TMP_CONF, strerror(errno));
+            close(tmpfd); unlink(tmppath);
             return NFT_ERR_EXEC;
         }
 
@@ -785,8 +842,8 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
         fclose(f);
 
         if (written > 0) {
-            nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
-            unlink(NFT_TMP_CONF);
+            nft_result_t rc = nft_exec_file(tmppath);
+            unlink(tmppath);
             if (rc != NFT_OK) {
                 if (result) result->errors += written;
                 log_msg(LOG_ERROR,
@@ -796,7 +853,7 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
             }
             if (result) result->loaded += written;
         } else {
-            unlink(NFT_TMP_CONF);
+            unlink(tmppath);
         }
 
         offset += batch;
@@ -829,6 +886,11 @@ nft_result_t nft_vmap_load_file(const char *map_name,
         result->errors = 0;
     }
 
+    if (!valid_nft_name(map_name)) {
+        log_msg(LOG_ERROR, "nft: невалидное имя map: %s", map_name);
+        return NFT_ERR_EXEC;
+    }
+
     FILE *f = fopen(filepath, "r");
     if (!f) {
         log_msg(LOG_WARN, "nft: файл не найден: %s", filepath);
@@ -843,11 +905,13 @@ nft_result_t nft_vmap_load_file(const char *map_name,
      * Читаем построчно, накапливаем batch в tmp файл.
      * При достижении NFT_BATCH_MAX — применяем и начинаем новый.
      */
-    FILE *batch = fopen(NFT_TMP_CONF, "w");
-    if (!batch) {
-        fclose(f);
-        return NFT_ERR_EXEC;
-    }
+    /* mkstemp для batch файла (H-28) */
+    char batchpath[] = "/tmp/phoenix_nft_XXXXXX";
+    int batchfd = mkstemp(batchpath);
+    if (batchfd < 0) { fclose(f); return NFT_ERR_EXEC; }
+    fchmod(batchfd, 0600);
+    FILE *batch = fdopen(batchfd, "w");
+    if (!batch) { close(batchfd); unlink(batchpath); fclose(f); return NFT_ERR_EXEC; }
 
     fprintf(batch, "add element inet " NFT_TABLE_NAME " %s {\n",
             map_name);
@@ -893,8 +957,8 @@ nft_result_t nft_vmap_load_file(const char *map_name,
             fprintf(batch, "}\n");
             fclose(batch);
 
-            nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
-            unlink(NFT_TMP_CONF);
+            nft_result_t rc = nft_exec_file(batchpath);
+            unlink(batchpath);
             if (rc != NFT_OK) {
                 total_errors += batch_count;
                 log_msg(LOG_ERROR, "nft: batch из файла %s провалился",
@@ -909,9 +973,22 @@ nft_result_t nft_vmap_load_file(const char *map_name,
                         map_name, filepath, total_loaded);
 
             /* Начать новый batch */
-            batch = fopen(NFT_TMP_CONF, "w");
-            if (!batch) {
+            char newpath[] = "/tmp/phoenix_nft_XXXXXX";
+            int newfd = mkstemp(newpath);
+            if (newfd < 0) {
                 fclose(f);
+                if (result) {
+                    result->loaded = total_loaded;
+                    result->skipped = total_skipped;
+                    result->errors = total_errors;
+                }
+                return NFT_ERR_EXEC;
+            }
+            fchmod(newfd, 0600);
+            memcpy(batchpath, newpath, sizeof(batchpath));
+            batch = fdopen(newfd, "w");
+            if (!batch) {
+                close(newfd); unlink(batchpath); fclose(f);
                 if (result) {
                     result->loaded = total_loaded;
                     result->skipped = total_skipped;
@@ -932,15 +1009,15 @@ nft_result_t nft_vmap_load_file(const char *map_name,
         fprintf(batch, "}\n");
         fclose(batch);
 
-        nft_result_t rc = nft_exec_file(NFT_TMP_CONF);
-        unlink(NFT_TMP_CONF);
+        nft_result_t rc = nft_exec_file(batchpath);
+        unlink(batchpath);
         if (rc != NFT_OK)
             total_errors += batch_count;
         else
             total_loaded += batch_count;
     } else {
         fclose(batch);
-        unlink(NFT_TMP_CONF);
+        unlink(batchpath);
     }
 
     if (result) {

@@ -301,7 +301,7 @@ static void tproxy_recv_udp(tproxy_state_t *ts, int udp_fd, int family)
 
     for (;;) {
         struct sockaddr_storage src;
-        struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
+        struct iovec iov = { .iov_base = buf, .iov_len = TPROXY_UDP_BUF };
         char cmsg_buf[TPROXY_CMSG_SIZE];
 
         struct msghdr msg = {

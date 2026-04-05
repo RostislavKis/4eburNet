@@ -15,6 +15,7 @@
 #include "phoenix.h"
 
 #include <string.h>
+#include <strings.h>  /* explicit_bzero */
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -59,6 +60,8 @@ static void noise_hkdf2(const uint8_t ck[32], const void *data, size_t len,
     memcpy(buf, ck_out, 32);
     buf[32] = 2;
     blake2s_hmac(key_out, 32, prk, 32, buf, 33);
+
+    explicit_bzero(prk, sizeof(prk));
 }
 
 /* HKDF3: (ck, data) → (ck_out, k1, k2) */
@@ -79,6 +82,8 @@ static void noise_hkdf3(const uint8_t ck[32], const void *data, size_t len,
     memcpy(buf, k1, 32);
     buf[32] = 3;
     blake2s_hmac(k2, 32, prk, 32, buf, 33);
+
+    explicit_bzero(prk, sizeof(prk));
 }
 
 /* AEAD encrypt: ChaCha20-Poly1305 */
@@ -162,8 +167,16 @@ static int x25519_generate(uint8_t priv[32], uint8_t pub[32])
     int rc = wc_curve25519_make_key(&rng, 32, &key);
     if (rc == 0) {
         word32 plen = 32;
-        wc_curve25519_export_private_raw(&key, priv, &plen);
-        wc_curve25519_export_public(&key, pub, &plen);
+        if (wc_curve25519_export_private_raw(&key, priv, &plen) != 0) {
+            wc_curve25519_free(&key);
+            wc_FreeRng(&rng);
+            return -1;
+        }
+        if (wc_curve25519_export_public(&key, pub, &plen) != 0) {
+            wc_curve25519_free(&key);
+            wc_FreeRng(&rng);
+            return -1;
+        }
     }
 
     wc_curve25519_free(&key);
@@ -300,8 +313,9 @@ int noise_handshake_init_create(noise_state_t *ns,
 
     /* EncryptAndHash(timestamp) → encrypted_timestamp(28) */
     uint8_t timestamp[12];
-    /* TAI64N: seconds + 2^62 offset, big-endian + 4 байта наносекунд */
-    uint64_t tai = (uint64_t)time(NULL) + 4611686018427387914ULL;
+    /* TAI64N: seconds + 2^62 + TAI-UTC(37 сек с 2017) */
+    #define TAI64N_BASE (4611686018427387904ULL + 37)
+    uint64_t tai = (uint64_t)time(NULL) + TAI64N_BASE;
     timestamp[0] = (uint8_t)(tai >> 56);
     timestamp[1] = (uint8_t)(tai >> 48);
     timestamp[2] = (uint8_t)(tai >> 40);
@@ -334,6 +348,11 @@ int noise_handshake_init_create(noise_state_t *ns,
     p += 16;
 
     *outlen = (size_t)(p - out);
+
+    /* Обнуление ключевого материала на стеке */
+    explicit_bzero(shared, sizeof(shared));
+    explicit_bzero(tag, sizeof(tag));
+    explicit_bzero(mac1_key, sizeof(mac1_key));
     return 0;
 }
 
@@ -402,6 +421,10 @@ int noise_handshake_response_process(noise_state_t *ns,
     ns->recv_counter = 0;
     ns->handshake_complete = true;
 
+    /* Обнуление ключевого материала на стеке */
+    explicit_bzero(shared, sizeof(shared));
+    explicit_bzero(temp, sizeof(temp));
+
     log_msg(LOG_DEBUG, "Noise: handshake завершён");
     return 0;
 }
@@ -442,6 +465,20 @@ int noise_decrypt(noise_state_t *ns,
 
     uint64_t ctr;
     memcpy(&ctr, cipher + 8, 8);
+
+    /* Replay protection: counter должен быть > последнего принятого */
+    if (ns->recv_counter > 0 && ctr <= ns->recv_counter - 1) {
+        log_msg(LOG_DEBUG, "Noise: replay атака (ctr=%llu, ожидали >%llu)",
+                (unsigned long long)ctr,
+                (unsigned long long)(ns->recv_counter - 1));
+        return -1;
+    }
+
+    /* Sliding window для out-of-order пакетов: допускаем отставание до 64 */
+    if (ns->recv_counter > 64 && ctr < ns->recv_counter - 64) {
+        log_msg(LOG_DEBUG, "Noise: слишком старый пакет");
+        return -1;
+    }
 
     size_t payload_len = cipher_len - 32;
     const uint8_t *tag = cipher + 16 + payload_len;

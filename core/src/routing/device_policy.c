@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 
 /* Временный файл для атомарных nft операций */
@@ -92,6 +93,17 @@ const device_config_t *device_policy_find(const device_manager_t *dm,
 /*  nftables — netdev таблица с MAC verdict map                        */
 /* ------------------------------------------------------------------ */
 
+/* Валидация формата MAC адреса (C-12) */
+static bool valid_mac_str(const char *s)
+{
+    if (!s || strlen(s) != 17) return false;
+    for (int i = 0; i < 17; i++) {
+        if (i % 3 == 2) { if (s[i] != ':') return false; }
+        else { if (!isxdigit((unsigned char)s[i])) return false; }
+    }
+    return true;
+}
+
 static const char *policy_chain(device_policy_t p)
 {
     switch (p) {
@@ -130,6 +142,7 @@ static int write_device_nft(device_manager_t *dm,
         if (!d->enabled || !d->mac_str[0]) continue;
         if (d->policy == DEVICE_POLICY_DEFAULT) continue;
         if (!policy_chain(d->policy)) continue;
+        if (!valid_mac_str(d->mac_str)) continue;
         count++;
     }
 
@@ -142,6 +155,12 @@ static int write_device_nft(device_manager_t *dm,
             if (d->policy == DEVICE_POLICY_DEFAULT) continue;
             const char *chain = policy_chain(d->policy);
             if (!chain) continue;
+            if (!valid_mac_str(d->mac_str)) {
+                log_msg(LOG_WARN,
+                    "Device policy: невалидный MAC пропущен: %s",
+                    d->mac_str);
+                continue;
+            }
             if (!first) fprintf(f, ",");
             fprintf(f, " %s : goto %s", d->mac_str, chain);
             first = 0;
@@ -167,6 +186,11 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
 {
     if (!lan_iface || !lan_iface[0]) {
         log_msg(LOG_WARN, "Device policy: lan_interface не задан");
+        return -1;
+    }
+    if (!valid_ifname(lan_iface)) {
+        log_msg(LOG_ERROR, "Device policy: невалидный lan_interface: %s",
+                lan_iface);
         return -1;
     }
 

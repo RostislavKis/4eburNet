@@ -29,7 +29,9 @@ int dns_rules_init(const PhoenixConfig *cfg)
 
     for (int i = 0; i < cfg->dns_rule_count; i++) {
         const DnsRule *r = &cfg->dns_rules[i];
-        g_rules.patterns[g_rules.count] = strdup(r->pattern);
+        char *dup = strdup(r->pattern);
+        if (!dup) break;  /* OOM — прекратить загрузку */
+        g_rules.patterns[g_rules.count] = dup;
 
         if (strcmp(r->type, "bypass") == 0)
             g_rules.actions[g_rules.count] = DNS_ACTION_BYPASS;
@@ -72,14 +74,17 @@ int dns_rules_load_file(const char *path, dns_action_t action)
         if (g_rules.count >= g_rules.capacity) {
             int new_cap = g_rules.capacity * 2;
             char **np = realloc(g_rules.patterns, new_cap * sizeof(char*));
-            dns_action_t *na = realloc(g_rules.actions, new_cap * sizeof(dns_action_t));
-            if (!np || !na) break;
+            if (!np) break;
             g_rules.patterns = np;
+            dns_action_t *na = realloc(g_rules.actions, new_cap * sizeof(dns_action_t));
+            if (!na) break;  /* np уже сохранён — нет утечки */
             g_rules.actions = na;
             g_rules.capacity = new_cap;
         }
 
-        g_rules.patterns[g_rules.count] = strdup(line);
+        char *dup = strdup(line);
+        if (!dup) break;  /* OOM — прекратить загрузку */
+        g_rules.patterns[g_rules.count] = dup;
         g_rules.actions[g_rules.count] = action;
         g_rules.count++;
         loaded++;

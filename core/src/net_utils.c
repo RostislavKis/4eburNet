@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -28,6 +30,20 @@ void net_format_addr(const struct sockaddr_storage *ss,
     } else {
         snprintf(buf, buflen, "unknown");
     }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Валидация имени интерфейса (C-10, C-11)                            */
+/* ------------------------------------------------------------------ */
+
+bool valid_ifname(const char *s)
+{
+    if (!s || !s[0] || strlen(s) >= IFNAMSIZ) return false;
+    for (const char *p = s; *p; p++)
+        if (!isalnum((unsigned char)*p) &&
+            *p != '-' && *p != '_' && *p != '.')
+            return false;
+    return true;
 }
 
 /* ------------------------------------------------------------------ */

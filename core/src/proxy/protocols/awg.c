@@ -227,12 +227,17 @@ static void awg_obfuscate_header(uint8_t *pkt,
     pkt[3] = (uint8_t)(hdr >> 24);
 }
 
-/* Добавить S padding */
-static size_t awg_add_padding(uint8_t *pkt, size_t pkt_len, uint16_t s_max)
+/* Добавить S padding с проверкой границ буфера */
+static size_t awg_add_padding(uint8_t *pkt, size_t pkt_len,
+                               uint16_t s_max, size_t buf_size)
 {
     if (s_max == 0) return pkt_len;
     uint16_t pad = (uint16_t)(random_u32() % (s_max + 1));
-    random_fill(pkt + pkt_len, pad);
+    /* Проверка границ буфера */
+    if (pkt_len + pad > buf_size)
+        pad = (uint16_t)(buf_size - pkt_len);
+    if (pad > 0)
+        random_fill(pkt + pkt_len, pad);
     return pkt_len + pad;
 }
 
@@ -319,7 +324,8 @@ int awg_handshake_start(awg_state_t *awg,
 
     /* AWG обфускация Init */
     awg_obfuscate_header(init_pkt, awg->cfg.h1_min, awg->cfg.h1_max);
-    init_len = awg_add_padding(init_pkt, init_len, awg->cfg.s1);
+    init_len = awg_add_padding(init_pkt, init_len, awg->cfg.s1,
+                                sizeof(init_pkt));
 
     send(awg->udp_fd, init_pkt, init_len, 0);
     awg->last_handshake = time(NULL);
@@ -397,7 +403,7 @@ ssize_t awg_send(awg_state_t *awg, const uint8_t *data, size_t len)
         return -1;
 
     awg_obfuscate_header(pkt, awg->cfg.h4_min, awg->cfg.h4_max);
-    pkt_len = awg_add_padding(pkt, pkt_len, awg->cfg.s4);
+    pkt_len = awg_add_padding(pkt, pkt_len, awg->cfg.s4, sizeof(pkt));
 
     ssize_t sent = send(awg->udp_fd, pkt, pkt_len, 0);
     if (sent > 0) awg->last_send = time(NULL);
@@ -434,7 +440,8 @@ void awg_tick(awg_state_t *awg)
             size_t init_len = sizeof(init);
             if (noise_handshake_init_create(&awg->noise, init, &init_len) == 0) {
                 awg_obfuscate_header(init, awg->cfg.h1_min, awg->cfg.h1_max);
-                init_len = awg_add_padding(init, init_len, awg->cfg.s1);
+                init_len = awg_add_padding(init, init_len, awg->cfg.s1,
+                                            sizeof(init));
                 send(awg->udp_fd, init, init_len, 0);
                 awg->last_handshake = time(NULL);
             }
