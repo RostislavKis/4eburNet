@@ -411,20 +411,28 @@ int config_load(const char *path, PhoenixConfig *cfg)
     /* Копируем DNS правила */
     if (dns_rule_count > 0) {
         cfg->dns_rules = malloc((size_t)dns_rule_count * sizeof(DnsRule));
-        if (cfg->dns_rules)
-            memcpy(cfg->dns_rules, dns_rules,
-                   (size_t)dns_rule_count * sizeof(DnsRule));
+        if (!cfg->dns_rules) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для dns_rules");
+            config_free(cfg);
+            return -1;
+        }
+        memcpy(cfg->dns_rules, dns_rules,
+               (size_t)dns_rule_count * sizeof(DnsRule));
+        cfg->dns_rule_count = dns_rule_count;
     }
-    cfg->dns_rule_count = dns_rule_count;
 
     /* Копируем устройства */
     if (dev_count > 0) {
         cfg->devices = malloc((size_t)dev_count * sizeof(device_config_t));
-        if (cfg->devices)
-            memcpy(cfg->devices, devices_tmp,
-                   (size_t)dev_count * sizeof(device_config_t));
+        if (!cfg->devices) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для devices");
+            config_free(cfg);
+            return -1;
+        }
+        memcpy(cfg->devices, devices_tmp,
+               (size_t)dev_count * sizeof(device_config_t));
+        cfg->device_count = dev_count;
     }
-    cfg->device_count = dev_count;
 
     log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, DNS правил: %d, устройств: %d)",
             path, srv_count, dns_rule_count, dev_count);

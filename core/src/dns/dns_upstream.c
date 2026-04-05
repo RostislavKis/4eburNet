@@ -26,6 +26,8 @@ ssize_t dns_upstream_query(const char *server_ip, uint16_t server_port,
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) return -1;
 
+    /* Жёсткий потолок 500ms для защиты event loop (C-02) */
+    if (timeout_ms > 500) timeout_ms = 500;
     struct timeval tv = {
         .tv_sec  = timeout_ms / 1000,
         .tv_usec = (timeout_ms % 1000) * 1000,
@@ -73,6 +75,11 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+
+    /* Таймаут 1 сек для защиты event loop (C-02) */
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
@@ -185,6 +192,13 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     /* TCP + TLS подключение */
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
+
+    /* Таймаут 1 сек для защиты event loop (C-02) */
+    {
+        struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    }
 
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
