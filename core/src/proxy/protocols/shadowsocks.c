@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include <sys/syscall.h>
 
 #define SS_CONTEXT "shadowsocks 2022 session subkey"
 
@@ -39,15 +40,33 @@ static void nonce_increment(uint8_t nonce[SS_NONCE_LEN])
     }
 }
 
-/* Генерация случайных байт */
+/* Генерация случайных байт: getrandom() + fallback /dev/urandom (H-26) */
 static int random_bytes(uint8_t *buf, size_t len)
 {
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0)
-        return -1;
-    ssize_t n = read(fd, buf, len);
-    close(fd);
-    return (n == (ssize_t)len) ? 0 : -1;
+#ifdef __NR_getrandom
+    size_t done = 0;
+    while (done < len) {
+        ssize_t r = syscall(__NR_getrandom, buf + done, len - done, 0);
+        if (r < 0 && errno == EINTR) continue;
+        if (r < 0) goto fallback;
+        done += (size_t)r;
+    }
+    return 0;
+fallback:
+#endif
+    {
+        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+        if (fd < 0)
+            return -1;
+        size_t done2 = 0;
+        while (done2 < len) {
+            ssize_t n = read(fd, buf + done2, len - done2);
+            if (n <= 0) { close(fd); return -1; }
+            done2 += (size_t)n;
+        }
+        close(fd);
+        return 0;
+    }
 }
 
 /* KDF: session_key = Blake3DeriveKey(context, PSK || salt) */
@@ -118,6 +137,11 @@ int ss_handshake_start(ss_state_t *ss, int fd,
 {
     memset(ss, 0, sizeof(*ss));
 
+    /* Инициализировать overflow буфер (C-08) */
+    ss->overflow_buf = NULL;
+    ss->overflow_len = 0;
+    ss->overflow_off = 0;
+
     /* Декодировать PSK */
     if (ss_psk_decode(psk_b64, &ss->psk) < 0)
         return -1;
@@ -180,11 +204,18 @@ int ss_handshake_start(ss_state_t *ss, int fd,
     memcpy(packet + pkt_len, tag, SS_TAG_LEN);
     pkt_len += SS_TAG_LEN;
 
-    ssize_t sent = write(fd, packet, pkt_len);
-    if (sent != (ssize_t)pkt_len) {
-        log_msg(LOG_WARN, "SS: не удалось отправить header (%zd/%zu)",
-                sent, pkt_len);
-        return -1;
+    /* Write loop для partial write на nonblocking fd (H-21) */
+    size_t written = 0;
+    while (written < pkt_len) {
+        ssize_t w = write(fd, packet + written, pkt_len - written);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            log_msg(LOG_WARN, "SS: не удалось отправить header (%zu/%zu)",
+                    written, pkt_len);
+            return -1;
+        }
+        written += (size_t)w;
     }
 
     ss->header_sent = true;
@@ -241,11 +272,21 @@ ssize_t ss_send(ss_state_t *ss, int fd,
     memcpy(packet + pkt_len, data_cipher, len); pkt_len += len;
     memcpy(packet + pkt_len, data_tag, SS_TAG_LEN); pkt_len += SS_TAG_LEN;
 
-    ssize_t sent = write(fd, packet, pkt_len);
+    /* Write loop для partial write на nonblocking fd (H-22) */
+    size_t written = 0;
+    while (written < pkt_len) {
+        ssize_t w = write(fd, packet + written, pkt_len - written);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            free(data_cipher);
+            free(packet);
+            return -1;
+        }
+        written += (size_t)w;
+    }
     free(data_cipher);
     free(packet);
-    if (sent != (ssize_t)pkt_len)
-        return -1;
 
     return (ssize_t)len;
 }
@@ -257,6 +298,21 @@ ssize_t ss_send(ss_state_t *ss, int fd,
 ssize_t ss_recv(ss_state_t *ss, int fd,
                 uint8_t *buf, size_t buflen)
 {
+    /* Проверить overflow от предыдущего вызова (C-08) */
+    if (ss->overflow_buf && ss->overflow_len > 0) {
+        size_t avail = ss->overflow_len - ss->overflow_off;
+        size_t copy = avail < buflen ? avail : buflen;
+        memcpy(buf, ss->overflow_buf + ss->overflow_off, copy);
+        ss->overflow_off += copy;
+        if (ss->overflow_off >= ss->overflow_len) {
+            free(ss->overflow_buf);
+            ss->overflow_buf = NULL;
+            ss->overflow_len = 0;
+            ss->overflow_off = 0;
+        }
+        return (ssize_t)copy;
+    }
+
     /* Фаза 1: читаем length frame (18 байт) с accumulator */
     if (!ss->recv_len_done) {
         while (ss->recv_len_read < 18) {
@@ -298,7 +354,7 @@ ssize_t ss_recv(ss_state_t *ss, int fd,
     size_t data_len = ss->recv_data_need - SS_TAG_LEN;
 
     if (data_len > buflen) {
-        /* Дешифруем полный блок во временный буфер, копируем buflen */
+        /* Дешифруем полный блок во временный буфер, сохраняем остаток (C-08) */
         uint8_t *tmp = malloc(data_len);
         if (!tmp) return -1;
 
@@ -311,7 +367,10 @@ ssize_t ss_recv(ss_state_t *ss, int fd,
             return -1;
         }
         memcpy(buf, tmp, buflen);
-        free(tmp);
+        /* Сохранить остаток в overflow буфер — tmp НЕ освобождаем */
+        ss->overflow_buf = tmp;
+        ss->overflow_len = data_len;
+        ss->overflow_off = buflen;
         ss->recv_len_done = false;
         return (ssize_t)buflen;
     }
@@ -327,4 +386,18 @@ ssize_t ss_recv(ss_state_t *ss, int fd,
     /* Сброс для следующего chunk */
     ss->recv_len_done = false;
     return (ssize_t)data_len;
+}
+
+/* ------------------------------------------------------------------ */
+/*  ss_cleanup — освобождение ресурсов SS соединения                   */
+/* ------------------------------------------------------------------ */
+
+void ss_cleanup(ss_state_t *ss)
+{
+    if (ss->overflow_buf) {
+        free(ss->overflow_buf);
+        ss->overflow_buf = NULL;
+        ss->overflow_len = 0;
+        ss->overflow_off = 0;
+    }
 }

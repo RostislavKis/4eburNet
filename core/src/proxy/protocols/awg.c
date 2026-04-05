@@ -49,8 +49,13 @@ static int random_fill(uint8_t *buf, size_t len)
 
 static uint32_t random_u32(void)
 {
-    uint32_t v = 0;
-    random_fill((uint8_t *)&v, 4);  /* при ошибке v=0, допустимо для junk */
+    uint32_t v;
+    if (random_fill((uint8_t *)&v, 4) != 0) {
+        /* Fallback: обфускация ослаблена, но не нулевая (H-25) */
+        log_msg(LOG_WARN, "AWG: random_fill ошибка — обфускация ослаблена");
+        static uint32_t counter = 0;
+        v = (uint32_t)time(NULL) ^ (++counter * 2654435761u);
+    }
     return v;
 }
 

@@ -8,11 +8,17 @@
 #include "net_utils.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+extern char **environ;
 
 void net_format_addr(const struct sockaddr_storage *ss,
                      char *buf, size_t buflen)
@@ -120,4 +126,43 @@ int exec_cmd_capture(const char *cmd,
         err_buf[total] = '\0';
 
     return pclose(fp);
+}
+
+/* ------------------------------------------------------------------ */
+/*  exec_cmd_safe — через posix_spawn без shell (H-07)                 */
+/* ------------------------------------------------------------------ */
+
+int exec_cmd_safe(const char *const argv[], char *out, size_t outlen)
+{
+    int pipe_fds[2];
+    if (pipe(pipe_fds) < 0) return -1;
+
+    pid_t pid;
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, pipe_fds[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&fa, pipe_fds[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&fa, pipe_fds[0]);
+    posix_spawn_file_actions_addclose(&fa, pipe_fds[1]);
+
+    int rc = posix_spawn(&pid, argv[0], &fa, NULL,
+                         (char *const *)argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(pipe_fds[1]);
+
+    if (rc != 0) { close(pipe_fds[0]); return -1; }
+
+    size_t total = 0;
+    if (out && outlen > 0) {
+        ssize_t n;
+        while ((n = read(pipe_fds[0], out + total,
+                         outlen - 1 - total)) > 0)
+            total += (size_t)n;
+        out[total] = '\0';
+    }
+    close(pipe_fds[0]);
+
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }

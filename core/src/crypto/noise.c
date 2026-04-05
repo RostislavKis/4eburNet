@@ -19,6 +19,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <sys/syscall.h>
 
 /* Константы WireGuard (не менять) */
@@ -186,10 +187,17 @@ static int x25519_generate(uint8_t priv[32], uint8_t pub[32])
 
 static int random_bytes(uint8_t *buf, size_t len)
 {
-    /* getrandom() доступен в Linux 3.17+ и OpenWrt 21+ */
+    /* getrandom() с loop для partial read (H-03) */
 #ifdef __NR_getrandom
-    ssize_t rc = syscall(__NR_getrandom, buf, len, 0);
-    if (rc == (ssize_t)len) return 0;
+    size_t done = 0;
+    while (done < len) {
+        ssize_t r = syscall(__NR_getrandom, buf + done, len - done, 0);
+        if (r < 0 && errno == EINTR) continue;
+        if (r < 0) goto fallback;
+        done += (size_t)r;
+    }
+    return 0;
+fallback:
 #endif
     /* Fallback: /dev/urandom с O_RDONLY|O_CLOEXEC */
     int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
@@ -197,15 +205,15 @@ static int random_bytes(uint8_t *buf, size_t len)
         log_msg(LOG_ERROR, "random_bytes: /dev/urandom недоступен");
         return -1;
     }
-    size_t done = 0;
-    while (done < len) {
-        ssize_t n = read(fd, buf + done, len - done);
+    size_t fb_done = 0;
+    while (fb_done < len) {
+        ssize_t n = read(fd, buf + fb_done, len - fb_done);
         if (n <= 0) {
             close(fd);
             log_msg(LOG_ERROR, "random_bytes: read ошибка");
             return -1;
         }
-        done += (size_t)n;
+        fb_done += (size_t)n;
     }
     close(fd);
     return 0;
@@ -420,6 +428,7 @@ int noise_handshake_response_process(noise_state_t *ns,
     ns->send_counter = 0;
     ns->recv_counter = 0;
     ns->handshake_complete = true;
+    ns->handshake_time = time(NULL);  /* H-04: запомнить время handshake */
 
     /* Обнуление ключевого материала на стеке */
     explicit_bzero(shared, sizeof(shared));
@@ -433,11 +442,30 @@ int noise_handshake_response_process(noise_state_t *ns,
 /*  noise_encrypt / noise_decrypt                                      */
 /* ------------------------------------------------------------------ */
 
+/* WireGuard лимиты: rekey после 2^64-2^16-1 пакетов или 180 секунд */
+#define NOISE_REJECT_AFTER_MESSAGES  (UINT64_MAX - (1ULL << 16) - 1)
+#define NOISE_REJECT_AFTER_TIME      180
+
 int noise_encrypt(noise_state_t *ns,
                   const uint8_t *plain, size_t plain_len,
                   uint8_t *out, size_t *out_len)
 {
     if (!ns->handshake_complete) return -1;
+
+    /* H-02: проверка лимита пакетов */
+    if (ns->send_counter >= NOISE_REJECT_AFTER_MESSAGES) {
+        log_msg(LOG_WARN, "Noise: достигнут лимит пакетов, нужен rekey");
+        ns->handshake_complete = false;
+        return -1;
+    }
+
+    /* H-04: проверка TTL ключа (180 сек) */
+    if (ns->handshake_time > 0 &&
+        time(NULL) - ns->handshake_time > NOISE_REJECT_AFTER_TIME) {
+        log_msg(LOG_DEBUG, "Noise: ключ устарел (>180s), нужен rekey");
+        ns->handshake_complete = false;
+        return -1;
+    }
 
     /* Transport header: msg_type(4) + receiver_index(4) + counter(8) */
     out[0] = MSG_TRANSPORT_DATA; out[1] = 0; out[2] = 0; out[3] = 0;

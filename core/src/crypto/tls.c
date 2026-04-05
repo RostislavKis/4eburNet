@@ -14,6 +14,7 @@
 #include "crypto/tls.h"
 #include "phoenix.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/select.h>
@@ -184,9 +185,23 @@ int tls_connect_start(tls_conn_t *conn, int fd,
     conn->fd = fd;
     conn->config.fingerprint      = config->fingerprint;
     conn->config.verify_cert      = config->verify_cert;
-    conn->config.reality_key      = config->reality_key;
     conn->config.reality_key_len  = config->reality_key_len;
-    conn->config.reality_short_id = config->reality_short_id;
+
+    /* Deep copy reality_key и reality_short_id для защиты от reload (H-05) */
+    if (config->reality_key && config->reality_key_len > 0) {
+        uint8_t *key_copy = malloc(config->reality_key_len);
+        if (key_copy) {
+            memcpy(key_copy, config->reality_key, config->reality_key_len);
+            conn->config.reality_key = key_copy;
+        }
+    } else {
+        conn->config.reality_key = NULL;
+    }
+    if (config->reality_short_id) {
+        conn->config.reality_short_id = strdup(config->reality_short_id);
+    } else {
+        conn->config.reality_short_id = NULL;
+    }
 
     /* Копируем SNI — защита от dangling pointer при reload конфига */
     if (config->sni[0])
@@ -350,6 +365,12 @@ void tls_close(tls_conn_t *conn)
     /* CTX не освобождаем — кэшированный (H-04) */
     conn->ctx = NULL;
     conn->connected = false;
+
+    /* Освободить deep copy reality полей (H-05) */
+    free((void *)conn->config.reality_key);
+    conn->config.reality_key = NULL;
+    free((void *)conn->config.reality_short_id);
+    conn->config.reality_short_id = NULL;
 }
 
 /* ------------------------------------------------------------------ */

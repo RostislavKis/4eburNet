@@ -148,6 +148,13 @@ static int try_host(const char *ip, const char *host)
         return -1;
     }
 
+    /* Sanity check: время должно быть разумным (H-11) */
+    if (t < 1700000000 || t > 2000000000) {
+        log_msg(LOG_WARN, "NTP: подозрительное время %ld, пропускаем",
+                (long)t);
+        return -1;
+    }
+
     /* Устанавливаем время */
     struct timeval new_time = { .tv_sec = t, .tv_usec = 0 };
     if (settimeofday(&new_time, NULL) < 0) {

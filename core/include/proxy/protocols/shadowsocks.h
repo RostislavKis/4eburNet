@@ -32,6 +32,10 @@ typedef struct ss_state {
     uint8_t     recv_data_buf[16400];   /* data frame */
     size_t      recv_data_need;         /* байт нужно */
     size_t      recv_data_read;         /* байт прочитано */
+    /* Остаток данных когда chunk > buflen (C-08) */
+    uint8_t    *overflow_buf;           /* остаток незаписанных данных */
+    size_t      overflow_len;           /* размер остатка */
+    size_t      overflow_off;           /* смещение для следующего чтения */
 } ss_state_t;
 
 /* Декодировать base64 PSK из конфига */
@@ -49,5 +53,8 @@ ssize_t ss_send(ss_state_t *ss, int fd,
 /* Получить данные через SS 2022 AEAD chunk */
 ssize_t ss_recv(ss_state_t *ss, int fd,
                 uint8_t *buf, size_t buflen);
+
+/* Освободить ресурсы SS соединения (overflow буфер) */
+void ss_cleanup(ss_state_t *ss);
 
 #endif /* SHADOWSOCKS_H */

@@ -124,7 +124,8 @@ int vless_build_request(uint8_t *buf, size_t buflen,
 }
 
 /* ------------------------------------------------------------------ */
-/*  vless_read_response                                                */
+/*  vless_read_response — DEPRECATED: legacy блокирующий API           */
+/*  Используйте vless_read_response_step() из dispatcher (H-23)       */
 /* ------------------------------------------------------------------ */
 
 int vless_read_response(tls_conn_t *tls)

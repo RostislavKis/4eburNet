@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <time.h>
 
 /* Размер буфера для ответов */
@@ -78,11 +79,23 @@ void ipc_process(int server_fd, PhoenixState *state)
     if (client_fd < 0)
         return;
 
-    /* Читаем заголовок команды (MSG_DONTWAIT — не блокируем) */
+    /* Читаем заголовок команды (MSG_DONTWAIT — не блокируем) (H-10) */
     ipc_header_t hdr;
     ssize_t n = recv(client_fd, &hdr, sizeof(hdr), MSG_DONTWAIT);
-    if (n != sizeof(hdr)) {
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        /* Данные ещё не прибыли — не ошибка */
+        close(client_fd);
+        return;
+    }
+    if (n != (ssize_t)sizeof(hdr)) {
         log_msg(LOG_WARN, "IPC: неполный заголовок (%zd байт)", n);
+        close(client_fd);
+        return;
+    }
+
+    /* Проверка длины payload (H-10) */
+    if (hdr.length > IPC_RESPONSE_MAX) {
+        log_msg(LOG_WARN, "IPC: payload слишком большой (%u байт)", hdr.length);
         close(client_fd);
         return;
     }
