@@ -786,6 +786,12 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
             r->use_tls = false;
             r->state   = (rc == 0) ? RELAY_ACTIVE : RELAY_CONNECTING;
 
+            /* Инициализировать relay теги ДО epoll_ctl */
+            r->ep_client.relay     = r;
+            r->ep_client.is_client = true;
+            r->ep_upstream.relay     = r;
+            r->ep_upstream.is_client = false;
+
             struct epoll_event ev = { .events = EPOLLIN | EPOLLET };
             ev.data.ptr = &r->ep_client;
             epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->client_fd, &ev);

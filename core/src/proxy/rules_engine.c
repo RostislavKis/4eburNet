@@ -251,7 +251,8 @@ static bool ruleset_match_domain(rules_engine_t *re,
     if (bsearch(&key, pc->entries, pc->count, sizeof(char *), cmp_str))
         return true;
 
-    /* Суффикс: проверяем ".sub.example.com" → "example.com" */
+    /* TODO 3.5: суффикс-поиск O(n) — при > 50K записей
+       заменить на trie или отдельный sorted suffix array */
     for (int i = 0; i < pc->count; i++) {
         if (suffix_match(domain, pc->entries[i]))
             return true;

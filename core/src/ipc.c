@@ -1,7 +1,4 @@
 #include "ipc.h"
-#include "proxy/proxy_group.h"
-#include "proxy/rule_provider.h"
-#include "proxy/rules_engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +19,9 @@ static proxy_group_manager_t    *g_pgm = NULL;
 static rule_provider_manager_t  *g_rpm = NULL;
 static rules_engine_t           *g_re  = NULL;
 
-void ipc_set_3x_context(void *pgm, void *rpm, void *re)
+void ipc_set_3x_context(proxy_group_manager_t *pgm,
+                        rule_provider_manager_t *rpm,
+                        rules_engine_t *re)
 {
     g_pgm = pgm;
     g_rpm = rpm;
