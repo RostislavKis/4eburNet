@@ -478,6 +478,7 @@ int noise_handshake_response_process(noise_state_t *ns,
 
 /* WireGuard лимиты: rekey после 2^64-2^16-1 пакетов или 180 секунд */
 #define NOISE_REJECT_AFTER_MESSAGES  (UINT64_MAX - (1ULL << 16) - 1)
+#define NOISE_REKEY_AFTER_MESSAGES   (1ULL << 60)
 #define NOISE_REJECT_AFTER_TIME      180
 
 int noise_encrypt(noise_state_t *ns,
@@ -492,6 +493,10 @@ int noise_encrypt(noise_state_t *ns,
         ns->handshake_complete = false;
         return -1;
     }
+
+    /* L-20: soft warning при 2^60 пакетов */
+    if (ns->send_counter == NOISE_REKEY_AFTER_MESSAGES)
+        log_msg(LOG_INFO, "Noise: рекомендуется rekey (2^60 пакетов)");
 
     /* H-04: проверка TTL ключа (180 сек) */
     if (ns->handshake_time > 0 &&

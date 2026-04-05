@@ -8,6 +8,9 @@
 /* Максимальная длина строки в конфиге */
 #define MAX_LINE 1024
 
+/* Порт сервера по умолчанию */
+#define DEFAULT_SERVER_PORT 443
+
 /* Максимальное количество серверов */
 #define MAX_SERVERS 64
 
@@ -126,10 +129,15 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         strncpy(srv->address, value, sizeof(srv->address) - 1);
         srv->address[sizeof(srv->address) - 1] = '\0';
     } else if (strcmp(key, "port") == 0) {
-        long port_val = strtol(value, NULL, 10);
+        char *endptr;
+        long port_val = strtol(value, &endptr, 10);
+        if (endptr == value || (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')) {
+            log_msg(LOG_WARN, "Невалидный порт: '%s'", value);
+            port_val = DEFAULT_SERVER_PORT;
+        }
         if (port_val < 1 || port_val > 65535) {
             log_msg(LOG_WARN, "Конфиг: невалидный порт %ld", port_val);
-            port_val = 443;
+            port_val = DEFAULT_SERVER_PORT;
         }
         srv->port = (uint16_t)port_val;
     } else if (strcmp(key, "uuid") == 0) {
@@ -408,7 +416,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
             }
         } else if (strcmp(keyword, "list") == 0) {
             /* Списки пока не поддержаны */
-            log_msg(LOG_DEBUG, "Строка %d: 'list' пропущен (не поддержан)", line_num);
+            log_msg(LOG_INFO, "Строка %d: 'list' пока не поддерживается", line_num);
         } else {
             log_msg(LOG_WARN, "Строка %d: неизвестное ключевое слово '%s'",
                     line_num, keyword);

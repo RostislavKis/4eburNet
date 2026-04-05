@@ -14,7 +14,6 @@ define Package/phoenix-core
   TITLE:=Phoenix Router — ядро прокси-маршрутизации
   URL:=https://github.com/RostislavKis/phoenix-router
   DEPENDS:=+libwolfssl +nftables
-  PKGARCH:=all
 endef
 
 define Package/phoenix-core/description
