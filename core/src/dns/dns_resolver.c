@@ -61,22 +61,34 @@ int dns_pending_add(dns_pending_queue_t *q,
     p->qname[qname_len] = '\0';
     p->qtype = query->qtype;
 
-    /* Неблокирующий UDP сокет */
-    p->upstream_fd = socket(AF_INET,
+    /* L-06: IPv6 поддержка upstream DNS */
+    int af = strchr(upstream_ip, ':') ? AF_INET6 : AF_INET;
+    p->upstream_fd = socket(af,
         SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (p->upstream_fd < 0) {
         p->active = false;
         return -1;
     }
 
-    struct sockaddr_in uaddr = {
-        .sin_family = AF_INET,
-        .sin_port   = htons(upstream_port),
-    };
-    inet_pton(AF_INET, upstream_ip, &uaddr.sin_addr);
+    struct sockaddr_storage uaddr_ss;
+    socklen_t uaddr_len;
+    memset(&uaddr_ss, 0, sizeof(uaddr_ss));
+    if (af == AF_INET6) {
+        struct sockaddr_in6 *a6 = (struct sockaddr_in6 *)&uaddr_ss;
+        a6->sin6_family = AF_INET6;
+        a6->sin6_port = htons(upstream_port);
+        inet_pton(AF_INET6, upstream_ip, &a6->sin6_addr);
+        uaddr_len = sizeof(struct sockaddr_in6);
+    } else {
+        struct sockaddr_in *a4 = (struct sockaddr_in *)&uaddr_ss;
+        a4->sin_family = AF_INET;
+        a4->sin_port = htons(upstream_port);
+        inet_pton(AF_INET, upstream_ip, &a4->sin_addr);
+        uaddr_len = sizeof(struct sockaddr_in);
+    }
 
     ssize_t sent = sendto(p->upstream_fd, p->query, p->query_len, 0,
-                          (struct sockaddr *)&uaddr, sizeof(uaddr));
+                          (struct sockaddr *)&uaddr_ss, uaddr_len);
     if (sent < 0) {
         log_msg(LOG_DEBUG, "DNS pending: sendto: %s", strerror(errno));
         close(p->upstream_fd);
@@ -116,6 +128,7 @@ void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd)
     for (int i = 0; i < DNS_PENDING_MAX; i++) {
         dns_pending_t *p = &q->slots[i];
         if (!p->active) continue;
+        /* L-07: Таймаут ~2-3с (time(NULL) гранулярность 1с). Для DNS допустимо. */
         if (now - p->sent_at > 2) {
             log_msg(LOG_DEBUG, "DNS: upstream таймаут для %s", p->qname);
             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);

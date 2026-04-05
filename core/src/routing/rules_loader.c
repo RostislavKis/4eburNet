@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -92,10 +93,28 @@ int rules_add_source(rules_manager_t *rm,
         return -1;
     }
 
-    /* L-24: проверка path traversal */
-    if (strstr(path, "..") != NULL) {
-        log_msg(LOG_WARN, "rules_loader: опасный путь: %s", path);
-        return -1;
+    /* M-15: whitelist-валидация пути (замена strstr("..")) */
+    {
+        const char *p = path;
+        if (!p || !p[0]) {
+            log_msg(LOG_WARN, "rules_loader: пустой путь");
+            return -1;
+        }
+        if (p[0] == '/') {
+            log_msg(LOG_WARN, "rules_loader: абсолютный путь: %s", path);
+            return -1;
+        }
+        if (strstr(p, "..")) {
+            log_msg(LOG_WARN, "rules_loader: опасный путь: %s", path);
+            return -1;
+        }
+        for (; *p; p++) {
+            if (!isalnum((unsigned char)*p) &&
+                *p != '_' && *p != '-' && *p != '.' && *p != '/') {
+                log_msg(LOG_WARN, "rules_loader: недопустимый символ в пути: %s", path);
+                return -1;
+            }
+        }
     }
 
     rules_source_t *s = &rm->sources[rm->source_count];

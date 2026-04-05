@@ -65,6 +65,10 @@ static void blake2s_compress(blake2s_state_t *s, const uint8_t block[BLAKE2S_BLO
     #undef G
 
     for (int i = 0; i < 8; i++) s->h[i] ^= v[i] ^ v[i+8];
+
+    /* L-02: обнулить промежуточные данные на стеке */
+    explicit_bzero(m, sizeof(m));
+    explicit_bzero(v, sizeof(v));
 }
 
 void blake2s_init(blake2s_state_t *s, size_t outlen,

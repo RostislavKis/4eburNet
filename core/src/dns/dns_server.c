@@ -355,6 +355,20 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
         return;
     }
 
+    /* M-02: базовая валидация DNS ответа */
+    if (resp_n < 12) {
+        log_msg(LOG_DEBUG, "DNS: upstream ответ слишком короткий (%zd)", resp_n);
+        epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        dns_pending_complete(&ds->pending, idx);
+        return;
+    }
+    if (!(resp[2] & 0x80)) {
+        log_msg(LOG_DEBUG, "DNS: upstream ответ без QR=1 для %s", p->qname);
+        epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        dns_pending_complete(&ds->pending, idx);
+        return;
+    }
+
     /* Проверить upstream ID */
     uint16_t resp_id = ((uint16_t)resp[0] << 8) | resp[1];
     if (resp_id != p->upstream_id) {
@@ -406,33 +420,36 @@ static void handle_tcp_query(dns_server_t *ds)
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
+    /* M-01: буферы на heap вместо стека (12KB+ на MICRO опасно) */
+    uint8_t *pkt = malloc(DNS_MAX_PACKET);
+    uint8_t *response = malloc(DNS_MAX_PACKET);
+    uint8_t *tcp_reply = malloc(DNS_MAX_PACKET + 2);
+    if (!pkt || !response || !tcp_reply) {
+        free(pkt); free(response); free(tcp_reply);
+        close(client); return;
+    }
+
     /* Читаем [2 bytes length][DNS query] */
     uint8_t len_buf[2];
-    if (recv(client, len_buf, 2, MSG_WAITALL) != 2) {
-        close(client); return;
-    }
+    if (recv(client, len_buf, 2, MSG_WAITALL) != 2)
+        goto cleanup;
     uint16_t qlen = ((uint16_t)len_buf[0] << 8) | len_buf[1];
-    if (qlen < 12 || qlen > DNS_MAX_PACKET) {
-        close(client); return;
-    }
+    if (qlen < 12 || qlen > DNS_MAX_PACKET)
+        goto cleanup;
 
-    uint8_t pkt[DNS_MAX_PACKET];
-    if (recv(client, pkt, qlen, MSG_WAITALL) != qlen) {
-        close(client); return;
-    }
+    if (recv(client, pkt, qlen, MSG_WAITALL) != qlen)
+        goto cleanup;
 
     dns_query_t q;
-    if (dns_parse_query(pkt, qlen, &q) < 0) {
-        close(client); return;
-    }
+    if (dns_parse_query(pkt, qlen, &q) < 0)
+        goto cleanup;
 
     /* TCP DNS остаётся синхронным: upstream запрос */
-    uint8_t response[DNS_MAX_PACKET];
     ssize_t resp_n;
 
     dns_action_t action = dns_rules_match(q.qname);
     if (action == DNS_ACTION_BLOCK) {
-        resp_n = dns_build_nxdomain(&q, response, sizeof(response));
+        resp_n = dns_build_nxdomain(&q, response, DNS_MAX_PACKET);
     } else {
         /* Для TCP используем блокирующий upstream */
         const DnsConfig *d = &ds->cfg->dns;
@@ -445,13 +462,13 @@ static void handle_tcp_query(dns_server_t *ds)
             break;
         case DNS_ACTION_PROXY:
             if (d->doh_enabled && d->doh_url[0]) {
-                resp_n = dns_doh_query(d, pkt, qlen, response, sizeof(response));
+                resp_n = dns_doh_query(d, pkt, qlen, response, DNS_MAX_PACKET);
                 goto tcp_reply;
             }
             if (d->dot_enabled && d->dot_server_ip[0]) {
                 resp_n = dns_dot_query(d->dot_server_ip, d->dot_port,
                                        d->dot_sni, pkt, qlen,
-                                       response, sizeof(response));
+                                       response, DNS_MAX_PACKET);
                 goto tcp_reply;
             }
             server = d->upstream_proxy;
@@ -464,11 +481,10 @@ static void handle_tcp_query(dns_server_t *ds)
             break;  /* уже обработано выше */
         }
 
-        if (!server || !server[0]) {
-            close(client); return;
-        }
+        if (!server || !server[0])
+            goto cleanup;
         resp_n = dns_upstream_query(server, port, pkt, qlen,
-                                    response, sizeof(response), 2000);
+                                    response, DNS_MAX_PACKET, 2000);
     }
 
 tcp_reply:
@@ -477,7 +493,6 @@ tcp_reply:
         response[0] = (q.id >> 8) & 0xFF;
         response[1] = q.id & 0xFF;
 
-        uint8_t tcp_reply[2 + DNS_MAX_PACKET];
         tcp_reply[0] = (resp_n >> 8) & 0xFF;
         tcp_reply[1] = resp_n & 0xFF;
         memcpy(tcp_reply + 2, response, resp_n);
@@ -486,6 +501,10 @@ tcp_reply:
             log_msg(LOG_DEBUG, "DNS TCP: write: %s", strerror(errno));
     }
 
+cleanup:
+    free(pkt);
+    free(response);
+    free(tcp_reply);
     close(client);
 }
 

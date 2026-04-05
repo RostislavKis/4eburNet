@@ -151,8 +151,10 @@ static int try_host(const char *ip, const char *host)
         return -1;
     }
 
-    /* Sanity check: время должно быть разумным (H-11) */
-    if (t < 1700000000 || t > 2000000000) {
+    /* M-16: Sanity check с именованными константами */
+    #define NTP_SANITY_MIN 1700000000L  /* ~2023-11-14 */
+    #define NTP_SANITY_MAX 2145916800L  /* 2038-01-01 */
+    if (t < NTP_SANITY_MIN || t > NTP_SANITY_MAX) {
         log_msg(LOG_WARN, "NTP: подозрительное время %ld, пропускаем",
                 (long)t);
         return -1;

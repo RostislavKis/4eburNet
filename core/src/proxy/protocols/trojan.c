@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>  /* explicit_bzero */
 #include <errno.h>
 #include <arpa/inet.h>
 
@@ -44,9 +45,13 @@ int trojan_hash_password(const char *password,
 
     byte hash[WC_SHA224_DIGEST_SIZE];  /* 28 байт */
     wc_Sha224Final(&sha, hash);
+    wc_Sha224Free(&sha);
 
     for (int i = 0; i < WC_SHA224_DIGEST_SIZE; i++)
         snprintf(out->hex + i * 2, 3, "%02x", hash[i]);
+
+    /* M-04: обнулить хеш на стеке */
+    explicit_bzero(hash, sizeof(hash));
 
     return 0;
 }

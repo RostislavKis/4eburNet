@@ -52,10 +52,14 @@ static uint32_t random_u32(void)
 {
     uint32_t v;
     if (random_fill((uint8_t *)&v, 4) != 0) {
-        /* Fallback: обфускация ослаблена, но не нулевая (H-25) */
+        /* L-04: xorshift64 fallback — лучше чем LCG */
         log_msg(LOG_WARN, "AWG: random_fill ошибка — обфускация ослаблена");
-        static uint32_t counter = 0;
-        v = (uint32_t)time(NULL) ^ (++counter * 2654435761u);
+        static uint64_t fb_state = 0;
+        if (fb_state == 0) fb_state = (uint64_t)time(NULL) | 1;
+        fb_state ^= fb_state << 13;
+        fb_state ^= fb_state >> 7;
+        fb_state ^= fb_state << 17;
+        v = (uint32_t)(fb_state & 0xFFFFFFFF);
     }
     return v;
 }

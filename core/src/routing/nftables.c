@@ -74,7 +74,23 @@ static bool validate_cidr(const char *cidr)
               c == '.' || c == ':'))
             return false;
     }
-    return strpbrk(cidr, "0123456789") != NULL;
+    if (!strpbrk(cidr, "0123456789"))
+        return false;
+
+    /* M-12/M-13: проверка prefix length */
+    const char *slash = strchr(cidr, '/');
+    if (slash) {
+        if (*(slash + 1) == '\0') return false;  /* trailing slash */
+        int prefix = atoi(slash + 1);
+        bool is_ipv6 = (strchr(cidr, ':') != NULL);
+        if (is_ipv6) {
+            if (prefix < 0 || prefix > 128) return false;
+        } else {
+            if (prefix < 0 || prefix > 32) return false;
+        }
+    }
+
+    return true;
 }
 
 /* Валидация nft команды — запрет shell-метасимволов (S-01, H-27) */

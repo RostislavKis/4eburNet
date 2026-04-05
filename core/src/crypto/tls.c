@@ -16,6 +16,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>  /* explicit_bzero */
 #include <errno.h>
 #include <sys/select.h>
 
@@ -190,10 +191,14 @@ int tls_connect_start(tls_conn_t *conn, int fd,
     /* Deep copy reality_key и reality_short_id для защиты от reload (H-05) */
     if (config->reality_key && config->reality_key_len > 0) {
         uint8_t *key_copy = malloc(config->reality_key_len);
-        if (key_copy) {
-            memcpy(key_copy, config->reality_key, config->reality_key_len);
-            conn->config.reality_key = key_copy;
+        /* M-10: проверка malloc failure */
+        if (!key_copy) {
+            log_msg(LOG_ERROR, "TLS: нет памяти для reality_key");
+            tls_close(conn);
+            return -1;
         }
+        memcpy(key_copy, config->reality_key, config->reality_key_len);
+        conn->config.reality_key = key_copy;
     } else {
         conn->config.reality_key = NULL;
     }
@@ -373,11 +378,20 @@ void tls_close(tls_conn_t *conn)
     conn->ctx = NULL;
     conn->connected = false;
 
-    /* Освободить deep copy reality полей (H-05) */
-    free((void *)conn->config.reality_key);
-    conn->config.reality_key = NULL;
-    free((void *)conn->config.reality_short_id);
-    conn->config.reality_short_id = NULL;
+    /* M-11: обнулить ключевой материал перед освобождением */
+    if (conn->config.reality_key) {
+        explicit_bzero((void *)conn->config.reality_key,
+                       conn->config.reality_key_len);
+        free((void *)conn->config.reality_key);
+        conn->config.reality_key = NULL;
+    }
+    if (conn->config.reality_short_id) {
+        size_t sid_len = strlen(conn->config.reality_short_id);
+        if (sid_len > 0)
+            explicit_bzero((void *)conn->config.reality_short_id, sid_len);
+        free((void *)conn->config.reality_short_id);
+        conn->config.reality_short_id = NULL;
+    }
 }
 
 /* ------------------------------------------------------------------ */

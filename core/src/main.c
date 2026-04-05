@@ -316,21 +316,30 @@ int main(int argc, char *argv[])
     /* Менеджер правил маршрутизации */
     rules_init(&rules_state);
 
-    char bypass_file[PATH_MAX], proxy_file[PATH_MAX];
-    int bp_n = snprintf(bypass_file, sizeof(bypass_file),
-                        "%s/bypass.cidr", PHOENIX_RULES_DIR);
-    int pr_n = snprintf(proxy_file, sizeof(proxy_file),
-                        "%s/proxy.cidr", PHOENIX_RULES_DIR);
-    if (bp_n < 0 || (size_t)bp_n >= sizeof(bypass_file) ||
-        pr_n < 0 || (size_t)pr_n >= sizeof(proxy_file))
-        log_msg(LOG_WARN, "Путь правил обрезан");
+    /* L-09: PATH_MAX на heap вместо стека */
+    char *bypass_file = malloc(PATH_MAX);
+    char *proxy_file = malloc(PATH_MAX);
+    if (!bypass_file || !proxy_file) {
+        free(bypass_file); free(proxy_file);
+        log_msg(LOG_WARN, "Не удалось выделить память для путей правил");
+    } else {
+        int bp_n = snprintf(bypass_file, PATH_MAX,
+                            "%s/bypass.cidr", PHOENIX_RULES_DIR);
+        int pr_n = snprintf(proxy_file, PATH_MAX,
+                            "%s/proxy.cidr", PHOENIX_RULES_DIR);
+        if (bp_n < 0 || (size_t)bp_n >= PATH_MAX ||
+            pr_n < 0 || (size_t)pr_n >= PATH_MAX)
+            log_msg(LOG_WARN, "Путь правил обрезан");
 
-    rules_create_test_file(bypass_file, RULES_BYPASS);
-    rules_create_test_file(proxy_file,  RULES_PROXY);
+        rules_create_test_file(bypass_file, RULES_BYPASS);
+        rules_create_test_file(proxy_file,  RULES_PROXY);
 
-    rules_add_source(&rules_state, bypass_file, RULES_BYPASS);
-    rules_add_source(&rules_state, proxy_file,  RULES_PROXY);
-    rules_load_all(&rules_state);
+        rules_add_source(&rules_state, bypass_file, RULES_BYPASS);
+        rules_add_source(&rules_state, proxy_file,  RULES_PROXY);
+        rules_load_all(&rules_state);
+        free(bypass_file);
+        free(proxy_file);
+    }
 
     /* DNS демон — init (register_epoll после master_epoll) */
     if (cfg.dns.enabled) {

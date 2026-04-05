@@ -76,6 +76,13 @@ int dns_rules_load_file(const char *path, dns_action_t action)
             line[--len] = '\0';
         if (len == 0 || line[0] == '#') continue;
 
+        /* L-08: upper cap на количество правил */
+        #define DNS_RULES_MAX 500000
+        if (g_rules.count >= DNS_RULES_MAX) {
+            log_msg(LOG_WARN, "DNS rules: лимит %d", DNS_RULES_MAX);
+            break;
+        }
+
         if (g_rules.count >= g_rules.capacity) {
             int new_cap = g_rules.capacity * 2;
             char **np = realloc(g_rules.patterns, new_cap * sizeof(char*));
