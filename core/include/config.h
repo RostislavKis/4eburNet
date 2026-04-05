@@ -84,6 +84,7 @@ typedef struct PhoenixConfig {
     DnsConfig      dns;
     DnsRule       *dns_rules;
     int            dns_rule_count;
+    int            tai_utc_offset;      /* TAI-UTC в секундах, default 37 */
     char           lan_interface[32];   /* "br-lan" — для netdev hook */
     device_config_t *devices;
     int            device_count;

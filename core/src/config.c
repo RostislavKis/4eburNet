@@ -95,6 +95,9 @@ static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char
         cfg->mode[sizeof(cfg->mode) - 1] = '\0';
     } else if (strcmp(key, "lan_interface") == 0) {
         snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
+    } else if (strcmp(key, "tai_utc_offset") == 0) {
+        long v = strtol(value, NULL, 10);
+        cfg->tai_utc_offset = (v >= 0 && v <= 200) ? (int)v : 37;
     } else {
         log_msg(LOG_WARN, "Неизвестная опция phoenix: %s", key);
     }
@@ -235,6 +238,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
     cfg->enabled = false;
     snprintf(cfg->log_level, sizeof(cfg->log_level), "%s", "info");
     snprintf(cfg->mode, sizeof(cfg->mode), "%s", "rules");
+    cfg->tai_utc_offset = 37;  /* с 2017-01-01, https://www.ietf.org/timezones/data/leap-seconds.list */
 
     /* Временные массивы на heap (H-11: ~191KB на стеке → calloc) */
     ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));

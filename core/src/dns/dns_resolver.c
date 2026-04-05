@@ -53,7 +53,7 @@ int dns_pending_add(dns_pending_queue_t *q,
     memcpy(&p->client_addr, client_addr, client_addrlen);
     p->client_addrlen = client_addrlen;
     p->action = action;
-    p->sent_at = time(NULL);
+    clock_gettime(CLOCK_MONOTONIC, &p->sent_at);
     size_t qname_len = strlen(query->qname);
     if (qname_len >= sizeof(p->qname))
         qname_len = sizeof(p->qname) - 1;
@@ -124,12 +124,19 @@ void dns_pending_complete(dns_pending_queue_t *q, int idx)
 
 void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd)
 {
-    time_t now = time(NULL);
+    /* L-07: CLOCK_MONOTONIC — гранулярность ~1ms вместо ~1с */
+    struct timespec now_mono;
+    clock_gettime(CLOCK_MONOTONIC, &now_mono);
+
+    #define DNS_TIMEOUT_SEC 2
+
     for (int i = 0; i < DNS_PENDING_MAX; i++) {
         dns_pending_t *p = &q->slots[i];
         if (!p->active) continue;
-        /* L-07: Таймаут ~2-3с (time(NULL) гранулярность 1с). Для DNS допустимо. */
-        if (now - p->sent_at > 2) {
+        long elapsed_sec = now_mono.tv_sec - p->sent_at.tv_sec;
+        if (elapsed_sec > DNS_TIMEOUT_SEC ||
+            (elapsed_sec == DNS_TIMEOUT_SEC &&
+             now_mono.tv_nsec >= p->sent_at.tv_nsec)) {
             log_msg(LOG_DEBUG, "DNS: upstream таймаут для %s", p->qname);
             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
             dns_pending_complete(q, i);

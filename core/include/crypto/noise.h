@@ -26,6 +26,7 @@ typedef struct {
     uint32_t remote_index;
     bool     handshake_complete;
     time_t   handshake_time;   /* когда завершился handshake (H-04) */
+    int      tai_utc_offset;   /* TAI-UTC смещение в секундах (L-03) */
 } noise_state_t;
 
 /* Размеры пакетов WireGuard (до AWG обфускации) */
@@ -37,7 +38,8 @@ typedef struct {
 int noise_init(noise_state_t *ns,
                const uint8_t local_priv[32],
                const uint8_t remote_pub[32],
-               const uint8_t psk[32], bool has_psk);
+               const uint8_t psk[32], bool has_psk,
+               int tai_utc_offset);
 
 /* Создать Handshake Init сообщение */
 int noise_handshake_init_create(noise_state_t *ns,

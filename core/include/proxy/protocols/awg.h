@@ -29,6 +29,8 @@ typedef struct {
     char     i1[256], i2[256], i3[256], i4[256], i5[256];
     /* Keepalive */
     uint16_t keepalive;
+    /* TAI-UTC offset для Noise handshake (L-03) */
+    int      tai_utc_offset;
 } awg_config_t;
 
 /* Состояние AWG соединения */
@@ -56,7 +58,8 @@ void awg_parse_range(const char *str, uint32_t *min, uint32_t *max);
 int awg_cps_build(const char *spec, uint8_t *out, size_t *outlen);
 
 /* Инициализация из конфига сервера */
-int awg_init(awg_state_t *awg, const void *server_config);
+int awg_init(awg_state_t *awg, const void *server_config,
+             int tai_utc_offset);
 
 /* Начать AWG handshake (UDP) */
 int awg_handshake_start(awg_state_t *awg,

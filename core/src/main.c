@@ -465,15 +465,9 @@ int main(int argc, char *argv[])
             }
         }
 
-        /* DNS pending таймауты — каждые 100 итераций (~1с) */
-        {
-            static int dns_timeout_counter = 0;
-            if (++dns_timeout_counter >= 100 && cfg.dns.enabled) {
-                dns_timeout_counter = 0;
-                dns_pending_check_timeouts(&dns_state.pending,
-                                           master_epoll);
-            }
-        }
+        /* DNS pending таймауты — каждый тик (10ms), CLOCK_MONOTONIC дёшев (L-07) */
+        if (cfg.dns.enabled && dns_state.initialized)
+            dns_pending_check_timeouts(&dns_state.pending, master_epoll);
 
         /* Relay события в своём epoll — timeout=0, не блокирует */
         dispatcher_tick(&dispatcher_state);

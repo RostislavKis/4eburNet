@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #include <netinet/in.h>
 #include "dns/dns_cache.h"
 #include "dns/dns_packet.h"
@@ -22,7 +23,7 @@ typedef struct {
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen;
     dns_action_t action;
-    time_t    sent_at;              /* для таймаута */
+    struct timespec sent_at;        /* CLOCK_MONOTONIC (L-07) */
     char      qname[256];
     uint16_t  qtype;
 } dns_pending_t;

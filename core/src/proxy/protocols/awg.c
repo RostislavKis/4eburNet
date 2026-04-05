@@ -170,7 +170,8 @@ int awg_cps_build(const char *spec, uint8_t *out, size_t *outlen)
 /*  awg_init                                                           */
 /* ------------------------------------------------------------------ */
 
-int awg_init(awg_state_t *awg, const void *server_config)
+int awg_init(awg_state_t *awg, const void *server_config,
+             int tai_utc_offset)
 {
     const ServerConfig *srv = server_config;
     memset(awg, 0, sizeof(*awg));
@@ -217,13 +218,15 @@ int awg_init(awg_state_t *awg, const void *server_config)
     snprintf(awg->cfg.i5, sizeof(awg->cfg.i5), "%s", srv->awg_i5);
 
     awg->cfg.keepalive = srv->awg_keepalive;
+    awg->cfg.tai_utc_offset = tai_utc_offset;
 
     /* Noise init */
     if (noise_init(&awg->noise,
                    awg->cfg.local_private_key,
                    awg->cfg.remote_public_key,
                    awg->cfg.preshared_key,
-                   awg->cfg.has_psk) < 0)
+                   awg->cfg.has_psk,
+                   tai_utc_offset) < 0)
         return -1;
 
     log_msg(LOG_DEBUG, "AWG: инициализирован (H1=%u-%u, Jc=%u, S1=%u)",
@@ -455,7 +458,8 @@ void awg_tick(awg_state_t *awg)
             noise_init(&awg->noise,
                        awg->cfg.local_private_key,
                        awg->cfg.remote_public_key,
-                       awg->cfg.preshared_key, awg->cfg.has_psk);
+                       awg->cfg.preshared_key, awg->cfg.has_psk,
+                       awg->cfg.tai_utc_offset);
 
             uint8_t init[1536];
             size_t init_len = sizeof(init);
