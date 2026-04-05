@@ -14,9 +14,9 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
-/* Временный файл для атомарных nft операций */
-#define DEVICE_NFT_TMP  "/tmp/phoenix_dev.nft"
 
 /* ------------------------------------------------------------------ */
 /*  device_policy_init / free                                          */
@@ -117,6 +117,7 @@ static const char *policy_chain(device_policy_t p)
 static int write_device_nft(device_manager_t *dm,
                             const char *lan_iface, const char *path)
 {
+    /* H-13: mkstemp вместо фиксированного tmpfile (TOCTOU) */
     FILE *f = fopen(path, "w");
     if (!f) return -1;
 
@@ -196,14 +197,23 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
 
     exec_cmd("nft delete table netdev phoenix_dev 2>/dev/null");
 
-    if (write_device_nft(dm, lan_iface, DEVICE_NFT_TMP) < 0)
+    /* H-13: mkstemp для безопасного создания tmp файла (TOCTOU fix) */
+    char tmppath[] = "/tmp/phoenix_dev_XXXXXX";
+    int tmpfd = mkstemp(tmppath);
+    if (tmpfd < 0) return -1;
+    fchmod(tmpfd, 0600);
+    close(tmpfd);
+
+    if (write_device_nft(dm, lan_iface, tmppath) < 0) {
+        unlink(tmppath);
         return -1;
+    }
 
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", DEVICE_NFT_TMP);
+    snprintf(cmd, sizeof(cmd), "nft -f %s 2>&1", tmppath);
     char err[512] = {0};
     int rc = exec_cmd_capture(cmd, err, sizeof(err));
-    unlink(DEVICE_NFT_TMP);
+    unlink(tmppath);
 
     if (rc != 0) {
         size_t elen = strlen(err);

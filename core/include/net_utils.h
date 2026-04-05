@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 /* Форматирование sockaddr_storage в строку "IP:порт" (M-01) */
 void net_format_addr(const struct sockaddr_storage *ss,
@@ -35,5 +36,9 @@ int exec_cmd_capture(const char *cmd,
    argv — массив аргументов, NULL-terminated.
    out/outlen — опциональный буфер для stdout+stderr. */
 int exec_cmd_safe(const char *const argv[], char *out, size_t outlen);
+
+/* Криптографически безопасные случайные байты (C-01).
+   getrandom() с fallback на /dev/urandom. */
+int net_random_bytes(uint8_t *buf, size_t len);
 
 #endif /* NET_UTILS_H */
