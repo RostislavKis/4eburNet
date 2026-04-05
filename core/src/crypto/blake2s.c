@@ -135,27 +135,13 @@ void blake2s_keyed(uint8_t *out, size_t outlen,
     blake2s_final(&s, out);
 }
 
+/*
+ * HMAC для Noise/WireGuard: keyed BLAKE2s, НЕ классический HMAC(ipad/opad).
+ * Noise spec: HMAC(key, input) = BLAKE2s(key=key, input=input).
+ */
 void blake2s_hmac(uint8_t *out, size_t outlen,
                   const uint8_t *key, size_t keylen,
                   const uint8_t *in, size_t inlen)
 {
-    uint8_t ikey[64], okey[64];
-    memset(ikey, 0x36, 64);
-    memset(okey, 0x5c, 64);
-    for (size_t i = 0; i < keylen && i < 64; i++) {
-        ikey[i] ^= key[i];
-        okey[i] ^= key[i];
-    }
-
-    uint8_t inner[32];
-    blake2s_state_t s;
-    blake2s_init(&s, 32, NULL, 0);
-    blake2s_update(&s, ikey, 64);
-    blake2s_update(&s, in, inlen);
-    blake2s_final(&s, inner);
-
-    blake2s_init(&s, outlen, NULL, 0);
-    blake2s_update(&s, okey, 64);
-    blake2s_update(&s, inner, 32);
-    blake2s_final(&s, out);
+    blake2s_keyed(out, outlen, key, keylen, in, inlen);
 }

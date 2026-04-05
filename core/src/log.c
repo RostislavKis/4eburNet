@@ -10,6 +10,7 @@
 /* Файловый дескриптор лога и минимальный уровень */
 static FILE       *log_file     = NULL;
 static log_level_t log_min_level = LOG_INFO;
+static bool        g_daemon_mode  = false;
 
 /* Строковые представления уровней */
 static const char *level_names[] = {
@@ -37,6 +38,7 @@ static void log_check_size(void)
     }
 }
 
+
 void log_init(const char *path, log_level_t min_level)
 {
     log_min_level = min_level;
@@ -47,6 +49,11 @@ void log_init(const char *path, log_level_t min_level)
             fprintf(stderr, "Не удалось открыть лог-файл: %s\n", path);
         }
     }
+}
+
+void log_set_daemon_mode(bool daemon)
+{
+    g_daemon_mode = daemon;
 }
 
 void log_msg(log_level_t level, const char *fmt, ...)
@@ -66,11 +73,15 @@ void log_msg(log_level_t level, const char *fmt, ...)
 
     /* Вывод в stderr */
     va_list ap;
-    va_start(ap, fmt);
-    fprintf(stderr, "[%s] [%s] ", ts, lvl);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
-    va_end(ap);
+
+    /* В daemon mode stderr = /dev/null, пропускаем бесполезный syscall */
+    if (!g_daemon_mode) {
+        va_start(ap, fmt);
+        fprintf(stderr, "[%s] [%s] ", ts, lvl);
+        vfprintf(stderr, fmt, ap);
+        fprintf(stderr, "\n");
+        va_end(ap);
+    }
 
     /* Вывод в файл, если открыт */
     if (log_file) {

@@ -448,7 +448,7 @@ int dispatcher_select_server(dispatcher_state_t *ds,
     /* Lazy init — заполнить health[] при первом вызове */
     if (ds->health_count == 0 && cfg->server_count > 0) {
         int count = cfg->server_count;
-        if (count > 8) count = 8;
+        if (count > DISPATCHER_MAX_HEALTH) count = DISPATCHER_MAX_HEALTH;
         for (int i = 0; i < count; i++) {
             ds->health[i].server_idx = i;
             ds->health[i].available  = true;
@@ -819,6 +819,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
     struct epoll_event events[DISPATCHER_MAX_EVENTS];
     int n = epoll_wait(ds->epoll_fd, events, DISPATCHER_MAX_EVENTS, 0);
 
+    time_t now = time(NULL);
+
     for (int i = 0; i < n; i++) {
         relay_ep_t *ep = events[i].data.ptr;
         if (!ep || !ep->relay)
@@ -978,7 +980,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         ds, r, true);
                     if (transferred > 0) {
                         r->bytes_in += transferred;
-                        r->last_active = time(NULL);
+                        r->last_active = now;
                         continue;
                     }
                     if (transferred == 0) {
@@ -997,7 +999,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         ds, r, false);
                     if (transferred > 0) {
                         r->bytes_out += transferred;
-                        r->last_active = time(NULL);
+                        r->last_active = now;
                         continue;
                     }
                     if (transferred == 0) {
@@ -1122,7 +1124,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             r->xhttp, ds->relay_buf, n);
                         if (sent > 0) {
                             r->bytes_in += sent;
-                            r->last_active = time(NULL);
+                            r->last_active = now;
                             continue;
                         }
                     }
@@ -1149,7 +1151,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             goto next_event_xhttp;
                         }
                         r->bytes_out += (uint64_t)wr;
-                        r->last_active = time(NULL);
+                        r->last_active = now;
                         continue;
                     }
                     if (n == 0) {
@@ -1192,7 +1194,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     if (n > 0) {
                         awg_send(r->awg, ds->relay_buf, n);
                         r->bytes_in += n;
-                        r->last_active = time(NULL);
+                        r->last_active = now;
                         continue;
                     }
                     if (n == 0) relay_do_half_close(r, true);
@@ -1216,7 +1218,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             break;
                         }
                         r->bytes_out += (uint64_t)wr;
-                        r->last_active = time(NULL);
+                        r->last_active = now;
                     }
                 } else if (arc < 0) {
                     r->state = RELAY_CLOSING;
@@ -1241,7 +1243,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
     /* Периодическая проверка таймаутов (M-03: ранний выход, M-09: idle) */
     if (ds->tick_count % RELAY_TIMEOUT_CHECK == 0
         && ds->conns_count > 0) {
-        time_t now = time(NULL);
+        /* now уже кэширован в начале tick */
         int checked = 0;
         for (int i = 0; i < ds->conns_max
                         && checked < ds->conns_count; i++) {
@@ -1267,7 +1269,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
     /* Health reset по абсолютному времени (M-07) */
     {
-        time_t now_t = time(NULL);
+        time_t now_t = now;
         if (now_t >= ds->health_reset_at && ds->health_count > 0) {
             ds->health_reset_at = now_t + 30;
             for (int i = 0; i < ds->health_count; i++) {
