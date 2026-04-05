@@ -1,4 +1,5 @@
 # Флаги компиляции phoenix-core
+# TODO: добавить #ifdef CONFIG_PHOENIX_* в код или убрать неиспользуемые (L-01)
 
 config PHOENIX_SHADOWSOCKS
     bool "Поддержка Shadowsocks"

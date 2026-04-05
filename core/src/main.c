@@ -238,7 +238,10 @@ int main(int argc, char *argv[])
     /* Настройка OOM */
     rm_apply_oom_settings();
 
-    /* Загрузка конфигурации */
+    /* Загрузка конфигурации
+     * TODO: перенести cfg на heap (malloc) для безопасности при рефакторинге.
+     * Сейчас cfg живёт на стеке main() до конца — работает корректно,
+     * но при будущем выносе в отдельную функцию станет use-after-free (H-12). */
     PhoenixConfig cfg;
     if (config_load(config_path, &cfg) < 0) {
         log_msg(LOG_ERROR, "Не удалось загрузить конфиг, завершение");
