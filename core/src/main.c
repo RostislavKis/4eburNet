@@ -442,12 +442,27 @@ int main(int argc, char *argv[])
 
         for (int i = 0; i < n; i++) {
             int fd = events[i].data.fd;
-            if (fd == state.ipc_fd)
+            if (fd == state.ipc_fd) {
                 ipc_process(state.ipc_fd, &state);
-            else if (fd == dns_state.udp_fd || fd == dns_state.tcp_fd)
-                dns_server_handle_event(&dns_state, fd);
-            else
+            } else if (cfg.dns.enabled &&
+                       dns_server_is_pending_fd(&dns_state, fd)) {
+                /* Ответ от upstream DNS */
+                dns_server_handle_event(&dns_state, fd, master_epoll);
+            } else if (fd == dns_state.udp_fd || fd == dns_state.tcp_fd) {
+                dns_server_handle_event(&dns_state, fd, master_epoll);
+            } else {
                 tproxy_handle_event(&tproxy_state, fd);
+            }
+        }
+
+        /* DNS pending таймауты — каждые 100 итераций (~1с) */
+        {
+            static int dns_timeout_counter = 0;
+            if (++dns_timeout_counter >= 100 && cfg.dns.enabled) {
+                dns_timeout_counter = 0;
+                dns_pending_check_timeouts(&dns_state.pending,
+                                           master_epoll);
+            }
         }
 
         /* Relay события в своём epoll — timeout=0, не блокирует */
