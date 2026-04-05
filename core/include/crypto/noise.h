@@ -20,8 +20,8 @@ typedef struct {
     /* Результат handshake */
     uint8_t  send_key[32];
     uint8_t  recv_key[32];
-    uint32_t send_counter;
-    uint32_t recv_counter;
+    uint64_t send_counter;
+    uint64_t recv_counter;
     uint32_t local_index;
     uint32_t remote_index;
     bool     handshake_complete;

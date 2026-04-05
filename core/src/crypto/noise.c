@@ -88,10 +88,14 @@ static int aead_encrypt(const uint8_t key[32], uint64_t counter,
                         uint8_t *out, uint8_t tag[16])
 {
     uint8_t nonce[12] = {0};
-    nonce[4] = (uint8_t)(counter);
-    nonce[5] = (uint8_t)(counter >> 8);
-    nonce[6] = (uint8_t)(counter >> 16);
-    nonce[7] = (uint8_t)(counter >> 24);
+    nonce[4]  = (uint8_t)(counter);
+    nonce[5]  = (uint8_t)(counter >> 8);
+    nonce[6]  = (uint8_t)(counter >> 16);
+    nonce[7]  = (uint8_t)(counter >> 24);
+    nonce[8]  = (uint8_t)(counter >> 32);
+    nonce[9]  = (uint8_t)(counter >> 40);
+    nonce[10] = (uint8_t)(counter >> 48);
+    nonce[11] = (uint8_t)(counter >> 56);
 
     return wc_ChaCha20Poly1305_Encrypt(key, nonce,
         aad, (word32)aad_len, plain, (word32)plen, out, tag);
@@ -104,10 +108,14 @@ static int aead_decrypt(const uint8_t key[32], uint64_t counter,
                         const uint8_t tag[16], uint8_t *out)
 {
     uint8_t nonce[12] = {0};
-    nonce[4] = (uint8_t)(counter);
-    nonce[5] = (uint8_t)(counter >> 8);
-    nonce[6] = (uint8_t)(counter >> 16);
-    nonce[7] = (uint8_t)(counter >> 24);
+    nonce[4]  = (uint8_t)(counter);
+    nonce[5]  = (uint8_t)(counter >> 8);
+    nonce[6]  = (uint8_t)(counter >> 16);
+    nonce[7]  = (uint8_t)(counter >> 24);
+    nonce[8]  = (uint8_t)(counter >> 32);
+    nonce[9]  = (uint8_t)(counter >> 40);
+    nonce[10] = (uint8_t)(counter >> 48);
+    nonce[11] = (uint8_t)(counter >> 56);
 
     return wc_ChaCha20Poly1305_Decrypt(key, nonce,
         aad, (word32)aad_len, cipher, (word32)clen, tag, out);
@@ -443,6 +451,6 @@ int noise_decrypt(noise_state_t *ns,
         return -1;
 
     *out_len = payload_len;
-    ns->recv_counter = (uint32_t)(ctr + 1);
+    ns->recv_counter = ctr + 1;
     return 0;
 }

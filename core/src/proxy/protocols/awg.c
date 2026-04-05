@@ -310,7 +310,7 @@ int awg_handshake_start(awg_state_t *awg,
         log_msg(LOG_DEBUG, "AWG: отправлены junk пакеты (%u)", awg->cfg.jc);
 
     /* Noise Init handshake */
-    uint8_t init_pkt[256];
+    uint8_t init_pkt[1536];  /* 148 + max S1 padding */
     size_t init_len = sizeof(init_pkt);
     if (noise_handshake_init_create(&awg->noise, init_pkt, &init_len) < 0) {
         log_msg(LOG_ERROR, "AWG: не удалось создать Init handshake");
@@ -387,7 +387,10 @@ ssize_t awg_send(awg_state_t *awg, const uint8_t *data, size_t len)
 {
     if (!awg->handshake_done) return -1;
 
-    uint8_t pkt[2048];
+    /* Ограничение по MTU: header(16) + data + tag(16) + S4 padding */
+    if (len > 1420) len = 1420;
+
+    uint8_t pkt[1536];
     size_t pkt_len;
 
     if (noise_encrypt(&awg->noise, data, len, pkt, &pkt_len) != 0)
@@ -427,7 +430,7 @@ void awg_tick(awg_state_t *awg)
                        awg->cfg.remote_public_key,
                        awg->cfg.preshared_key, awg->cfg.has_psk);
 
-            uint8_t init[256];
+            uint8_t init[1536];
             size_t init_len = sizeof(init);
             if (noise_handshake_init_create(&awg->noise, init, &init_len) == 0) {
                 awg_obfuscate_header(init, awg->cfg.h1_min, awg->cfg.h1_max);

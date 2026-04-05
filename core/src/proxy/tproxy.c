@@ -13,6 +13,7 @@
 #include "phoenix.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -292,7 +293,11 @@ static void tproxy_accept_tcp(tproxy_state_t *ts, int listen_fd,
 
 static void tproxy_recv_udp(tproxy_state_t *ts, int udp_fd, int family)
 {
-    uint8_t buf[TPROXY_UDP_BUF];
+    uint8_t *buf = malloc(TPROXY_UDP_BUF);
+    if (!buf) {
+        log_msg(LOG_ERROR, "TPROXY: malloc UDP буфера провалился");
+        return;
+    }
 
     for (;;) {
         struct sockaddr_storage src;
@@ -347,6 +352,8 @@ static void tproxy_recv_udp(tproxy_state_t *ts, int udp_fd, int family)
         ts->accepted++;
         dispatcher_handle_udp(&conn, buf, (size_t)n);
     }
+
+    free(buf);
 }
 
 /* ------------------------------------------------------------------ */

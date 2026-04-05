@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define DNS_CACHE_PROBE_MAX  16
 
 static uint32_t djb2_hash(const char *qname, uint16_t qtype)
 {
@@ -63,7 +64,7 @@ const uint8_t *dns_cache_get(dns_cache_t *c,
                              uint16_t *resp_len, uint16_t orig_id)
 {
     uint32_t h = djb2_hash(qname, qtype);
-    for (int i = 0; i < c->capacity; i++) {
+    for (int i = 0; i < DNS_CACHE_PROBE_MAX && i < c->capacity; i++) {
         int idx = (h + i) % c->capacity;
         dns_cache_entry_t *e = &c->entries[idx];
         if (!e->used) return NULL;
@@ -96,7 +97,7 @@ void dns_cache_put(dns_cache_t *c,
     int target = -1;
 
     /* Ищем существующий или пустой слот */
-    for (int i = 0; i < c->capacity; i++) {
+    for (int i = 0; i < DNS_CACHE_PROBE_MAX && i < c->capacity; i++) {
         int idx = (h + i) % c->capacity;
         if (!c->entries[idx].used) { target = idx; break; }
         if (c->entries[idx].qtype == qtype &&
