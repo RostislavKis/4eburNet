@@ -280,6 +280,13 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
     if (tls_connect_start(conn, fd, config) < 0)
         return -1;
 
+    /* M-18: проверка fd < FD_SETSIZE перед select() */
+    if (fd >= FD_SETSIZE) {
+        log_msg(LOG_ERROR, "TLS: fd %d >= FD_SETSIZE", fd);
+        tls_close(conn);
+        return -1;
+    }
+
     int max_attempts = 50;  /* 50 × 100мс = 5 сек */
     tls_step_result_t r;
     while ((r = tls_connect_step(conn)) == TLS_WANT_IO) {

@@ -169,8 +169,12 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
 {
     if (!cfg->doh_url[0]) return -1;
 
+    /* M-22: CRLF injection check */
+    for (const char *p = cfg->doh_url; *p; p++)
+        if (*p == '\r' || *p == '\n') return -1;
+
     /* Base64url encode DNS запроса */
-    char b64[1024];
+    char b64[8192];
     base64url_encode(query, query_len, b64, sizeof(b64));
 
     /* Парсить URL: https://host/path */
@@ -234,7 +238,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     /* HTTP GET запрос */
     char http_req[2048];
     int req_len = snprintf(http_req, sizeof(http_req),
-        "GET %s?dns=%s HTTP/1.1\r\n"
+        "GET %s?dns=%s HTTP/1.0\r\n"
         "Host: %s\r\n"
         "Accept: application/dns-message\r\n"
         "Connection: close\r\n"
@@ -256,6 +260,12 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     }
     tls_close(&tls);
     close(fd);
+
+    /* M-27: chunked encoding не поддерживается */
+    if (strstr((char *)http_buf, "Transfer-Encoding: chunked")) {
+        log_msg(LOG_WARN, "DoH: chunked encoding не поддерживается");
+        return -1;
+    }
 
     /* Найти конец HTTP заголовков */
     uint8_t *body = NULL;

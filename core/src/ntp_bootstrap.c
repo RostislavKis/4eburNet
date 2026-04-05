@@ -175,6 +175,10 @@ static int try_host(const char *ip, const char *host)
     log_msg(LOG_INFO,
         "Время установлено: %s (HTTP bootstrap от %s)", ts, host);
 
+    log_msg(LOG_WARN,
+        "NTP: время получено из неаутентифицированного HTTP "
+        "(возможен MITM). Используйте только для первоначальной синхронизации.");
+
     return 0;
 }
 

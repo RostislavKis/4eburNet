@@ -6,7 +6,7 @@
 #include <time.h>
 #include <stdbool.h>
 
-#define DNS_MAX_PACKET 512
+#define DNS_MAX_PACKET 4096
 
 typedef struct {
     char     qname[256];

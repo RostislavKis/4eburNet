@@ -17,10 +17,15 @@
 /* Отправка строки в подключённый сокет */
 static void ipc_respond(int client_fd, const char *json)
 {
+    size_t resp_len = strlen(json);
+    if (resp_len > UINT16_MAX) {
+        log_msg(LOG_WARN, "IPC: ответ обрезан %zu → %d", resp_len, UINT16_MAX);
+        resp_len = UINT16_MAX;
+    }
     ipc_header_t resp = {
         .version    = PHOENIX_IPC_VERSION,
         .command    = 0,
-        .length     = (uint16_t)strlen(json),
+        .length     = (uint16_t)resp_len,
         .request_id = 0,
     };
 
@@ -47,14 +52,16 @@ int ipc_init(void)
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, PHOENIX_IPC_SOCKET, sizeof(addr.sun_path) - 1);
 
-    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    /* M-11: umask вместо chmod — избежать TOCTOU */
+    mode_t old_umask = umask(0177);
+    int bind_rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+    umask(old_umask);
+
+    if (bind_rc < 0) {
         log_msg(LOG_ERROR, "Не удалось привязать сокет: %s", PHOENIX_IPC_SOCKET);
         close(fd);
         return -1;
     }
-
-    /* Права доступа: только root (S-06) */
-    chmod(PHOENIX_IPC_SOCKET, 0600);
 
     if (listen(fd, 5) < 0) {
         log_msg(LOG_ERROR, "listen() не удался");

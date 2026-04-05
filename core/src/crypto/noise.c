@@ -127,6 +127,14 @@ static int aead_decrypt(const uint8_t key[32], uint64_t counter,
         aad, (word32)aad_len, cipher, (word32)clen, tag, out);
 }
 
+/* M-14: clamping для Curve25519 private key */
+static void clamp_curve25519_key(uint8_t key[32])
+{
+    key[0]  &= 248;
+    key[31] &= 127;
+    key[31] |= 64;
+}
+
 /* X25519 ECDH shared secret */
 static int x25519_shared(const uint8_t priv[32], const uint8_t pub[32],
                          uint8_t shared[32])
@@ -173,6 +181,8 @@ static int x25519_generate(uint8_t priv[32], uint8_t pub[32])
             wc_FreeRng(&rng);
             return -1;
         }
+        /* M-14: clamping */
+        clamp_curve25519_key(priv);
         if (wc_curve25519_export_public(&key, pub, &plen) != 0) {
             wc_curve25519_free(&key);
             wc_FreeRng(&rng);
@@ -230,19 +240,23 @@ int noise_init(noise_state_t *ns,
 {
     memset(ns, 0, sizeof(*ns));
     memcpy(ns->local_static_private, local_priv, 32);
+    /* M-14: clamping перед импортом */
+    clamp_curve25519_key(ns->local_static_private);
     memcpy(ns->remote_static_public, remote_pub, 32);
 
     /* Вычислить наш public key из private (C-05: корректный импорт) */
     curve25519_key key;
     wc_curve25519_init(&key);
-    if (wc_curve25519_import_private(local_priv, 32, &key) != 0) {
+    if (wc_curve25519_import_private(ns->local_static_private, 32, &key) != 0) {
         wc_curve25519_free(&key);
+        explicit_bzero(ns, sizeof(*ns));
         return -1;
     }
     word32 pub_len = 32;
     if (wc_curve25519_export_public(&key, ns->local_static_public,
                                      &pub_len) != 0) {
         wc_curve25519_free(&key);
+        explicit_bzero(ns, sizeof(*ns));
         return -1;
     }
     wc_curve25519_free(&key);
@@ -263,8 +277,10 @@ int noise_init(noise_state_t *ns,
     mix_hash(ns->hash, remote_pub, 32);
 
     /* Sender Index */
-    if (random_bytes((uint8_t *)&ns->local_index, 4) < 0)
+    if (random_bytes((uint8_t *)&ns->local_index, 4) < 0) {
+        explicit_bzero(ns, sizeof(*ns));
         return -1;
+    }
 
     return 0;
 }
@@ -298,24 +314,33 @@ int noise_handshake_init_create(noise_state_t *ns,
 
     /* MixKey(ck, DH(ephemeral, responder_static)) */
     uint8_t shared[32];
-    x25519_shared(ns->local_ephemeral_private,
-                  ns->remote_static_public, shared);
+    if (x25519_shared(ns->local_ephemeral_private,
+                      ns->remote_static_public, shared) != 0) {
+        explicit_bzero(shared, 32);
+        return -1;
+    }
     noise_hkdf2(ns->chaining_key, shared, 32,
                 ns->chaining_key, shared);  /* shared → temp key */
 
     /* EncryptAndHash(static_public) → encrypted_static(48) */
     uint8_t tag[16];
-    aead_encrypt(shared, 0,
-                 ns->local_static_public, 32,
-                 ns->hash, 32,
-                 p, tag);
+    if (aead_encrypt(shared, 0,
+                     ns->local_static_public, 32,
+                     ns->hash, 32,
+                     p, tag) != 0) {
+        explicit_bzero(shared, 32);
+        return -1;
+    }
     memcpy(p + 32, tag, 16);
     mix_hash(ns->hash, p, 48);
     p += 48;
 
     /* MixKey(ck, DH(static, responder_static)) */
-    x25519_shared(ns->local_static_private,
-                  ns->remote_static_public, shared);
+    if (x25519_shared(ns->local_static_private,
+                      ns->remote_static_public, shared) != 0) {
+        explicit_bzero(shared, 32);
+        return -1;
+    }
     noise_hkdf2(ns->chaining_key, shared, 32,
                 ns->chaining_key, shared);
 
@@ -335,9 +360,12 @@ int noise_handshake_init_create(noise_state_t *ns,
     timestamp[8] = 0; timestamp[9] = 0;
     timestamp[10] = 0; timestamp[11] = 0;
 
-    aead_encrypt(shared, 0,
-                 timestamp, 12, ns->hash, 32,
-                 p, tag);
+    if (aead_encrypt(shared, 0,
+                     timestamp, 12, ns->hash, 32,
+                     p, tag) != 0) {
+        explicit_bzero(shared, 32);
+        return -1;
+    }
     memcpy(p + 12, tag, 16);
     mix_hash(ns->hash, p, 28);
     p += 28;
@@ -391,12 +419,18 @@ int noise_handshake_response_process(noise_state_t *ns,
 
     /* MixKey(DH(our_ephemeral, resp_ephemeral)) */
     uint8_t shared[32];
-    x25519_shared(ns->local_ephemeral_private, resp_ephemeral, shared);
+    if (x25519_shared(ns->local_ephemeral_private, resp_ephemeral, shared) != 0) {
+        explicit_bzero(shared, 32);
+        return -1;
+    }
     noise_hkdf2(ns->chaining_key, shared, 32,
                 ns->chaining_key, shared);
 
     /* MixKey(DH(our_static, resp_ephemeral)) */
-    x25519_shared(ns->local_static_private, resp_ephemeral, shared);
+    if (x25519_shared(ns->local_static_private, resp_ephemeral, shared) != 0) {
+        explicit_bzero(shared, 32);
+        return -1;
+    }
     noise_hkdf2(ns->chaining_key, shared, 32,
                 ns->chaining_key, shared);
 
