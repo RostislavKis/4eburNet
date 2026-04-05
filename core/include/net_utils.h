@@ -9,6 +9,9 @@
 void net_format_addr(const struct sockaddr_storage *ss,
                      char *buf, size_t buflen);
 
+/* Валидация имени сетевого интерфейса (C-10, C-11) */
+bool valid_ifname(const char *s);
+
 /* --- Инкапсуляция popen (M-02) --- */
 
 /* Выполнить команду, вызвать callback для каждой строки вывода.

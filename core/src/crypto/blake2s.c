@@ -69,6 +69,13 @@ static void blake2s_compress(blake2s_state_t *s, const uint8_t block[BLAKE2S_BLO
 void blake2s_init(blake2s_state_t *s, size_t outlen,
                   const uint8_t *key, size_t keylen)
 {
+    /* Защита от переполнения: BLAKE2s max key = 32, max out = 32 */
+    if (outlen == 0 || outlen > BLAKE2S_OUT) {
+        memset(s, 0, sizeof(*s));
+        return;
+    }
+    if (keylen > BLAKE2S_OUT) keylen = BLAKE2S_OUT;
+
     memset(s, 0, sizeof(*s));
     for (int i = 0; i < 8; i++) s->h[i] = blake2s_iv[i];
     s->h[0] ^= 0x01010000 ^ ((uint32_t)keylen << 8) ^ (uint32_t)outlen;

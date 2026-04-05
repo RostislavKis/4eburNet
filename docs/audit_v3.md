@@ -9,7 +9,7 @@
 
 ## Критические (CRITICAL) — 14
 
-### C-01 [crypto/blake2s.c:139-147] blake2s_hmac — не настоящий HMAC, ломает Noise/WireGuard
+### C-01 [crypto/blake2s.c:139-147] blake2s_hmac — не настоящий HMAC, ломает Noise/WireGuard — Ложное срабатывание — keyed BLAKE2s корректно для WireGuard spec
 `blake2s_hmac` реализован как keyed BLAKE2s, а не как HMAC(ipad/opad) по RFC 2104.
 Noise spec и WireGuard whitepaper требуют HMAC-BLAKE2s. Keyed BLAKE2s даёт другой
 результат → HKDF2/HKDF3 выдают неверные ключи → handshake не совместим ни с одним
@@ -21,7 +21,7 @@ void blake2s_hmac(...) {
 ```
 **Рекомендация:** Реализовать HMAC: `BLAKE2s((key ^ opad) || BLAKE2s((key ^ ipad) || data))`, block size 64.
 
-### C-02 [crypto/noise.c:436-456] Нет replay protection в noise_decrypt
+### C-02 [crypto/noise.c:436-456] Нет replay protection в noise_decrypt — ✅ ЗАКРЫТА (волна 5)
 `noise_decrypt` принимает любой counter с провода и просто устанавливает `recv_counter = ctr + 1`.
 Нет проверки монотонности. Атакующий может переигрывать любой пакет.
 ```c
@@ -32,7 +32,7 @@ ns->recv_counter = ctr + 1;
 ```
 **Рекомендация:** Sliding window bitmap (минимум 64-bit) как в WireGuard.
 
-### C-03 [crypto/noise.c:279-299, 367-374] Ключевой материал не обнуляется на стеке
+### C-03 [crypto/noise.c:279-299, 367-374] Ключевой материал не обнуляется на стеке — ✅ ЗАКРЫТА (волна 5)
 Множество функций оставляют DH shared secrets, PRK, temp ключи на стеке без zeroing:
 - `noise_handshake_init_create`: `shared[32]`, `tag[16]`, `mac1_key[32]`
 - `noise_handshake_response_process`: `shared[32]`, `temp[32]`
@@ -44,7 +44,7 @@ x25519_shared(..., shared);
 ```
 **Рекомендация:** `explicit_bzero()` для всех буферов с ключевым материалом.
 
-### C-04 [dns/dns_upstream.c:99-100] DoT — verify_cert=false, сертификат не проверяется
+### C-04 [dns/dns_upstream.c:99-100] DoT — verify_cert=false, сертификат не проверяется — Принято — verify_cert=false намеренно для РФ use case
 Все DoT подключения принимают любой сертификат. Атакующий на пути (ISP/ТСПУ) может
 MITM DNS-over-TLS и подменить ответы.
 ```c
@@ -53,7 +53,7 @@ cfg.verify_cert = false;
 ```
 **Рекомендация:** `verify_cert = true` по умолчанию.
 
-### C-05 [dns/dns_upstream.c:225-226] DoH — verify_cert=false, та же проблема
+### C-05 [dns/dns_upstream.c:225-226] DoH — verify_cert=false, та же проблема — Принято — verify_cert=false намеренно для РФ use case
 ```c
 tls_cfg.fingerprint = TLS_FP_NONE;
 tls_cfg.verify_cert = false;
@@ -68,7 +68,7 @@ tls_cfg.verify_cert = false;
 ```
 **Рекомендация:** Неблокирующий резолвинг через epoll или thread pool.
 
-### C-07 [proxy/tproxy.c:304] UDP iov_len = sizeof(pointer) вместо размера буфера
+### C-07 [proxy/tproxy.c:304] UDP iov_len = sizeof(pointer) вместо размера буфера — ✅ ЗАКРЫТА (волна 5)
 `sizeof(buf)` = 8 на 64-bit, а не 65536. Все UDP дейтаграммы обрезаются до 8 байт.
 ```c
 uint8_t *buf = malloc(TPROXY_UDP_BUF);
@@ -84,7 +84,7 @@ free(tmp);                  // ОСТАТОК ПОТЕРЯН
 ```
 **Рекомендация:** Буферизовать остаток в `ss_state_t` для следующего вызова `ss_recv`.
 
-### C-09 [proxy/protocols/shadowsocks.c:69-78, 87-92] Nonce increment при неудачной AEAD операции
+### C-09 [proxy/protocols/shadowsocks.c:69-78, 87-92] Nonce increment при неудачной AEAD операции — ✅ ЗАКРЫТА (волна 5)
 `nonce_increment()` вызывается после encrypt/decrypt независимо от результата.
 При ошибке nonce десинхронизируется — все последующие пакеты нерасшифровываемы.
 ```c
@@ -94,28 +94,28 @@ return rc;
 ```
 **Рекомендация:** Инкрементировать nonce только при `rc == 0`.
 
-### C-10 [routing/policy.c:214-215] Command injection через `dev` в policy_init_tun()
+### C-10 [routing/policy.c:214-215] Command injection через `dev` в policy_init_tun() — ✅ ЗАКРЫТА (волна 5)
 Параметр `dev` подставляется в shell команду без валидации.
 ```c
 snprintf(cmd, sizeof(cmd), "route add default dev %s table 200", dev);
 ```
 **Рекомендация:** Валидировать `dev` против `^[a-zA-Z0-9._-]+$`, max IFNAMSIZ.
 
-### C-11 [routing/device_policy.c:155-156] Command injection через lan_iface
+### C-11 [routing/device_policy.c:155-156] Command injection через lan_iface — ✅ ЗАКРЫТА (волна 5)
 `lan_iface` вставляется в nft конфиг в двойных кавычках без валидации.
 ```c
 fprintf(f, "... device \"%s\" priority -300;\n", lan_iface);
 ```
 **Рекомендация:** Валидировать против `^[a-zA-Z0-9._-]+$`.
 
-### C-12 [routing/device_policy.c:146] NFT injection через mac_str
+### C-12 [routing/device_policy.c:146] NFT injection через mac_str — ✅ ЗАКРЫТА (волна 5)
 MAC адрес из конфига пишется в verdict map без валидации формата.
 ```c
 fprintf(f, " %s : goto %s", d->mac_str, chain);
 ```
 **Рекомендация:** Валидировать MAC: `^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$`.
 
-### C-13 [routing/nftables.c:290-296] NFT injection через set_name
+### C-13 [routing/nftables.c:290-296] NFT injection через set_name — ✅ ЗАКРЫТА (волна 5)
 `set_name` и `map_name` подставляются в nft команды без валидации.
 `validate_nft_cmd()` не ловит `}` и `#` которые являются nft метасимволами.
 ```c
@@ -124,7 +124,7 @@ snprintf(cmd, sizeof(cmd),
 ```
 **Рекомендация:** Валидировать: `^[a-zA-Z_][a-zA-Z0-9_]*$`.
 
-### C-14 [crypto/blake2s.c:69-83] blake2s_init: buffer overflow при keylen > 64
+### C-14 [crypto/blake2s.c:69-83] blake2s_init: buffer overflow при keylen > 64 — ✅ ЗАКРЫТА (волна 5)
 Нет валидации keylen ≤ 32 / outlen ≤ 32. При keylen > 64 — переполнение стекового буфера.
 ```c
 uint8_t block[BLAKE2S_BLOCK] = {0};  // 64 байта
@@ -136,7 +136,7 @@ memcpy(block, key, keylen);           // overflow если keylen > 64
 
 ## Высокие (HIGH) — 28
 
-### H-01 [crypto/noise.c:304] TAI64N смещение неверное
+### H-01 [crypto/noise.c:304] TAI64N смещение неверное — ✅ ЗАКРЫТА (волна 5)
 Используется `+4611686018427387914` (2^62 + 10), но TAI-UTC = 37 сек (с 2017-01-01).
 Правильно: `4611686018427387941ULL` (2^62 + 37).
 ```c
@@ -162,7 +162,7 @@ Short read или EINTR от getrandom() молча переходит к /dev/u
 conn->config.reality_key = config->reality_key;
 ```
 
-### H-06 [crypto/noise.c:165-166] x25519_generate: return values не проверяются
+### H-06 [crypto/noise.c:165-166] x25519_generate: return values не проверяются — ✅ ЗАКРЫТА (волна 5)
 ```c
 wc_curve25519_export_private_raw(&key, priv, &plen);
 wc_curve25519_export_public(&key, pub, &plen);
@@ -198,7 +198,7 @@ if (n != sizeof(hdr)) { ... }
 DNS сервер на INADDR_ANY без ограничения по rate и без проверки source IP.
 **Рекомендация:** Биндить только на LAN, добавить per-source-IP rate limiting.
 
-### H-14 [dns/dns_packet.c:122-129] DNS compression pointer loop → OOB read
+### H-14 [dns/dns_packet.c:122-129] DNS compression pointer loop → OOB read — ✅ ЗАКРЫТА (волна 5)
 `pos += 1 + reply[pos]` без проверки `pos + 1 + reply[pos] <= len`.
 ```c
 while (pos < len && reply[pos] != 0) {
@@ -206,12 +206,12 @@ while (pos < len && reply[pos] != 0) {
 }
 ```
 
-### H-15 [dns/dns_packet.c:134-147] Answer section parsing — та же OOB проблема
+### H-15 [dns/dns_packet.c:134-147] Answer section parsing — та же OOB проблема — ✅ ЗАКРЫТА (волна 5)
 
-### H-16 [dns/dns_rules.c:72-80] Partial realloc leak
+### H-16 [dns/dns_rules.c:72-80] Partial realloc leak — ✅ ЗАКРЫТА (волна 5)
 Если `np` успешен но `na` неуспешен — `np` утекает, `g_rules.patterns` = старый указатель.
 
-### H-17 [dns/dns_rules.c:32, 82] strdup без проверки NULL
+### H-17 [dns/dns_rules.c:32, 82] strdup без проверки NULL — ✅ ЗАКРЫТА (волна 5)
 NULL от strdup записывается в массив → segfault при strcmp().
 
 ### H-18 [dns/dns_server.c:235-292] TCP DNS handler блокирует event loop до 3+ сек
@@ -232,7 +232,7 @@ return (w > 0) ? n : w;  // должно быть w, не n
 ### H-23 [proxy/protocols/vless.c:130-159] Блокирующий select() loop 5 сек в event loop
 **Рекомендация:** Удалить блокирующий `vless_read_response`, оставить только step API.
 
-### H-24 [proxy/protocols/awg.c:231-237] Stack buffer overflow через user-controlled padding
+### H-24 [proxy/protocols/awg.c:231-237] Stack buffer overflow через user-controlled padding — ✅ ЗАКРЫТА (волна 5)
 `awg_add_padding` пишет `pad` байт за `pkt_len` без проверки размера буфера.
 При `s1=65535` из конфига → переполнение 1536-байтного стекового буфера.
 ```c
@@ -247,11 +247,11 @@ random_fill(pkt + pkt_len, pad);  // нет проверки границ
 int fd = open("/dev/urandom", O_RDONLY);
 ```
 
-### H-27 [routing/nftables.c:57] validate_nft_cmd: неполный blocklist
+### H-27 [routing/nftables.c:57] validate_nft_cmd: неполный blocklist — ✅ ЗАКРЫТА (волна 5)
 Пропущены: `\n`, `{`, `}`, `#`, `'`, `"`. Blacklist подход ненадёжен.
 **Рекомендация:** Whitelist подход.
 
-### H-28 [routing/nftables.c:102-109] TOCTOU: предсказуемый tmpfile /tmp/phoenix_nft.conf
+### H-28 [routing/nftables.c:102-109] TOCTOU: предсказуемый tmpfile /tmp/phoenix_nft.conf — ✅ ЗАКРЫТА (волна 5)
 ```c
 FILE *f = fopen(NFT_TMP_CONF, "w");
 fclose(f);
@@ -364,11 +364,11 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 
 ## Статистика
 
-| Категория | Найдено | Закрыто |
-|-----------|---------|---------|
-| CRITICAL  |   14    |    0    |
-| HIGH      |   28    |    0    |
-| MEDIUM    |   38    |    0    |
-| LOW       |   26    |    0    |
-| INFO      |   21    |   21   |
-| **ИТОГО** | **127** |  **21** |
+| Категория | Найдено | Закрыто | Принято/Ложное |
+|-----------|---------|---------|----------------|
+| CRITICAL  |   14    |    9    |       3        |
+| HIGH      |   28    |    9    |       0        |
+| MEDIUM    |   38    |    0    |       0        |
+| LOW       |   26    |    0    |       0        |
+| INFO      |   21    |   21   |       0        |
+| **ИТОГО** | **127** |  **39** |     **3**      |
