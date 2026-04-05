@@ -13,7 +13,7 @@ define Package/phoenix-core
   CATEGORY:=Network
   TITLE:=Phoenix Router — ядро прокси-маршрутизации
   URL:=https://github.com/RostislavKis/phoenix-router
-  DEPENDS:=+libwolfssl +libnftables +libuci +libpthread
+  DEPENDS:=+libwolfssl +nftables
   PKGARCH:=all
 endef
 
@@ -33,12 +33,41 @@ define Build/Prepare
 	$(CP) ./include $(PKG_BUILD_DIR)/
 endef
 
+PHOENIX_SOURCES = \
+	$(PKG_BUILD_DIR)/src/main.c \
+	$(PKG_BUILD_DIR)/src/log.c \
+	$(PKG_BUILD_DIR)/src/resource_manager.c \
+	$(PKG_BUILD_DIR)/src/config.c \
+	$(PKG_BUILD_DIR)/src/ipc.c \
+	$(PKG_BUILD_DIR)/src/net_utils.c \
+	$(PKG_BUILD_DIR)/src/ntp_bootstrap.c \
+	$(PKG_BUILD_DIR)/src/routing/nftables.c \
+	$(PKG_BUILD_DIR)/src/routing/policy.c \
+	$(PKG_BUILD_DIR)/src/routing/rules_loader.c \
+	$(PKG_BUILD_DIR)/src/routing/device_policy.c \
+	$(PKG_BUILD_DIR)/src/proxy/tproxy.c \
+	$(PKG_BUILD_DIR)/src/proxy/dispatcher.c \
+	$(PKG_BUILD_DIR)/src/proxy/protocols/vless.c \
+	$(PKG_BUILD_DIR)/src/proxy/protocols/vless_xhttp.c \
+	$(PKG_BUILD_DIR)/src/proxy/protocols/trojan.c \
+	$(PKG_BUILD_DIR)/src/proxy/protocols/shadowsocks.c \
+	$(PKG_BUILD_DIR)/src/proxy/protocols/awg.c \
+	$(PKG_BUILD_DIR)/src/crypto/tls.c \
+	$(PKG_BUILD_DIR)/src/crypto/blake2s.c \
+	$(PKG_BUILD_DIR)/src/crypto/blake3.c \
+	$(PKG_BUILD_DIR)/src/crypto/noise.c \
+	$(PKG_BUILD_DIR)/src/dns/dns_packet.c \
+	$(PKG_BUILD_DIR)/src/dns/dns_cache.c \
+	$(PKG_BUILD_DIR)/src/dns/dns_rules.c \
+	$(PKG_BUILD_DIR)/src/dns/dns_upstream.c \
+	$(PKG_BUILD_DIR)/src/dns/dns_server.c
+
 define Build/Compile
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) \
 		-I$(PKG_BUILD_DIR)/include \
 		-o $(PKG_BUILD_DIR)/phoenix \
-		$(shell find $(PKG_BUILD_DIR) -name '*.c' -not -path '*/test/*') \
-		-lwolfssl -luci -lm
+		$(PHOENIX_SOURCES) \
+		-lwolfssl -lm
 endef
 
 define Package/phoenix-core/install

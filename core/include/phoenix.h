@@ -36,7 +36,7 @@ typedef enum {
 #define PHOENIX_CONFIG_PATH     "/etc/config/phoenix"
 #define PHOENIX_PID_FILE        "/var/run/phoenix.pid"
 #define PHOENIX_LOG_FILE        "/tmp/phoenix.log"
-#define PHOENIX_LOG_MAX_BYTES   (512 * 1024)  /* 512KB — защита tmpfs */
+#define PHOENIX_LOG_MAX_BYTES   (512 * 1024)  /* 512KB — защита tmpfs (1.5% от 32MB tmpfs на 64MB RAM) */
 #define PHOENIX_RULES_DIR       "/etc/phoenix/rules/"
 
 /* Версия протокола IPC между phoenixd и LuCI */

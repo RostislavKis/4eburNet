@@ -95,7 +95,9 @@ static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char
     }
 }
 
-/* MAC парсинг и нормализация */
+/* MAC парсинг и нормализация.
+ * %x без ширины безопасен: strlen==17 гарантирует макс 2 hex-цифры на октет,
+ * а проверка m[i]>255 отсеивает невалидные значения (L-07). */
 static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
 {
     if (!str || strlen(str) != 17) return -1;
