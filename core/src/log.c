@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <time.h>
 
 /* Файловый дескриптор лога и минимальный уровень */
@@ -44,8 +45,11 @@ void log_init(const char *path, log_level_t min_level)
     log_min_level = min_level;
 
     if (path) {
-        log_file = fopen(path, "a");
+        /* M-06: O_CLOEXEC для лог-файла */
+        int logfd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        log_file = (logfd >= 0) ? fdopen(logfd, "a") : NULL;
         if (!log_file) {
+            if (logfd >= 0) close(logfd);
             fprintf(stderr, "Не удалось открыть лог-файл: %s\n", path);
         }
     }
@@ -58,6 +62,10 @@ void log_set_daemon_mode(bool daemon)
 
 void log_msg(log_level_t level, const char *fmt, ...)
 {
+    /* M-07: bounds check для level_names[] */
+    if (level < 0) level = 0;
+    if (level > LOG_ERROR) level = LOG_ERROR;
+
     if (level < log_min_level)
         return;
 

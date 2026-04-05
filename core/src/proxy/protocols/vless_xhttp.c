@@ -43,12 +43,14 @@ void xhttp_session_id_gen(xhttp_session_id_t *sid)
         }
     }
 
-    /* Аварийный fallback: pid + time */
-    snprintf(sid->hex, sizeof(sid->hex),
-             "%08x%08x%08x%08x",
-             (unsigned)getpid(), (unsigned)time(NULL),
-             (unsigned)getpid() ^ 0xDEADBEEF,
-             (unsigned)time(NULL) ^ 0xCAFEBABE);
+    /* Аварийный fallback: pid + time + counter (M-31) */
+    {
+        static uint32_t fallback_seq = 0;
+        snprintf(sid->hex, sizeof(sid->hex),
+                 "%08x%08x%08x%08x",
+                 (unsigned)getpid(), (unsigned)time(NULL),
+                 ++fallback_seq, (unsigned)getpid() ^ 0xDEADBEEF);
+    }
     return;
 
 encode:
@@ -311,6 +313,13 @@ ssize_t xhttp_recv_chunk(xhttp_state_t *xh,
             xh->chunk_hdr[xh->chunk_hdr_len - 2] = '\0';
             xh->chunk_remaining = strtoul(xh->chunk_hdr, NULL, 16);
             xh->chunk_hdr_len = 0;
+
+            /* M-30: upper bound на chunk size */
+            if (xh->chunk_remaining > 65536) {
+                log_msg(LOG_WARN, "XHTTP: слишком большой chunk: %zu",
+                        xh->chunk_remaining);
+                return -1;
+            }
 
             if (xh->chunk_remaining == 0)
                 return 0;  /* final chunk */

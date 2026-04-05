@@ -22,6 +22,7 @@
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 
 /* Глобальное состояние — доступно из обработчиков сигналов */
 static PhoenixState state;
@@ -64,12 +65,15 @@ static void print_usage(const char *prog)
         prog, PHOENIX_CONFIG_PATH);
 }
 
-/* Проверка PID-файла — запущен ли уже демон */
+/* Проверка PID-файла — запущен ли уже демон (M-03: O_CLOEXEC) */
 static pid_t check_pid_file(void)
 {
-    FILE *f = fopen(PHOENIX_PID_FILE, "r");
-    if (!f)
+    int pidfd = open(PHOENIX_PID_FILE, O_RDONLY | O_CLOEXEC);
+    FILE *f = (pidfd >= 0) ? fdopen(pidfd, "r") : NULL;
+    if (!f) {
+        if (pidfd >= 0) close(pidfd);
         return 0;  /* файла нет — не запущен */
+    }
 
     pid_t pid = 0;
     if (fscanf(f, "%d", &pid) == 1 && pid > 0) {
@@ -86,13 +90,18 @@ static pid_t check_pid_file(void)
     return 0;
 }
 
-/* Запись PID-файла */
+/* Запись PID-файла (M-02: error handling, M-03: O_CLOEXEC) */
 static void write_pid_file(void)
 {
-    FILE *f = fopen(PHOENIX_PID_FILE, "w");
+    int pidfd = open(PHOENIX_PID_FILE,
+                     O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    FILE *f = (pidfd >= 0) ? fdopen(pidfd, "w") : NULL;
     if (f) {
-        fprintf(f, "%d\n", getpid());
+        if (fprintf(f, "%d\n", getpid()) < 0 || fflush(f) != 0)
+            log_msg(LOG_WARN, "PID file: ошибка записи");
         fclose(f);
+    } else {
+        if (pidfd >= 0) close(pidfd);
     }
 }
 
@@ -301,11 +310,14 @@ int main(int argc, char *argv[])
     /* Менеджер правил маршрутизации */
     rules_init(&rules_state);
 
-    char bypass_file[256], proxy_file[256];
-    snprintf(bypass_file, sizeof(bypass_file),
-             "%s/bypass.cidr", PHOENIX_RULES_DIR);
-    snprintf(proxy_file, sizeof(proxy_file),
-             "%s/proxy.cidr", PHOENIX_RULES_DIR);
+    char bypass_file[PATH_MAX], proxy_file[PATH_MAX];
+    int bp_n = snprintf(bypass_file, sizeof(bypass_file),
+                        "%s/bypass.cidr", PHOENIX_RULES_DIR);
+    int pr_n = snprintf(proxy_file, sizeof(proxy_file),
+                        "%s/proxy.cidr", PHOENIX_RULES_DIR);
+    if (bp_n < 0 || (size_t)bp_n >= sizeof(bypass_file) ||
+        pr_n < 0 || (size_t)pr_n >= sizeof(proxy_file))
+        log_msg(LOG_WARN, "Путь правил обрезан");
 
     rules_create_test_file(bypass_file, RULES_BYPASS);
     rules_create_test_file(proxy_file,  RULES_PROXY);
@@ -352,14 +364,24 @@ int main(int argc, char *argv[])
         dispatcher_set_context(&dispatcher_state, &cfg);
     }
 
-    /* Установка обработчиков сигналов */
-    struct sigaction sa_shutdown = { .sa_handler = handle_shutdown };
-    struct sigaction sa_reload   = { .sa_handler = handle_reload };
+    /* Установка обработчиков сигналов (M-10: SA_RESTART) */
+    struct sigaction sa_shutdown = {
+        .sa_handler = handle_shutdown,
+        .sa_flags   = SA_RESTART,
+    };
+    struct sigaction sa_reload = {
+        .sa_handler = handle_reload,
+        .sa_flags   = SA_RESTART,
+    };
     sigemptyset(&sa_shutdown.sa_mask);
     sigemptyset(&sa_reload.sa_mask);
     sigaction(SIGTERM, &sa_shutdown, NULL);
     sigaction(SIGINT,  &sa_shutdown, NULL);
-    signal(SIGPIPE, SIG_IGN);  /* запись в закрытый сокет — игнорировать */
+
+    /* M-12: sigaction вместо signal для SIGPIPE */
+    struct sigaction sa_pipe = { .sa_handler = SIG_IGN, .sa_flags = 0 };
+    sigemptyset(&sa_pipe.sa_mask);
+    sigaction(SIGPIPE, &sa_pipe, NULL);
 
     if (!daemon_mode) {
         /* Без демонизации: SIGHUP = завершение (SSH disconnect) */
@@ -370,7 +392,8 @@ int main(int argc, char *argv[])
     }
 
     /* Master epoll: один epoll_wait вместо 3 отдельных + usleep (H-01/H-10) */
-    int master_epoll = epoll_create1(EPOLL_CLOEXEC);
+    int master_epoll = -1;
+    master_epoll = epoll_create1(EPOLL_CLOEXEC);
     if (master_epoll < 0) {
         log_msg(LOG_ERROR, "epoll_create1: %s", strerror(errno));
         /* fallback невозможен — завершаем */
@@ -450,8 +473,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    close(master_epoll);
 cleanup:
+    if (master_epoll >= 0) close(master_epoll);
 
     /* Завершение работы */
     log_msg(LOG_INFO, "Завершение работы...");

@@ -232,8 +232,9 @@ int ss_handshake_start(ss_state_t *ss, int fd,
 /*  ss_send — AEAD chunk                                               */
 /* ------------------------------------------------------------------ */
 
-ssize_t ss_send(ss_state_t *ss, int fd,
-                const uint8_t *data, size_t len)
+/* M-34: внутренняя функция для одного chunk ≤ 0x3FFF */
+static ssize_t ss_send_chunk(ss_state_t *ss, int fd,
+                             const uint8_t *data, size_t len)
 {
     if (len == 0 || len > 0x3FFF)
         return -1;
@@ -289,6 +290,22 @@ ssize_t ss_send(ss_state_t *ss, int fd,
     free(packet);
 
     return (ssize_t)len;
+}
+
+/* M-34: ss_send с разбиением на chunks при len > 0x3FFF */
+ssize_t ss_send(ss_state_t *ss, int fd,
+                const uint8_t *data, size_t len)
+{
+    size_t total = 0;
+    while (len > 0) {
+        size_t chunk = (len > 0x3FFF) ? 0x3FFF : len;
+        ssize_t r = ss_send_chunk(ss, fd, data, chunk);
+        if (r < 0) return (total > 0) ? (ssize_t)total : -1;
+        data  += chunk;
+        len   -= chunk;
+        total += chunk;
+    }
+    return (ssize_t)total;
 }
 
 /* ------------------------------------------------------------------ */

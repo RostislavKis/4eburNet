@@ -9,12 +9,16 @@
 #include <string.h>
 #define DNS_CACHE_PROBE_MAX  16
 
-static uint32_t djb2_hash(const char *qname, uint16_t qtype)
+/* M-20: FNV-1a вместо djb2 — лучшее распределение */
+static uint32_t fnv1a_hash(const char *qname, uint16_t qtype)
 {
-    uint32_t h = 5381;
-    for (const char *p = qname; *p; p++)
-        h = h * 33 + (uint8_t)*p;
-    h += qtype;
+    uint32_t h = 2166136261u;
+    for (const char *p = qname; *p; p++) {
+        h ^= (uint8_t)*p;
+        h *= 16777619u;
+    }
+    h ^= qtype;
+    h *= 16777619u;
     return h;
 }
 
@@ -63,13 +67,19 @@ const uint8_t *dns_cache_get(dns_cache_t *c,
                              const char *qname, uint16_t qtype,
                              uint16_t *resp_len, uint16_t orig_id)
 {
-    uint32_t h = djb2_hash(qname, qtype);
+    uint32_t h = fnv1a_hash(qname, qtype);
     for (int i = 0; i < DNS_CACHE_PROBE_MAX && i < c->capacity; i++) {
         int idx = (h + i) % c->capacity;
         dns_cache_entry_t *e = &c->entries[idx];
         if (!e->used) return NULL;
         if (e->qtype == qtype && strcmp(e->qname, qname) == 0) {
             if (time(NULL) >= e->expire_at) {
+                /* M-26: удалить из LRU перед пометкой unused */
+                if (c->lru_head == idx) c->lru_head = e->next;
+                if (c->lru_tail == idx) c->lru_tail = e->prev;
+                if (e->prev >= 0) c->entries[e->prev].next = e->next;
+                if (e->next >= 0) c->entries[e->next].prev = e->prev;
+                e->prev = e->next = -1;
                 e->used = false;
                 c->count--;
                 return NULL;
@@ -93,7 +103,7 @@ void dns_cache_put(dns_cache_t *c,
 {
     if (resp_len > DNS_MAX_PACKET || resp_len == 0) return;
 
-    uint32_t h = djb2_hash(qname, qtype);
+    uint32_t h = fnv1a_hash(qname, qtype);
     int target = -1;
 
     /* Ищем существующий или пустой слот */

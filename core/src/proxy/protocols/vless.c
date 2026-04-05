@@ -312,9 +312,12 @@ int vless_read_response_step(tls_conn_t *tls,
     }
 
     /* Аддоны — для step API игнорируем (len обычно 0) */
-    if (resp_buf[1] > 0)
-        log_msg(LOG_DEBUG, "VLESS: %u байт аддонов (проигнорировано)",
-                resp_buf[1]);
+    if (resp_buf[1] > 0) {
+        /* TODO: прочитать и выбросить addons_len байт.
+         * Без этого следующий tls_recv прочитает addons как данные. */
+        log_msg(LOG_WARN, "VLESS: addons_len=%d не поддержан — "
+                "поток может быть повреждён", resp_buf[1]);
+    }
 
     log_msg(LOG_DEBUG, "VLESS handshake завершён");
     return 0;

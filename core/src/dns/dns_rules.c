@@ -110,7 +110,9 @@ static bool suffix_match(const char *qname, const char *suffix)
 
 dns_action_t dns_rules_match(const char *qname)
 {
-    /* Приоритет: block > bypass > proxy > default */
+    /* Приоритет: block > bypass > proxy > default
+     * TODO v2: разделить exact/wildcard, qsort+bsearch для exact (M-29).
+     * Текущий O(n) допустим при count < 10K, при 300K+ нужна оптимизация. */
     dns_action_t best = DNS_ACTION_DEFAULT;
 
     for (int i = 0; i < g_rules.count; i++) {

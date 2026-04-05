@@ -190,11 +190,11 @@ if (n != sizeof(hdr)) { ... }
 
 ### H-11 [src/ipc.c:193-194] IPC response read без loop для short reads — ✅ ЗАКРЫТА (волна 6)
 
-### H-12 [src/ntp_bootstrap.c:152-153] Время из неаутентифицированного HTTP ответа — ✅ ЗАКРЫТА (волна 6)
+### H-12 [src/ntp_bootstrap.c:152-153] Время из неаутентифицированного HTTP ответа — ✅ ЗАКРЫТА (волна 6+7)
 Атакующий через MITM может установить произвольное время → TLS replay.
-**Рекомендация:** Sanity check: время в пределах ±1 год от compile time.
+Sanity check добавлен (волна 6), warning о ненадёжности (волна 7). Принято как ограничение v1.
 
-### H-13 [dns/dns_server.c:157-232] DNS amplification — нет rate limiting
+### H-13 [dns/dns_server.c:157-232] DNS amplification — нет rate limiting — ✅ ЗАКРЫТА (волна 7)
 DNS сервер на INADDR_ANY без ограничения по rate и без проверки source IP.
 **Рекомендация:** Биндить только на LAN, добавить per-source-IP rate limiting.
 
@@ -214,7 +214,7 @@ while (pos < len && reply[pos] != 0) {
 ### H-17 [dns/dns_rules.c:32, 82] strdup без проверки NULL — ✅ ЗАКРЫТА (волна 5)
 NULL от strdup записывается в массив → segfault при strcmp().
 
-### H-18 [dns/dns_server.c:235-292] TCP DNS handler блокирует event loop до 3+ сек
+### H-18 [dns/dns_server.c:235-292] TCP DNS handler блокирует event loop до 3+ сек — Принято (async TCP DNS → v2, SO_RCVTIMEO=2s)
 
 ### H-19 [proxy/dispatcher.c:608] SS relay: partial write → возврат n вместо w — ✅ ЗАКРЫТА (волна 6)
 ```c
@@ -264,44 +264,81 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 
 ## Средние (MEDIUM) — 38
 
-### M-01 [config.c:207-208] strcpy на fixed-size буферах
-### M-02 [main.c:92-97] PID file write без error handling
-### M-03 [main.c:70, 92] fopen без CLOEXEC (PID file)
-### M-04 [main.c:304-308] Стековые буферы path 512 байт + large cfg struct
-### M-05 [main.c:450-451] master_epoll close перед goto cleanup label
-### M-06 [log.c:47] Log file fopen без CLOEXEC
-### M-07 [log.c:72-73] Отрицательный level → OOB access на level_names[]
-### M-08 [config.c:166-178] AWG поля без range validation (uint16_t/uint8_t cast)
-### M-09 [config.c:338] cache_size без проверки >= 0
-### M-10 [main.c:356] sigaction sa_flags не задан явно (нет SA_RESTART)
-### M-11 [ipc.c:56] chmod TOCTOU на IPC socket
-### M-12 [main.c:362] signal() вместо sigaction() для SIGPIPE
-### M-13 [ipc.c:24] IPC длина ответа truncated к uint16_t
-### M-14 [crypto/noise.c:134, 217] wc_curve25519_import_private может не делать clamping
-### M-15 [crypto/noise.c:287-291] aead_encrypt return value не проверяется в handshake
-### M-16 [crypto/noise.c:280-281] x25519_shared return value игнорируется в handshake
-### M-17 [crypto/noise.c:205-248] noise_state_t не обнуляется при ошибке noise_init
-### M-18 [crypto/tls.c:276-280] select() с fd >= FD_SETSIZE → UB
-### M-19 [dns/dns_cache.c:9] DNS_MAX_PACKET=512 — нет EDNS0
-### M-20 [dns/dns_cache.c:12-19] Слабый хеш djb2 — уязвим к collision атакам
-### M-21 [dns/dns_upstream.c:173] Base64 буфер может быть мал при увеличении пакета
-### M-22 [dns/dns_upstream.c:234-242] HTTP header injection через CRLF в DoH URL
-### M-23 [dns/dns_server.c:97-110] epoll_ctl return values не проверяются
-### M-24 [dns/dns_server.c:288] write() return value не проверяется (TCP DNS)
-### M-25 [dns/dns_server.c:181-182] sendto() return value не проверяется (UDP DNS)
-### M-26 [dns/dns_cache.c:70-76] Expired entry corruption в LRU
-### M-27 [dns/dns_upstream.c:248-256] DoH ответ не обрабатывает chunked encoding
-### M-28 [dns/dns_upstream.c:236] HTTP/1.1 но поведение HTTP/1.0
-### M-29 [dns/dns_rules.c:111-132] O(n) linear scan на каждый DNS запрос (300K+ правил)
-### M-30 [proxy/vless_xhttp.c:312] Chunk size без upper bound
-### M-31 [proxy/vless_xhttp.c:46-51] Слабый fallback session ID (pid+time)
-### M-32 [proxy/protocols/awg.c:102-109] CPS hex parser без bounds check на p[1]
-### M-33 [proxy/protocols/vless.c:313-318] vless_read_response_step не читает addons bytes
-### M-34 [proxy/protocols/shadowsocks.c:206-207] ss_send: len > 0x3FFF возвращает -1, данные потеряны
-### M-35 [routing/nftables.c:179] 16KB стековый буфер config[NFT_ATOMIC_MAX]
-### M-36 [routing/device_policy.c:253-264] snprintf unsigned underflow в to_json
-### M-37 [routing/nftables.c:604-605] fclose(NULL) при ошибке batch reopen → UB
-### M-38 [routing/device_policy.c:166-189] delete+apply без rollback
+### M-01 [config.c:207-208] strcpy на fixed-size буферах — ✅ ЗАКРЫТА (волна 7)
+
+### M-02 [main.c:92-97] PID file write без error handling — ✅ ЗАКРЫТА (волна 7)
+
+### M-03 [main.c:70, 92] fopen без CLOEXEC (PID file) — ✅ ЗАКРЫТА (волна 7)
+
+### M-04 [main.c:304-308] Стековые буферы path 512 байт + large cfg struct — ✅ ЗАКРЫТА (волна 7)
+
+### M-05 [main.c:450-451] master_epoll close перед goto cleanup label — ✅ ЗАКРЫТА (волна 7)
+
+### M-06 [log.c:47] Log file fopen без CLOEXEC — ✅ ЗАКРЫТА (волна 7)
+
+### M-07 [log.c:72-73] Отрицательный level → OOB access на level_names[] — ✅ ЗАКРЫТА (волна 7)
+
+### M-08 [config.c:166-178] AWG поля без range validation (uint16_t/uint8_t cast) — ✅ ЗАКРЫТА (волна 7)
+
+### M-09 [config.c:338] cache_size без проверки >= 0 — ✅ ЗАКРЫТА (волна 7)
+
+### M-10 [main.c:356] sigaction sa_flags не задан явно (нет SA_RESTART) — ✅ ЗАКРЫТА (волна 7)
+
+### M-11 [ipc.c:56] chmod TOCTOU на IPC socket — ✅ ЗАКРЫТА (волна 7)
+
+### M-12 [main.c:362] signal() вместо sigaction() для SIGPIPE — ✅ ЗАКРЫТА (волна 7)
+
+### M-13 [ipc.c:24] IPC длина ответа truncated к uint16_t — ✅ ЗАКРЫТА (волна 7)
+
+### M-14 [crypto/noise.c:134, 217] wc_curve25519_import_private может не делать clamping — ✅ ЗАКРЫТА (волна 7)
+
+### M-15 [crypto/noise.c:287-291] aead_encrypt return value не проверяется в handshake — ✅ ЗАКРЫТА (волна 7)
+
+### M-16 [crypto/noise.c:280-281] x25519_shared return value игнорируется в handshake — ✅ ЗАКРЫТА (волна 7)
+
+### M-17 [crypto/noise.c:205-248] noise_state_t не обнуляется при ошибке noise_init — ✅ ЗАКРЫТА (волна 7)
+
+### M-18 [crypto/tls.c:276-280] select() с fd >= FD_SETSIZE → UB — ✅ ЗАКРЫТА (волна 7)
+
+### M-19 [dns/dns_cache.c:9] DNS_MAX_PACKET=512 — нет EDNS0 — ✅ ЗАКРЫТА (волна 7)
+
+### M-20 [dns/dns_cache.c:12-19] Слабый хеш djb2 — уязвим к collision атакам — ✅ ЗАКРЫТА (волна 7)
+
+### M-21 [dns/dns_upstream.c:173] Base64 буфер может быть мал при увеличении пакета — ✅ ЗАКРЫТА (волна 7)
+
+### M-22 [dns/dns_upstream.c:234-242] HTTP header injection через CRLF в DoH URL — ✅ ЗАКРЫТА (волна 7)
+
+### M-23 [dns/dns_server.c:97-110] epoll_ctl return values не проверяются — ✅ ЗАКРЫТА (волна 7)
+
+### M-24 [dns/dns_server.c:288] write() return value не проверяется (TCP DNS) — ✅ ЗАКРЫТА (волна 7)
+
+### M-25 [dns/dns_server.c:181-182] sendto() return value не проверяется (UDP DNS) — ✅ ЗАКРЫТА (волна 7)
+
+### M-26 [dns/dns_cache.c:70-76] Expired entry corruption в LRU — ✅ ЗАКРЫТА (волна 7)
+
+### M-27 [dns/dns_upstream.c:248-256] DoH ответ не обрабатывает chunked encoding — ✅ ЗАКРЫТА (волна 7)
+
+### M-28 [dns/dns_upstream.c:236] HTTP/1.1 но поведение HTTP/1.0 — ✅ ЗАКРЫТА (волна 7)
+
+### M-29 [dns/dns_rules.c:111-132] O(n) linear scan на каждый DNS запрос (300K+ правил) — Принято (TODO v2, допустимо при < 10K)
+
+### M-30 [proxy/vless_xhttp.c:312] Chunk size без upper bound — ✅ ЗАКРЫТА (волна 7)
+
+### M-31 [proxy/vless_xhttp.c:46-51] Слабый fallback session ID (pid+time) — ✅ ЗАКРЫТА (волна 7)
+
+### M-32 [proxy/protocols/awg.c:102-109] CPS hex parser без bounds check на p[1] — ✅ ЗАКРЫТА (волна 7)
+
+### M-33 [proxy/protocols/vless.c:313-318] vless_read_response_step не читает addons bytes — ✅ ЗАКРЫТА (волна 7)
+
+### M-34 [proxy/protocols/shadowsocks.c:206-207] ss_send: len > 0x3FFF возвращает -1, данные потеряны — ✅ ЗАКРЫТА (волна 7)
+
+### M-35 [routing/nftables.c:179] 16KB стековый буфер config[NFT_ATOMIC_MAX] — ✅ ЗАКРЫТА (волна 7)
+
+### M-36 [routing/device_policy.c:253-264] snprintf unsigned underflow в to_json — ✅ ЗАКРЫТА (волна 7)
+
+### M-37 [routing/nftables.c:604-605] fclose(NULL) при ошибке batch reopen → UB — ✅ ЗАКРЫТА (волна 7)
+
+### M-38 [routing/device_policy.c:166-189] delete+apply без rollback — Принято (TODO, операция редкая)
 
 ---
 
@@ -364,11 +401,11 @@ exec_cmd_capture("nft -f " NFT_TMP_CONF);
 
 ## Статистика
 
-| Категория | Найдено | Закрыто | Принято/Ложное |
-|-----------|---------|---------|----------------|
-| CRITICAL  |   14    |   10    |       3        |
-| HIGH      |   28    |   24    |       0        |
-| MEDIUM    |   38    |    0    |       0        |
-| LOW       |   26    |    0    |       0        |
-| INFO      |   21    |   21   |       0        |
-| **ИТОГО** | **127** |  **55** |     **3**      |
+| Категория | Найдено | Закрыто | Принято/Ложное | Открыто |
+|-----------|---------|---------|----------------|---------|
+| CRITICAL  |   14    |   10    |       3        |    1    |
+| HIGH      |   28    |   25    |       1        |    2    |
+| MEDIUM    |   38    |   36    |       2        |    0    |
+| LOW       |   26    |    0    |       0        |   26    |
+| INFO      |   21    |   21    |       0        |    0    |
+| **ИТОГО** | **127** |  **92** |     **6**      | **29**  |

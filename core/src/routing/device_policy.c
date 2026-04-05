@@ -259,6 +259,7 @@ int device_policy_to_json(const device_manager_t *dm,
 {
     int pos = 0;
     pos += snprintf(buf + pos, buflen - pos, "{\"devices\":[");
+    if ((size_t)pos >= buflen) return (int)buflen;
 
     for (int i = 0; i < dm->count; i++) {
         const device_config_t *d = &dm->devices[i];
@@ -274,7 +275,9 @@ int device_policy_to_json(const device_manager_t *dm,
         json_escape(d->server_group, esc_group, sizeof(esc_group));
         json_escape(d->comment, esc_comment, sizeof(esc_comment));
 
+        if ((size_t)pos >= buflen) return (int)buflen;
         if (i > 0) pos += snprintf(buf + pos, buflen - pos, ",");
+        if ((size_t)pos >= buflen) return (int)buflen;
         pos += snprintf(buf + pos, buflen - pos,
             "{\"name\":\"%s\",\"alias\":\"%s\","
             "\"mac\":\"%s\",\"policy\":\"%s\","
@@ -287,6 +290,7 @@ int device_policy_to_json(const device_manager_t *dm,
             esc_comment);
     }
 
+    if ((size_t)pos >= buflen) return (int)buflen;
     pos += snprintf(buf + pos, buflen - pos, "]}");
     return pos;
 }

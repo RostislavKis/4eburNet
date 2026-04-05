@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -108,6 +109,16 @@ int awg_cps_build(const char *spec, uint8_t *out, size_t *outlen)
             /* <b 0xHEX> — hex байты */
             p += 4;
             while (*p && *p != '>') {
+                /* M-32: bounds check на p[1] */
+                if (!p[0] || !p[1] || p[1] == '>') {
+                    p++;
+                    continue;
+                }
+                if (!isxdigit((unsigned char)p[0]) ||
+                    !isxdigit((unsigned char)p[1])) {
+                    p++;
+                    continue;
+                }
                 char hex[3] = { p[0], p[1], '\0' };
                 if (pos < max)
                     out[pos++] = (uint8_t)strtoul(hex, NULL, 16);
