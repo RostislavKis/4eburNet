@@ -99,6 +99,8 @@ dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd)
 
 void dns_pending_complete(dns_pending_queue_t *q, int idx)
 {
+    /* H-12: bounds check */
+    if (idx < 0 || idx >= DNS_PENDING_MAX) return;
     dns_pending_t *p = &q->slots[idx];
     if (p->upstream_fd >= 0) {
         close(p->upstream_fd);

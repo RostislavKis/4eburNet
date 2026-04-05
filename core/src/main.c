@@ -448,7 +448,8 @@ int main(int argc, char *argv[])
                        dns_server_is_pending_fd(&dns_state, fd)) {
                 /* Ответ от upstream DNS */
                 dns_server_handle_event(&dns_state, fd, master_epoll);
-            } else if (fd == dns_state.udp_fd || fd == dns_state.tcp_fd) {
+            } else if (dns_state.initialized &&
+                       (fd == dns_state.udp_fd || fd == dns_state.tcp_fd)) {
                 dns_server_handle_event(&dns_state, fd, master_epoll);
             } else {
                 tproxy_handle_event(&tproxy_state, fd);
@@ -479,8 +480,22 @@ int main(int argc, char *argv[])
                 config_dump(&cfg);
                 dispatcher_set_context(&dispatcher_state, &cfg);
                 rules_check_update(&rules_state);
-                if (cfg.dns.enabled)
+                /* H-09: DNS реинициализация при reload */
+                if (dns_state.initialized) {
+                    if (dns_state.udp_fd >= 0)
+                        epoll_ctl(master_epoll, EPOLL_CTL_DEL,
+                                  dns_state.udp_fd, NULL);
+                    if (dns_state.tcp_fd >= 0)
+                        epoll_ctl(master_epoll, EPOLL_CTL_DEL,
+                                  dns_state.tcp_fd, NULL);
+                    dns_server_cleanup(&dns_state);
+                }
+                dns_rules_free();
+                if (cfg.dns.enabled) {
                     dns_rules_init(&cfg);
+                    if (dns_server_init(&dns_state, &cfg) == 0)
+                        dns_server_register_epoll(&dns_state, master_epoll);
+                }
                 if (cfg.device_count > 0 && cfg.lan_interface[0]) {
                     device_policy_free(&device_state);
                     device_policy_init(&device_state, &cfg);
@@ -503,7 +518,7 @@ cleanup:
 
     device_policy_free(&device_state);
     device_policy_cleanup_nft();
-    if (cfg.dns.enabled) {
+    if (dns_state.initialized) {
         dns_server_cleanup(&dns_state);
         dns_rules_free();
     }

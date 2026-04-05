@@ -482,6 +482,8 @@ void awg_tick(awg_state_t *awg)
 
 void awg_close(awg_state_t *awg)
 {
+    /* H-06: обнулить ключевой материал перед закрытием */
+    noise_state_cleanup(&awg->noise);
     if (awg->udp_fd >= 0) {
         close(awg->udp_fd);
         awg->udp_fd = -1;

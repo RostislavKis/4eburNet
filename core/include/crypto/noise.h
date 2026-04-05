@@ -57,4 +57,7 @@ int noise_decrypt(noise_state_t *ns,
                   const uint8_t *cipher, size_t cipher_len,
                   uint8_t *out, size_t *out_len);
 
+/* Очистка ключевого материала (H-06) */
+void noise_state_cleanup(noise_state_t *ns);
+
 #endif /* NOISE_H */
