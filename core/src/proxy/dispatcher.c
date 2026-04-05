@@ -264,7 +264,8 @@ static int awg_protocol_start(relay_conn_t *relay,
     relay->awg = malloc(sizeof(awg_state_t));
     if (!relay->awg) return -1;
 
-    if (awg_init(relay->awg, server) < 0) {
+    if (awg_init(relay->awg, server,
+                 g_config ? g_config->tai_utc_offset : 37) < 0) {
         free(relay->awg); relay->awg = NULL;
         return -1;
     }

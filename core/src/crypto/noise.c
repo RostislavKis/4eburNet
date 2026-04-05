@@ -240,9 +240,11 @@ fallback:
 int noise_init(noise_state_t *ns,
                const uint8_t local_priv[32],
                const uint8_t remote_pub[32],
-               const uint8_t psk[32], bool has_psk)
+               const uint8_t psk[32], bool has_psk,
+               int tai_utc_offset)
 {
     memset(ns, 0, sizeof(*ns));
+    ns->tai_utc_offset = tai_utc_offset;
     memcpy(ns->local_static_private, local_priv, 32);
     /* M-14: clamping перед импортом */
     clamp_curve25519_key(ns->local_static_private);
@@ -350,11 +352,11 @@ int noise_handshake_init_create(noise_state_t *ns,
 
     /* EncryptAndHash(timestamp) → encrypted_timestamp(28) */
     uint8_t timestamp[12];
-    /* TAI-UTC = 37 сек (актуально 2017-01-01 -> по сей день, 2026).
-     * Обновить при добавлении leap second.
+    /* TAI64N: 2^62 + TAI-UTC offset (из конфига, L-03).
+     * Обновляется без перекомпиляции при новых leap seconds.
      * Источник: https://www.ietf.org/timezones/data/leap-seconds.list */
-    #define TAI64N_BASE (4611686018427387904ULL + 37)
-    uint64_t tai = (uint64_t)time(NULL) + TAI64N_BASE;
+    uint64_t tai = (uint64_t)time(NULL) + 4611686018427387904ULL
+                 + (uint64_t)ns->tai_utc_offset;
     timestamp[0] = (uint8_t)(tai >> 56);
     timestamp[1] = (uint8_t)(tai >> 48);
     timestamp[2] = (uint8_t)(tai >> 40);
