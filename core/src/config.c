@@ -23,6 +23,7 @@ typedef enum {
     SECTION_SERVER,
     SECTION_DNS,
     SECTION_DNS_RULE,
+    SECTION_DNS_POLICY,
     SECTION_DEVICE_POLICY,
     SECTION_PROXY_GROUP,
     SECTION_RULE_PROVIDER,
@@ -30,6 +31,7 @@ typedef enum {
 } section_type_t;
 
 #define MAX_DNS_RULES      256
+#define MAX_DNS_POLICIES   64
 #define MAX_DEVICES        64
 #define MAX_PROXY_GROUPS   32
 #define MAX_RULE_PROVIDERS 16
@@ -256,15 +258,17 @@ int config_load(const char *path, PhoenixConfig *cfg)
     /* Временные массивы на heap (H-11: ~191KB на стеке → calloc) */
     ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));
     DnsRule *dns_rules = calloc(MAX_DNS_RULES, sizeof(DnsRule));
+    DnsPolicy *dp_tmp = calloc(MAX_DNS_POLICIES, sizeof(DnsPolicy));
     device_config_t *devices_tmp = calloc(MAX_DEVICES, sizeof(device_config_t));
     ProxyGroupConfig *pg_tmp = calloc(MAX_PROXY_GROUPS, sizeof(ProxyGroupConfig));
     RuleProviderConfig *rp_tmp = calloc(MAX_RULE_PROVIDERS, sizeof(RuleProviderConfig));
     TrafficRule *tr_tmp = calloc(MAX_TRAFFIC_RULES, sizeof(TrafficRule));
-    int pg_count = 0, rp_count = 0, tr_count = 0;
+    int pg_count = 0, rp_count = 0, tr_count = 0, dp_count = 0;
 
-    if (!servers || !dns_rules || !devices_tmp || !pg_tmp || !rp_tmp || !tr_tmp) {
+    if (!servers || !dns_rules || !dp_tmp || !devices_tmp ||
+        !pg_tmp || !rp_tmp || !tr_tmp) {
         log_msg(LOG_ERROR, "Конфиг: нет памяти для временных массивов");
-        free(servers); free(dns_rules); free(devices_tmp);
+        free(servers); free(dns_rules); free(dp_tmp); free(devices_tmp);
         free(pg_tmp); free(rp_tmp); free(tr_tmp);
         fclose(f);
         return -1;
@@ -360,6 +364,12 @@ int config_load(const char *path, PhoenixConfig *cfg)
                     memset(&dns_rules[dns_rule_count], 0, sizeof(DnsRule));
                     dns_rule_count++;
                 }
+            } else if (strcmp(type, "dns_policy") == 0) {
+                section = SECTION_DNS_POLICY;
+                if (dp_count < MAX_DNS_POLICIES) {
+                    memset(&dp_tmp[dp_count], 0, sizeof(DnsPolicy));
+                    dp_count++;
+                }
             } else {
                 log_msg(LOG_WARN, "Строка %d: неизвестный тип секции '%s'",
                         line_num, type);
@@ -435,6 +445,29 @@ int config_load(const char *path, PhoenixConfig *cfg)
                         snprintf(dr->type, sizeof(dr->type), "%s", value);
                     else if (strcmp(key, "pattern") == 0)
                         snprintf(dr->pattern, sizeof(dr->pattern), "%s", value);
+                }
+                break;
+            case SECTION_DNS_POLICY:
+                if (dp_count > 0) {
+                    DnsPolicy *dp = &dp_tmp[dp_count - 1];
+                    if (strcmp(key, "pattern") == 0)
+                        snprintf(dp->pattern, sizeof(dp->pattern), "%s", value);
+                    else if (strcmp(key, "upstream") == 0)
+                        snprintf(dp->upstream, sizeof(dp->upstream), "%s", value);
+                    else if (strcmp(key, "port") == 0) {
+                        long v = strtol(value, NULL, 10);
+                        dp->port = (v > 0 && v <= 65535) ? (uint16_t)v : 0;
+                    } else if (strcmp(key, "type") == 0) {
+                        if (strcmp(value, "dot") == 0)
+                            dp->type = DNS_UPSTREAM_DOT;
+                        else if (strcmp(value, "doh") == 0)
+                            dp->type = DNS_UPSTREAM_DOH;
+                        else
+                            dp->type = DNS_UPSTREAM_UDP;
+                    } else if (strcmp(key, "sni") == 0)
+                        snprintf(dp->sni, sizeof(dp->sni), "%s", value);
+                    else if (strcmp(key, "priority") == 0)
+                        dp->priority = (int)strtol(value, NULL, 10);
                 }
                 break;
             case SECTION_PROXY_GROUP:
@@ -568,6 +601,19 @@ int config_load(const char *path, PhoenixConfig *cfg)
         cfg->dns_rule_count = dns_rule_count;
     }
 
+    /* Копируем dns_policies */
+    if (dp_count > 0) {
+        cfg->dns_policies = malloc((size_t)dp_count * sizeof(DnsPolicy));
+        if (!cfg->dns_policies) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для dns_policies");
+            config_free(cfg);
+            goto cleanup_fail;
+        }
+        memcpy(cfg->dns_policies, dp_tmp,
+               (size_t)dp_count * sizeof(DnsPolicy));
+        cfg->dns_policy_count = dp_count;
+    }
+
     /* Копируем устройства */
     if (dev_count > 0) {
         cfg->devices = malloc((size_t)dev_count * sizeof(device_config_t));
@@ -616,17 +662,19 @@ int config_load(const char *path, PhoenixConfig *cfg)
         cfg->traffic_rule_count = tr_count;
     }
 
-    free(servers); free(dns_rules); free(devices_tmp);
+    free(servers); free(dns_rules); free(dp_tmp); free(devices_tmp);
     free(pg_tmp); free(rp_tmp); free(tr_tmp);
 
-    log_msg(LOG_INFO, "Конфиг загружен: %s (серверов: %d, групп: %d, правил: %d)",
-            path, srv_count, pg_count, tr_count);
+    log_msg(LOG_INFO,
+            "Конфиг загружен: %s (серверов: %d, групп: %d, правил: %d, policy: %d)",
+            path, srv_count, pg_count, tr_count, dp_count);
     return 0;
 
 cleanup_fail:
     if (f) fclose(f);
     free(servers);
     free(dns_rules);
+    free(dp_tmp);
     free(devices_tmp);
     free(pg_tmp);
     free(rp_tmp);
@@ -646,6 +694,11 @@ void config_free(PhoenixConfig *cfg)
     if (cfg->dns_rules) {
         free(cfg->dns_rules);
         cfg->dns_rules = NULL;
+    }
+    if (cfg->dns_policies) {
+        free(cfg->dns_policies);
+        cfg->dns_policies = NULL;
+        cfg->dns_policy_count = 0;
     }
     if (cfg->servers) {
         free(cfg->servers);
