@@ -539,21 +539,29 @@ static void handle_udp_query(dns_server_t *ds)
                 uint16_t par_id;
                 if (net_random_bytes((uint8_t *)&par_id, sizeof(par_id)) < 0)
                     par_id = (uint16_t)(idx ^ (upstream_port << 8));
-                uint8_t par_pkt[DNS_MAX_PACKET];
-                memcpy(par_pkt, pkt, n);
-                par_pkt[0] = (par_id >> 8) & 0xFF;
-                par_pkt[1] = par_id & 0xFF;
-                if (sendto(pfd, par_pkt, n, 0,
-                           (struct sockaddr *)&pa, sizeof(pa)) >= 0) {
-                    ds->pending.slots[idx].parallel_fd = pfd;
-                    ds->pending.slots[idx].parallel_upstream_id = par_id;
-                    struct epoll_event pev = {
-                        .events  = EPOLLIN,
-                        .data.fd = pfd,
-                    };
-                    epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD, pfd, &pev);
-                    log_msg(LOG_DEBUG, "DNS: %s parallel -> %s",
-                            q.qname, ds->cfg->dns.upstream_fallback);
+                /* par_pkt на heap — стек handle_udp_query уже содержит
+                   pkt[4096], par_pkt[4096] + frame = риск на MIPS 8KB стеке */
+                uint8_t *par_pkt = malloc(DNS_MAX_PACKET);
+                if (par_pkt) {
+                    memcpy(par_pkt, pkt, n);
+                    par_pkt[0] = (par_id >> 8) & 0xFF;
+                    par_pkt[1] = par_id & 0xFF;
+                    if (sendto(pfd, par_pkt, n, 0,
+                               (struct sockaddr *)&pa, sizeof(pa)) >= 0) {
+                        ds->pending.slots[idx].parallel_fd = pfd;
+                        ds->pending.slots[idx].parallel_upstream_id = par_id;
+                        struct epoll_event pev = {
+                            .events  = EPOLLIN,
+                            .data.fd = pfd,
+                        };
+                        epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
+                                  pfd, &pev);
+                        log_msg(LOG_DEBUG, "DNS: %s parallel -> %s",
+                                q.qname, ds->cfg->dns.upstream_fallback);
+                    } else {
+                        close(pfd);
+                    }
+                    free(par_pkt);
                 } else {
                     close(pfd);
                 }

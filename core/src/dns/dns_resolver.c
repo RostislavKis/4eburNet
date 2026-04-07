@@ -180,8 +180,10 @@ void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd)
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
                     close(p->upstream_fd);
                     /* Переключить на fallback fd */
+                    /* upstream_fd теперь указывает на ffd.
+                       fallback_fd НЕ дублируем — иначе double close в complete. */
                     p->upstream_fd   = ffd;
-                    p->fallback_fd   = ffd;
+                    p->fallback_fd   = -1;
                     p->fallback_used = true;
                     clock_gettime(CLOCK_MONOTONIC, &p->sent_at);
                     struct epoll_event ev = {
