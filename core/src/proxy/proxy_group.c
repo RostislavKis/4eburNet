@@ -169,33 +169,50 @@ void proxy_group_update_result(proxy_group_manager_t *pgm,
     }
 }
 
-/* Простой latency test: TCP connect RTT */
+/* Latency test: TCP connect RTT, поддержка IPv4 + IPv6 (V6-07) */
 static uint32_t measure_latency(const char *ip, uint16_t port, int timeout_ms)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    /* Определить семейство адреса */
+    struct sockaddr_storage ss;
+    socklen_t ss_len;
+    memset(&ss, 0, sizeof(ss));
+
+    struct sockaddr_in  *s4 = (struct sockaddr_in  *)&ss;
+    struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&ss;
+
+    if (inet_pton(AF_INET, ip, &s4->sin_addr) == 1) {
+        s4->sin_family = AF_INET;
+        s4->sin_port   = htons(port);
+        ss_len = sizeof(struct sockaddr_in);
+    } else if (inet_pton(AF_INET6, ip, &s6->sin6_addr) == 1) {
+        s6->sin6_family = AF_INET6;
+        s6->sin6_port   = htons(port);
+        ss_len = sizeof(struct sockaddr_in6);
+    } else {
+        log_msg(LOG_WARN, "measure_latency: невалидный IP: %s", ip);
+        return 0;
+    }
+
+    int fd = socket(ss.ss_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return 0;
 
     struct timeval tv = {
-        .tv_sec = timeout_ms / 1000,
+        .tv_sec  = timeout_ms / 1000,
         .tv_usec = (timeout_ms % 1000) * 1000,
     };
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-    struct sockaddr_in addr = { .sin_family = AF_INET, .sin_port = htons(port) };
-    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) {
-        close(fd); return 0;
-    }
-
     struct timespec t1, t2;
     clock_gettime(CLOCK_MONOTONIC, &t1);
-    int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    int rc = connect(fd, (struct sockaddr *)&ss, ss_len);
     clock_gettime(CLOCK_MONOTONIC, &t2);
     close(fd);
 
     if (rc < 0) return 0;
 
-    uint32_t ms = (uint32_t)((t2.tv_sec - t1.tv_sec) * 1000 +
-                             (t2.tv_nsec - t1.tv_nsec) / 1000000);
+    uint32_t ms = (uint32_t)(
+        (t2.tv_sec  - t1.tv_sec)  * 1000 +
+        (t2.tv_nsec - t1.tv_nsec) / 1000000);
     return ms > 0 ? ms : 1;
 }
 
