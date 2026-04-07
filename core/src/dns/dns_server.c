@@ -9,6 +9,7 @@
 #include "dns/dns_rules.h"
 #include "dns/dns_upstream.h"
 #include "dns/dns_resolver.h"
+#include "net_utils.h"
 #include "phoenix.h"
 
 #include <stdio.h>
@@ -99,7 +100,7 @@ void dns_server_cleanup(dns_server_t *ds)
     /* Закрыть все pending upstream сокеты */
     for (int i = 0; i < DNS_PENDING_MAX; i++) {
         if (ds->pending.slots[i].active)
-            dns_pending_complete(&ds->pending, i);
+            dns_pending_complete(&ds->pending, i, ds->master_epoll_fd);
     }
     async_dns_pool_free(&ds->async_pool);
     if (ds->udp_fd >= 0) { close(ds->udp_fd); ds->udp_fd = -1; }
@@ -159,8 +160,9 @@ static void async_doh_dot_cb(void *ctx, const uint8_t *resp,
                        c->client_addrlen);
                 uint32_t ttl = dns_extract_min_ttl(resp, resp_len);
                 int max_ttl = c->ds->cfg->dns.cache_ttl_max;
-                if (max_ttl > 0 && ttl > (uint32_t)max_ttl)
-                    ttl = max_ttl;
+                int min_ttl = c->ds->cfg->dns.cache_ttl_min;
+                if (max_ttl > 0 && ttl > (uint32_t)max_ttl) ttl = (uint32_t)max_ttl;
+                if (min_ttl > 0 && ttl < (uint32_t)min_ttl) ttl = (uint32_t)min_ttl;
                 dns_cache_put(&c->ds->cache, c->qname, c->qtype,
                               resp, resp_len, ttl);
                 log_msg(LOG_DEBUG, "DNS: %s -> async DoH/DoT (ttl %u)",
@@ -465,7 +467,9 @@ static void handle_udp_query(dns_server_t *ds)
                         log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
                     uint32_t ttl = dns_extract_min_ttl(response, resp_n);
                     int max_ttl = ds->cfg->dns.cache_ttl_max;
-                    if (max_ttl > 0 && ttl > (uint32_t)max_ttl) ttl = max_ttl;
+                    int min_ttl = ds->cfg->dns.cache_ttl_min;
+                    if (max_ttl > 0 && ttl > (uint32_t)max_ttl) ttl = (uint32_t)max_ttl;
+                    if (min_ttl > 0 && ttl < (uint32_t)min_ttl) ttl = (uint32_t)min_ttl;
                     dns_cache_put(&ds->cache, q.qname, q.qtype,
                                   response, resp_n, ttl);
                     log_msg(LOG_DEBUG, "DNS: %s -> proxy/DoH sync (ttl %u)",
@@ -494,6 +498,20 @@ static void handle_udp_query(dns_server_t *ds)
         return;
     }
 
+    /* Заполнить fallback upstream если настроен */
+    {
+        const char *fb = ds->cfg->dns.upstream_fallback;
+        if (fb[0]) {
+            size_t fblen = strlen(fb);
+            if (fblen >= sizeof(ds->pending.slots[idx].fallback_ip))
+                fblen = sizeof(ds->pending.slots[idx].fallback_ip) - 1;
+            memcpy(ds->pending.slots[idx].fallback_ip, fb, fblen);
+            ds->pending.slots[idx].fallback_ip[fblen] = '\0';
+            ds->pending.slots[idx].fallback_port =
+                ds->cfg->dns.upstream_port ? ds->cfg->dns.upstream_port : 53;
+        }
+    }
+
     /* Добавить upstream fd в master epoll */
     struct epoll_event ev = {
         .events  = EPOLLIN,
@@ -502,8 +520,47 @@ static void handle_udp_query(dns_server_t *ds)
     if (epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
                   ds->pending.slots[idx].upstream_fd, &ev) < 0) {
         log_msg(LOG_DEBUG, "DNS: epoll_ctl ADD upstream: %s", strerror(errno));
-        dns_pending_complete(&ds->pending, idx);
+        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
         return;
+    }
+
+    /* Parallel query — отправить запрос одновременно на fallback */
+    if (ds->cfg->dns.parallel_query && ds->cfg->dns.upstream_fallback[0]) {
+        int pfd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        if (pfd >= 0) {
+            uint16_t pport = ds->cfg->dns.upstream_port
+                ? ds->cfg->dns.upstream_port : 53;
+            struct sockaddr_in pa = {
+                .sin_family = AF_INET,
+                .sin_port   = htons(pport),
+            };
+            if (inet_pton(AF_INET, ds->cfg->dns.upstream_fallback,
+                          &pa.sin_addr) == 1) {
+                uint16_t par_id;
+                if (net_random_bytes((uint8_t *)&par_id, sizeof(par_id)) < 0)
+                    par_id = (uint16_t)(idx ^ (upstream_port << 8));
+                uint8_t par_pkt[DNS_MAX_PACKET];
+                memcpy(par_pkt, pkt, n);
+                par_pkt[0] = (par_id >> 8) & 0xFF;
+                par_pkt[1] = par_id & 0xFF;
+                if (sendto(pfd, par_pkt, n, 0,
+                           (struct sockaddr *)&pa, sizeof(pa)) >= 0) {
+                    ds->pending.slots[idx].parallel_fd = pfd;
+                    ds->pending.slots[idx].parallel_upstream_id = par_id;
+                    struct epoll_event pev = {
+                        .events  = EPOLLIN,
+                        .data.fd = pfd,
+                    };
+                    epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD, pfd, &pev);
+                    log_msg(LOG_DEBUG, "DNS: %s parallel -> %s",
+                            q.qname, ds->cfg->dns.upstream_fallback);
+                } else {
+                    close(pfd);
+                }
+            } else {
+                close(pfd);
+            }
+        }
     }
 
     log_msg(LOG_DEBUG, "DNS: %s -> async upstream %s:%u (slot %d)",
@@ -516,15 +573,18 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     dns_pending_t *p = dns_pending_find_fd(&ds->pending, fd);
     if (!p) return;
 
-    /* Индекс слота */
     int idx = (int)(p - ds->pending.slots);
 
-    uint8_t resp[DNS_MAX_PACKET];
-    ssize_t resp_n = recv(fd, resp, sizeof(resp), MSG_DONTWAIT);
+    /* resp — указатель, может переключиться на tcp_buf при TC retry */
+    uint8_t  resp_buf[DNS_MAX_PACKET];
+    uint8_t *resp   = resp_buf;
+    uint8_t *tcp_buf = NULL;  /* для TC retry cleanup */
+
+    ssize_t resp_n = recv(fd, resp_buf, sizeof(resp_buf), MSG_DONTWAIT);
     if (resp_n <= 2) {
         log_msg(LOG_DEBUG, "DNS: upstream пустой ответ для %s", p->qname);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-        dns_pending_complete(&ds->pending, idx);
+        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
         return;
     }
 
@@ -532,23 +592,27 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     if (resp_n < 12) {
         log_msg(LOG_DEBUG, "DNS: upstream ответ слишком короткий (%zd)", resp_n);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-        dns_pending_complete(&ds->pending, idx);
+        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
         return;
     }
     if (!(resp[2] & 0x80)) {
         log_msg(LOG_DEBUG, "DNS: upstream ответ без QR=1 для %s", p->qname);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-        dns_pending_complete(&ds->pending, idx);
+        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
         return;
     }
 
-    /* Проверить upstream ID */
+    /* Проверить upstream ID — parallel query использует другой ID */
+    bool from_parallel = (p->parallel_fd >= 0 && fd == p->parallel_fd);
+    uint16_t expected_id = from_parallel
+        ? p->parallel_upstream_id
+        : p->upstream_id;
     uint16_t resp_id = ((uint16_t)resp[0] << 8) | resp[1];
-    if (resp_id != p->upstream_id) {
+    if (resp_id != expected_id) {
         log_msg(LOG_DEBUG, "DNS: upstream ID mismatch (%u != %u)",
-                resp_id, p->upstream_id);
+                resp_id, expected_id);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-        dns_pending_complete(&ds->pending, idx);
+        /* Не удалять слот — ждём правильный ответ от другого fd */
         return;
     }
 
@@ -556,11 +620,107 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     resp[0] = (p->client_id >> 8) & 0xFF;
     resp[1] = p->client_id & 0xFF;
 
-    /* Кэшировать ответ */
+    /* Bogus NXDOMAIN filter: заменить redirect IP на NXDOMAIN */
+    if (ds->cfg->dns.bogus_nxdomain[0] &&
+        dns_is_bogus_response(ds->cfg->dns.bogus_nxdomain,
+                              resp, (size_t)resp_n)) {
+        log_msg(LOG_DEBUG,
+            "DNS: %s -> bogus IP обнаружен, заменяем NXDOMAIN",
+            p->qname);
+        dns_query_t bogus_q = {
+            .id    = p->client_id,
+            .qtype = p->qtype,
+        };
+        size_t qlen = strlen(p->qname);
+        if (qlen >= sizeof(bogus_q.qname))
+            qlen = sizeof(bogus_q.qname) - 1;
+        memcpy(bogus_q.qname, p->qname, qlen);
+        bogus_q.qname[qlen] = '\0';
+        uint8_t *nx = malloc(DNS_MAX_PACKET);
+        if (nx) {
+            int nx_len = dns_build_nxdomain(&bogus_q, nx, DNS_MAX_PACKET);
+            if (nx_len > 0) {
+                sendto(ds->udp_fd, nx, nx_len, 0,
+                       (struct sockaddr *)&p->client_addr,
+                       p->client_addrlen);
+            }
+            free(nx);
+        }
+        epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
+        return;
+    }
+
+    /* TC bit (truncated) — повторить через TCP */
+    if (resp_n >= 3 && (resp[2] & 0x02)) {
+        log_msg(LOG_DEBUG, "DNS: %s -> TC bit, retry over TCP", p->qname);
+        const DnsConfig *d = &ds->cfg->dns;
+        const char *server = NULL;
+        uint16_t port = d->upstream_port ? d->upstream_port : 53;
+        switch (p->action) {
+        case DNS_ACTION_BYPASS:  server = d->upstream_bypass;  break;
+        case DNS_ACTION_PROXY:   server = d->upstream_proxy;   break;
+        default:                 server = d->upstream_default; break;
+        }
+        if (server && server[0]) {
+            tcp_buf = malloc(DNS_MAX_PACKET);
+            if (tcp_buf) {
+                bool tcp_ok = false;
+                ssize_t tcp_n = 0;
+                int tfd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+                if (tfd >= 0) {
+                    struct sockaddr_in taddr = {
+                        .sin_family = AF_INET,
+                        .sin_port   = htons(port),
+                    };
+                    struct timeval tv = { .tv_sec = 2 };
+                    setsockopt(tfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+                    setsockopt(tfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+                    if (inet_pton(AF_INET, server, &taddr.sin_addr) == 1 &&
+                        connect(tfd, (struct sockaddr *)&taddr,
+                                sizeof(taddr)) == 0) {
+                        uint8_t lbuf[2] = {
+                            (uint8_t)((p->query_len >> 8) & 0xFF),
+                            (uint8_t)(p->query_len & 0xFF),
+                        };
+                        if (send(tfd, lbuf, 2, 0) == 2 &&
+                            send(tfd, p->query, p->query_len, 0)
+                                == (ssize_t)p->query_len) {
+                            uint8_t rlen[2];
+                            if (recv(tfd, rlen, 2, MSG_WAITALL) == 2) {
+                                uint16_t rsize = ((uint16_t)rlen[0] << 8)
+                                                 | rlen[1];
+                                if (rsize >= 12 &&
+                                    rsize <= DNS_MAX_PACKET &&
+                                    recv(tfd, tcp_buf, rsize,
+                                         MSG_WAITALL) == rsize) {
+                                    tcp_buf[0] = (p->client_id >> 8) & 0xFF;
+                                    tcp_buf[1] = p->client_id & 0xFF;
+                                    tcp_n  = rsize;
+                                    tcp_ok = true;
+                                }
+                            }
+                        }
+                    }
+                    close(tfd);
+                }
+                if (tcp_ok) {
+                    resp   = tcp_buf;
+                    resp_n = tcp_n;
+                } else {
+                    free(tcp_buf);
+                    tcp_buf = NULL;
+                }
+            }
+        }
+    }
+
+    /* TTL: применить min + max */
     uint32_t ttl = dns_extract_min_ttl(resp, resp_n);
     int max_ttl = ds->cfg->dns.cache_ttl_max;
-    if (max_ttl > 0 && ttl > (uint32_t)max_ttl)
-        ttl = max_ttl;
+    int min_ttl = ds->cfg->dns.cache_ttl_min;
+    if (max_ttl > 0 && ttl > (uint32_t)max_ttl) ttl = (uint32_t)max_ttl;
+    if (min_ttl > 0 && ttl < (uint32_t)min_ttl) ttl = (uint32_t)min_ttl;
     dns_cache_put(&ds->cache, p->qname, p->qtype,
                   resp, resp_n, ttl);
 
@@ -569,15 +729,17 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
                (struct sockaddr *)&p->client_addr, p->client_addrlen) < 0)
         log_msg(LOG_DEBUG, "DNS: sendto клиенту: %s", strerror(errno));
 
-    log_msg(LOG_DEBUG, "DNS: %s -> %s (ttl %u, async)",
+    log_msg(LOG_DEBUG, "DNS: %s -> %s (ttl %u, async%s)",
             p->qname,
             p->action == DNS_ACTION_BYPASS ? "bypass" :
             p->action == DNS_ACTION_PROXY  ? "proxy" : "default",
-            ttl);
+            ttl,
+            from_parallel ? ", parallel" : "");
 
     /* Убрать из epoll и освободить слот */
     epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-    dns_pending_complete(&ds->pending, idx);
+    dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
+    free(tcp_buf);  /* NULL-safe */
 }
 
 /* Обработка TCP DNS (accept + read + process + write + close)

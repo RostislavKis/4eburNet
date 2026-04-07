@@ -436,6 +436,18 @@ int config_load(const char *path, PhoenixConfig *cfg)
                     d->dot_port = (v > 0 && v <= 65535) ? (uint16_t)v : 853;
                 } else if (strcmp(key, "dot_sni") == 0)
                     snprintf(d->dot_sni, sizeof(d->dot_sni), "%s", value);
+                else if (strcmp(key, "upstream_fallback") == 0)
+                    snprintf(d->upstream_fallback,
+                             sizeof(d->upstream_fallback), "%s", value);
+                else if (strcmp(key, "fallback_timeout_ms") == 0)
+                    d->fallback_timeout_ms = (int)strtol(value, NULL, 10);
+                else if (strcmp(key, "bogus_nxdomain") == 0)
+                    snprintf(d->bogus_nxdomain,
+                             sizeof(d->bogus_nxdomain), "%s", value);
+                else if (strcmp(key, "cache_ttl_min") == 0)
+                    d->cache_ttl_min = (int)strtol(value, NULL, 10);
+                else if (strcmp(key, "parallel_query") == 0)
+                    d->parallel_query = (strcmp(value, "1") == 0);
                 break;
             }
             case SECTION_DNS_RULE:

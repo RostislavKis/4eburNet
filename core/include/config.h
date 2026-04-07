@@ -49,6 +49,15 @@ typedef struct {
     char     dot_server_ip[64];
     uint16_t dot_port;
     char     dot_sni[256];
+    /* Fallback upstream (C1) */
+    char     upstream_fallback[256]; /* IP запасного DNS сервера */
+    int      fallback_timeout_ms;    /* мс ожидания primary до fallback, 0=1000 */
+    /* Bogus NXDOMAIN filter (C2) */
+    char     bogus_nxdomain[1024];   /* пробел-разделённый список IP заглушек */
+    /* TTL контроль (C3/C6) */
+    int      cache_ttl_min;          /* минимальный TTL кэша, 0=выключено */
+    /* Parallel query (C5) */
+    bool     parallel_query;         /* отправить запрос на primary+fallback одновременно */
 } DnsConfig;
 
 /* Тип upstream для nameserver-policy */

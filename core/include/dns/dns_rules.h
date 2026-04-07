@@ -20,6 +20,14 @@ dns_action_t dns_rules_match(const char *qname);
 int dns_rules_load_file(const char *path, dns_action_t action);
 
 /*
+ * Проверить что ответ содержит bogus IP (redirect NXDOMAIN от ISP).
+ * bogus_list — пробел-разделённый список IP (из конфига bogus_nxdomain).
+ */
+bool dns_is_bogus_response(const char *bogus_list,
+                            const uint8_t *resp,
+                            size_t resp_len);
+
+/*
  * dns_policy_match — найти nameserver-policy для домена.
  * Возвращает указатель на первое совпадение (по priority ASC)
  * или NULL если нет совпадения.

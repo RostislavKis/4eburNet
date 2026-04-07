@@ -165,6 +165,67 @@ static bool suffix_match(const char *qname, const char *suffix)
     return false;
 }
 
+bool dns_is_bogus_response(const char *bogus_list,
+                            const uint8_t *resp,
+                            size_t resp_len)
+{
+    if (!bogus_list || !bogus_list[0] || !resp || resp_len < 12)
+        return false;
+
+    uint16_t ancount = ((uint16_t)resp[6] << 8) | resp[7];
+    if (ancount == 0) return false;
+
+    /* Пропустить заголовок + QNAME вопроса */
+    size_t pos = 12;
+    while (pos < resp_len) {
+        uint8_t len = resp[pos++];
+        if (len == 0) break;
+        if ((len & 0xC0) == 0xC0) { pos++; break; } /* компрессия */
+        pos += len;
+    }
+    pos += 4; /* QTYPE + QCLASS */
+
+    /* Читать RR записи в секции ANSWER */
+    for (int i = 0; i < ancount && pos < resp_len; i++) {
+        /* Пропустить NAME */
+        while (pos < resp_len) {
+            uint8_t len = resp[pos];
+            if (len == 0) { pos++; break; }
+            if ((len & 0xC0) == 0xC0) { pos += 2; break; }
+            pos += 1 + len;
+        }
+        if (pos + 10 > resp_len) break;
+
+        uint16_t rtype = ((uint16_t)resp[pos] << 8) | resp[pos + 1];
+        uint16_t rdlen = ((uint16_t)resp[pos + 8] << 8) | resp[pos + 9];
+        pos += 10;
+
+        if (rtype == 1 && rdlen == 4 && pos + 4 <= resp_len) {
+            /* A запись — сформировать строку IP */
+            char ipstr[16];
+            snprintf(ipstr, sizeof(ipstr), "%u.%u.%u.%u",
+                     resp[pos], resp[pos + 1],
+                     resp[pos + 2], resp[pos + 3]);
+
+            /* Искать ipstr в bogus_list */
+            size_t ilen = strlen(ipstr);
+            const char *p = bogus_list;
+            while (p && *p) {
+                while (*p == ' ' || *p == '\t') p++;
+                if (!*p) break;
+                const char *end = p;
+                while (*end && *end != ' ' && *end != '\t') end++;
+                size_t tlen = (size_t)(end - p);
+                if (tlen == ilen && memcmp(p, ipstr, tlen) == 0)
+                    return true;
+                p = end;
+            }
+        }
+        pos += rdlen;
+    }
+    return false;
+}
+
 dns_action_t dns_rules_match(const char *qname)
 {
     /* Приоритет: block > bypass > proxy > default
