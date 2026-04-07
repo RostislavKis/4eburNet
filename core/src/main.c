@@ -1,5 +1,6 @@
 #include "phoenix.h"
 #include "resource_manager.h"
+#include "device.h"
 #include "config.h"
 #include "ipc.h"
 #include "routing/nftables.h"
@@ -287,12 +288,16 @@ int main(int argc, char *argv[])
     if (tls_global_init() < 0)
         log_msg(LOG_WARN, "wolfSSL недоступен, TLS протоколы отключены");
 
-    /* Определение профиля устройства */
-    state.profile = rm_detect_profile();
-    log_msg(LOG_INFO, "Профиль: %s (макс. соединений: %u, буфер: %zu)",
-            rm_profile_name(state.profile),
-            rm_max_connections(state.profile),
-            rm_buffer_size(state.profile));
+    /* Определение профиля устройства (DEC-013) */
+    state.profile = device_detect_profile();
+    log_msg(LOG_INFO, "Устройство: %s",
+            device_profile_name(state.profile));
+    log_msg(LOG_INFO, "Лимиты: relay_buf=%zuKB, max_conns=%d, dns_pending=%d",
+            device_relay_buf(state.profile) / 1024,
+            device_max_conns(state.profile),
+            device_dns_pending(state.profile));
+    /* TODO DEC-013: DNS_PENDING_MAX хардкожен в dns_resolver.h=64 (FULL).
+       При профиле MICRO/NORMAL использует лишнюю память. Исправить в 3.6. */
 
     /* Настройка OOM */
     rm_apply_oom_settings();

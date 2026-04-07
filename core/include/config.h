@@ -24,8 +24,10 @@ typedef struct {
     uint16_t awg_jmin, awg_jmax;
     char     awg_i1[256], awg_i2[256], awg_i3[256], awg_i4[256], awg_i5[256];
     uint16_t awg_keepalive;
-    char     xhttp_path[128]; /* HTTP путь для XHTTP, default "/" */
-    char     xhttp_host[128]; /* Host заголовок для XHTTP */
+    char     xhttp_path[128];      /* HTTP путь для XHTTP, default "/" */
+    char     xhttp_host[128];      /* Host заголовок для XHTTP */
+    /* Reality параметры (DEC-025) */
+    char     reality_short_id[17]; /* hex-строка до 16 символов + '\0' */
 } ServerConfig;
 
 /* DNS конфигурация */

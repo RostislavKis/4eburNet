@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 /* Создать директорию для файла (H-3: по dirname, не по самому пути) */
 static void ensure_dir_for_file(const char *filepath)
@@ -111,27 +112,34 @@ static int http_fetch(const char *url, const char *dest_path)
         *colon = '\0';  /* убрать :port из host */
     }
 
-    /* TCP + TLS (C-3: только IP адреса, DNS lookup не поддержан) */
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
+    /* DEC-027: getaddrinfo — поддержка доменных имён (не только IP) */
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
 
-    struct sockaddr_in addr = { .sin_family = AF_INET, .sin_port = htons(port) };
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        /* Не IP — доменные имена не поддерживаются в v1 */
-        log_msg(LOG_WARN,
-            "Rule provider: '%s' — domain не поддерживается, нужен IP адрес",
-            host);
-        close(fd);
+    struct addrinfo hints = {0};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *res = NULL;
+    int gai = getaddrinfo(host, port_str, &hints, &res);
+    if (gai != 0) {
+        log_msg(LOG_WARN, "Rule provider: не удалось резолвить '%s': %s",
+                host, gai_strerror(gai));
         return -1;
     }
+
+    int fd = socket(res->ai_family,
+                    res->ai_socktype | SOCK_CLOEXEC, res->ai_protocol);
+    if (fd < 0) { freeaddrinfo(res); return -1; }
 
     struct timeval tv = { .tv_sec = 10 };
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(fd); return -1;
+    if (connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
+        freeaddrinfo(res); close(fd); return -1;
     }
+    freeaddrinfo(res);
 
     tls_config_t tls_cfg = {0};
     snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", host);
