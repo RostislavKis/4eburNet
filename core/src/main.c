@@ -329,6 +329,27 @@ int main(int argc, char *argv[])
         return 0;
     }
 
+    /* Проверить наличие защитного правила GEOIP,RU,DIRECT в режиме rules */
+    if (strcmp(cfg.mode, "rules") == 0) {
+        bool has_ru_direct = false;
+        for (int i = 0; i < cfg.traffic_rule_count; i++) {
+            const TrafficRule *tr = &cfg.traffic_rules[i];
+            if (tr->type == RULE_TYPE_GEOIP &&
+                strcasecmp(tr->value, "RU") == 0 &&
+                strcasecmp(tr->target, "DIRECT") == 0) {
+                has_ru_direct = true;
+                break;
+            }
+        }
+        if (!has_ru_direct) {
+            log_msg(LOG_WARN,
+                "SECURITY: нет правила GEOIP,RU,DIRECT. "
+                "RU трафик идёт через прокси — паттерн трафика "
+                "может раскрыть IP вашего сервера. "
+                "Добавьте правило в LuCI: Services → Phoenix Router → Rules.");
+        }
+    }
+
     /* Запись PID-файла */
     write_pid_file();
 

@@ -84,6 +84,10 @@ int ipc_init(void)
         return -1;
     }
 
+    /* Defense-in-depth: явный chmod 600 после bind */
+    if (chmod(PHOENIX_IPC_SOCKET, 0600) < 0)
+        log_msg(LOG_WARN, "IPC: chmod 600 не удался: %s", strerror(errno));
+
     if (listen(fd, IPC_LISTEN_BACKLOG) < 0) {
         log_msg(LOG_ERROR, "listen() не удался");
         close(fd);
@@ -107,6 +111,20 @@ void ipc_process(int server_fd, PhoenixState *state)
                             SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (client_fd < 0)
         return;
+
+    /* Только root может управлять демоном через IPC */
+    struct ucred cred;
+    socklen_t cred_len = sizeof(cred);
+    if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED,
+                   &cred, &cred_len) == 0) {
+        if (cred.uid != 0) {
+            log_msg(LOG_WARN,
+                "IPC: отклонён non-root клиент (uid=%u)",
+                (unsigned)cred.uid);
+            close(client_fd);
+            return;
+        }
+    }
 
     /* Читаем заголовок команды (MSG_DONTWAIT — не блокируем) (H-10) */
     ipc_header_t hdr;

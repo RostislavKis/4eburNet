@@ -108,6 +108,9 @@ EOF
     # Добавить rule_provider специфичные для региона
     case "$REGION" in
         ru)
+            # ВАЖНО: заблокируйте на VPN сервере доступ обратно в geoip:ru
+            # Это предотвращает идентификацию вашего IP через паттерн трафика
+            # xray/3x-ui routing rule: geoip:ru → block (или direct через WARP)
             cat >> "$PHOENIX_CONF" << EOF
 config rule_provider 'geoip_ru'
     option name 'geoip-ru'
