@@ -121,6 +121,9 @@ static int http_fetch(const char *url, const char *dest_path)
     hints.ai_socktype = SOCK_STREAM;
 
     struct addrinfo *res = NULL;
+    /* DEC-031: getaddrinfo() блокирует event loop при DNS timeout.
+       При недоступном DNS сервере (ТСПУ block) — freeze до 30 сек.
+       Решение: async DNS через dns_resolver.c в 4.x. */
     int gai = getaddrinfo(host, port_str, &hints, &res);
     if (gai != 0) {
         log_msg(LOG_WARN, "Rule provider: не удалось резолвить '%s': %s",
