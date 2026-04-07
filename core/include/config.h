@@ -113,6 +113,7 @@ typedef struct {
     rule_format_t        format;
     int                  interval;    /* сек, 0=никогда */
     bool                 enabled;
+    char                 region[8];   /* "" = для всех, "ru"/"cn"/etc = только этот регион */
 } RuleProviderConfig;
 
 /* Тип traffic rule */
@@ -123,6 +124,8 @@ typedef enum {
     RULE_TYPE_IP_CIDR        = 3,
     RULE_TYPE_RULE_SET       = 4,
     RULE_TYPE_MATCH          = 5,
+    RULE_TYPE_GEOIP          = 6,   /* GEOIP,RU,DIRECT */
+    RULE_TYPE_GEOSITE        = 7,   /* GEOSITE,ru,proxy */
 } rule_type_t;
 
 typedef struct {
@@ -152,6 +155,8 @@ typedef struct PhoenixConfig {
     int                   rule_provider_count;
     TrafficRule          *traffic_rules;
     int                   traffic_rule_count;
+    char                  geo_region[8];   /* "ru","cn","us","" — явный конфиг региона */
+    char                  geo_dir[256];    /* директория с geo-файлами, "" = /etc/phoenix/geo */
 } PhoenixConfig;
 
 /* Загрузка конфига из UCI-файла, возвращает 0 при успехе */

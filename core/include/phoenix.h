@@ -55,6 +55,7 @@ typedef enum {
     IPC_CMD_PROVIDER_LIST   = 23, /* список rule providers */
     IPC_CMD_PROVIDER_UPDATE = 24, /* принудительное обновление provider */
     IPC_CMD_RULES_LIST      = 25, /* список traffic rules */
+    IPC_CMD_GEO_STATUS      = 26, /* статус geo менеджера */
 } ipc_command_t;
 
 /* Коды ответов IPC */

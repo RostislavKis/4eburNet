@@ -5,6 +5,7 @@
 #include "proxy/proxy_group.h"
 #include "proxy/rule_provider.h"
 #include "proxy/rules_engine.h"
+#include "geo/geo_loader.h"
 
 /* Создаёт Unix socket сервер, возвращает fd или -1 */
 int  ipc_init(void);
@@ -18,9 +19,10 @@ void ipc_cleanup(int server_fd);
 /* Отправляет IPC команду запущенному демону, возвращает ответ в buf */
 int  ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size);
 
-/* Установить контекст для IPC команд 20-25 */
+/* Установить контекст для IPC команд 20-26 */
 void ipc_set_3x_context(proxy_group_manager_t *pgm,
                          rule_provider_manager_t *rpm,
-                         rules_engine_t *re);
+                         rules_engine_t *re,
+                         geo_manager_t *gm);
 
 #endif /* IPC_H */

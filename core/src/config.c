@@ -104,6 +104,10 @@ static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char
     } else if (strcmp(key, "tai_utc_offset") == 0) {
         long v = strtol(value, NULL, 10);
         cfg->tai_utc_offset = (v >= 0 && v <= 200) ? (int)v : 37;
+    } else if (strcmp(key, "region") == 0) {
+        snprintf(cfg->geo_region, sizeof(cfg->geo_region), "%s", value);
+    } else if (strcmp(key, "geo_dir") == 0) {
+        snprintf(cfg->geo_dir, sizeof(cfg->geo_dir), "%s", value);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция phoenix: %s", key);
     }
@@ -469,6 +473,8 @@ int config_load(const char *path, PhoenixConfig *cfg)
                         rp->interval = (int)strtol(value, NULL, 10);
                     else if (strcmp(key, "enabled") == 0)
                         rp->enabled = (strcmp(value, "1") == 0);
+                    else if (strcmp(key, "region") == 0)
+                        snprintf(rp->region, sizeof(rp->region), "%s", value);
                 }
                 break;
             case SECTION_TRAFFIC_RULE:
@@ -480,7 +486,9 @@ int config_load(const char *path, PhoenixConfig *cfg)
                         else if (strcmp(value, "DOMAIN-KEYWORD") == 0) tr->type = RULE_TYPE_DOMAIN_KEYWORD;
                         else if (strcmp(value, "IP-CIDR") == 0) tr->type = RULE_TYPE_IP_CIDR;
                         else if (strcmp(value, "RULE-SET") == 0) tr->type = RULE_TYPE_RULE_SET;
-                        else if (strcmp(value, "MATCH") == 0) tr->type = RULE_TYPE_MATCH;
+                        else if (strcmp(value, "MATCH") == 0)    tr->type = RULE_TYPE_MATCH;
+                        else if (strcmp(value, "GEOIP") == 0)    tr->type = RULE_TYPE_GEOIP;
+                        else if (strcmp(value, "GEOSITE") == 0)  tr->type = RULE_TYPE_GEOSITE;
                     }
                     else if (strcmp(key, "value") == 0)
                         snprintf(tr->value, sizeof(tr->value), "%s", value);
