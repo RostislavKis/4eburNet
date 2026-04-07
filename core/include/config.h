@@ -51,11 +51,28 @@ typedef struct {
     char     dot_sni[256];
 } DnsConfig;
 
-/* DNS правило маршрутизации */
+/* Тип upstream для nameserver-policy */
+typedef enum {
+    DNS_UPSTREAM_UDP = 0,   /* обычный UDP DNS */
+    DNS_UPSTREAM_DOT = 1,   /* DNS over TLS */
+    DNS_UPSTREAM_DOH = 2,   /* DNS over HTTPS */
+} dns_upstream_type_t;
+
+/* DNS правило маршрутизации (action) */
 typedef struct {
     char type[16];       /* bypass|proxy|block */
     char pattern[256];   /* *.example.com или example.com */
 } DnsRule;
+
+/* DNS nameserver-policy: домен → конкретный upstream */
+typedef struct {
+    char                pattern[256];   /* *.example.com или example.com */
+    char                upstream[256];  /* IP или URL upstream */
+    uint16_t            port;           /* 0 = авто (53/853/443) */
+    dns_upstream_type_t type;           /* udp/dot/doh */
+    char                sni[256];       /* SNI для DoT/DoH */
+    int                 priority;       /* чем меньше — тем приоритетнее */
+} DnsPolicy;
 
 /* Политика устройства */
 typedef enum {
@@ -149,6 +166,8 @@ typedef struct PhoenixConfig {
     DnsConfig      dns;
     DnsRule       *dns_rules;
     int            dns_rule_count;
+    DnsPolicy     *dns_policies;       /* nameserver-policy правила */
+    int            dns_policy_count;
     int            tai_utc_offset;      /* TAI-UTC в секундах, default 37 */
     char           lan_interface[32];   /* "br-lan" — для netdev hook */
     device_config_t      *devices;
