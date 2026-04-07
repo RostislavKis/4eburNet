@@ -205,20 +205,22 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     }
 
+    /* IP: doh_ip из конфига, или doh_sni (legacy), или host из URL */
+    const char *doh_ip = cfg->doh_ip[0]  ? cfg->doh_ip  :
+                         cfg->doh_sni[0] ? cfg->doh_sni : host;
+    uint16_t doh_port = cfg->doh_port > 0 ? cfg->doh_port : 443;
+
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
-        .sin_port   = htons(443),
+        .sin_port   = htons(doh_port),
     };
-    /* DoH IP адрес из doh_sni (не hostname — без getaddrinfo) */
-    if (!cfg->doh_sni[0]) {
-        log_msg(LOG_WARN,
-            "DNS DoH: doh_sni (IP адрес) не настроен в конфиге");
+    if (!doh_ip[0]) {
+        log_msg(LOG_WARN, "DNS DoH: IP адрес не задан (doh_ip/doh_sni)");
         close(fd);
         return -1;
     }
-    if (inet_pton(AF_INET, cfg->doh_sni, &addr.sin_addr) != 1) {
-        log_msg(LOG_WARN, "DNS DoH: невалидный IP в doh_sni: %s",
-                cfg->doh_sni);
+    if (inet_pton(AF_INET, doh_ip, &addr.sin_addr) != 1) {
+        log_msg(LOG_WARN, "DNS DoH: невалидный IP: %s", doh_ip);
         close(fd); return -1;
     }
 

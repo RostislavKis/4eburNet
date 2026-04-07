@@ -11,6 +11,7 @@
 #include "dns/dns_resolver.h"
 #include "phoenix.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -100,6 +101,7 @@ void dns_server_cleanup(dns_server_t *ds)
         if (ds->pending.slots[i].active)
             dns_pending_complete(&ds->pending, i);
     }
+    async_dns_pool_free(&ds->async_pool);
     if (ds->udp_fd >= 0) { close(ds->udp_fd); ds->udp_fd = -1; }
     if (ds->tcp_fd >= 0) { close(ds->tcp_fd); ds->tcp_fd = -1; }
     dns_cache_free(&ds->cache);
@@ -110,6 +112,8 @@ void dns_server_cleanup(dns_server_t *ds)
 int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
 {
     ds->master_epoll_fd = master_epoll_fd;
+    /* Инициализировать async pool теперь когда известен master epoll fd */
+    async_dns_pool_init(&ds->async_pool, master_epoll_fd);
 
     struct epoll_event ev = { .events = EPOLLIN };
 
@@ -126,7 +130,49 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
     return 0;
 }
 
-/* Блокирующий resolve — только для DoH/DoT (пока синхронно) */
+/* ── Async DoH/DoT callback ── */
+
+/* Контекст передаётся через cb_ctx, живёт до вызова callback (malloc/free) */
+typedef struct {
+    dns_server_t           *ds;
+    struct sockaddr_storage client_addr;
+    socklen_t               client_addrlen;
+    dns_query_t             query;
+    char                    qname[256];
+    uint16_t                qtype;
+} dns_async_ctx_t;
+
+static void async_doh_dot_cb(void *ctx, const uint8_t *resp,
+                              size_t resp_len, int error)
+{
+    dns_async_ctx_t *c = (dns_async_ctx_t *)ctx;
+    if (!c) return;
+
+    if (error == 0 && resp && resp_len >= 12) {
+        uint8_t *reply = malloc(DNS_MAX_PACKET);
+        if (reply) {
+            int reply_len = dns_build_forward_reply(
+                &c->query, resp, resp_len, reply, DNS_MAX_PACKET);
+            if (reply_len > 0) {
+                sendto(c->ds->udp_fd, reply, reply_len, 0,
+                       (struct sockaddr *)&c->client_addr,
+                       c->client_addrlen);
+                uint32_t ttl = dns_extract_min_ttl(resp, resp_len);
+                int max_ttl = c->ds->cfg->dns.cache_ttl_max;
+                if (max_ttl > 0 && ttl > (uint32_t)max_ttl)
+                    ttl = max_ttl;
+                dns_cache_put(&c->ds->cache, c->qname, c->qtype,
+                              resp, resp_len, ttl);
+                log_msg(LOG_DEBUG, "DNS: %s -> async DoH/DoT (ttl %u)",
+                        c->qname, ttl);
+            }
+            free(reply);
+        }
+    }
+    free(c);
+}
+
+/* Блокирующий resolve — только для DoH/DoT (sync fallback) */
 static ssize_t resolve_query_sync(dns_server_t *ds, dns_action_t action,
                                   const uint8_t *query, size_t query_len,
                                   uint8_t *response, size_t resp_buflen)
@@ -265,19 +311,50 @@ static void handle_udp_query(dns_server_t *ds)
         return;
     }
 
-    /* DoH/DoT — пока синхронно (async в v2) */
+    /* DoH/DoT — async через pool (sync fallback если пул полон) */
     if (action == DNS_ACTION_PROXY) {
         const DnsConfig *d = &ds->cfg->dns;
         if ((d->doh_enabled && d->doh_url[0]) ||
             (d->dot_enabled && d->dot_server_ip[0])) {
-            /* L-16: response и reply на heap */
-            uint8_t *response = malloc(DNS_MAX_PACKET);
-            uint8_t *reply = malloc(DNS_MAX_PACKET);
-            if (!response || !reply) {
-                free(response); free(reply);
-                return;
+
+            dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
+            if (!ctx) return;
+            ctx->ds            = ds;
+            ctx->client_addr   = client_addr;
+            ctx->client_addrlen = client_len;
+            ctx->query         = q;
+            snprintf(ctx->qname, sizeof(ctx->qname), "%s", q.qname);
+            ctx->qtype = q.qtype;
+
+            /* Попробовать async DoH */
+            if (d->doh_enabled && d->doh_url[0]) {
+                if (async_dns_doh_start(&ds->async_pool, d, pkt, (size_t)n,
+                                        q.id, async_doh_dot_cb, ctx) == 0) {
+                    log_msg(LOG_DEBUG, "DNS: %s -> async DoH", q.qname);
+                    return;  /* ctx освободится в callback */
+                }
+                log_msg(LOG_WARN,
+                    "DNS: async DoH start failed (%s), пробуем DoT", q.qname);
             }
 
+            /* Попробовать async DoT */
+            if (d->dot_enabled && d->dot_server_ip[0]) {
+                if (async_dns_dot_start(&ds->async_pool, d, pkt, (size_t)n,
+                                        q.id, async_doh_dot_cb, ctx) == 0) {
+                    log_msg(LOG_DEBUG, "DNS: %s -> async DoT", q.qname);
+                    return;  /* ctx освободится в callback */
+                }
+                log_msg(LOG_WARN,
+                    "DNS: async DoT start failed (%s), sync fallback", q.qname);
+            }
+
+            /* Sync fallback если async пул полон */
+            free(ctx);
+            uint8_t *response = malloc(DNS_MAX_PACKET);
+            uint8_t *reply    = malloc(DNS_MAX_PACKET);
+            if (!response || !reply) {
+                free(response); free(reply); return;
+            }
             ssize_t resp_n = resolve_query_sync(ds, action, pkt, n,
                                                 response, DNS_MAX_PACKET);
             if (resp_n > 0) {
@@ -287,19 +364,16 @@ static void handle_udp_query(dns_server_t *ds)
                     if (sendto(ds->udp_fd, reply, reply_len, 0,
                                (struct sockaddr *)&client_addr, client_len) < 0)
                         log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
-
                     uint32_t ttl = dns_extract_min_ttl(response, resp_n);
                     int max_ttl = ds->cfg->dns.cache_ttl_max;
-                    if (max_ttl > 0 && ttl > (uint32_t)max_ttl)
-                        ttl = max_ttl;
+                    if (max_ttl > 0 && ttl > (uint32_t)max_ttl) ttl = max_ttl;
                     dns_cache_put(&ds->cache, q.qname, q.qtype,
                                   response, resp_n, ttl);
-                    log_msg(LOG_DEBUG, "DNS: %s -> proxy/DoH (ttl %u)",
+                    log_msg(LOG_DEBUG, "DNS: %s -> proxy/DoH sync (ttl %u)",
                             q.qname, ttl);
                 }
             }
-            free(response);
-            free(reply);
+            free(response); free(reply);
             return;
         }
     }
@@ -524,4 +598,21 @@ bool dns_server_is_pending_fd(const dns_server_t *ds, int fd)
 {
     return dns_pending_find_fd(
         (dns_pending_queue_t *)&ds->pending, fd) != NULL;
+}
+
+bool dns_server_is_async_ptr(const dns_server_t *ds, void *ptr)
+{
+    return async_dns_is_pool_ptr(&ds->async_pool, ptr);
+}
+
+void dns_server_handle_async_event(dns_server_t *ds, void *ptr,
+                                   uint32_t events)
+{
+    (void)ds;
+    async_dns_on_event((async_dns_conn_t *)ptr, events);
+}
+
+void dns_server_check_async_timeouts(dns_server_t *ds)
+{
+    async_dns_check_timeouts(&ds->async_pool);
 }

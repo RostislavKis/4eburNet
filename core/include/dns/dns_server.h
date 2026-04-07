@@ -3,6 +3,7 @@
 
 #include "dns/dns_cache.h"
 #include "dns/dns_resolver.h"
+#include "dns/dns_upstream_async.h"
 #include "config.h"
 
 /* H-10/H-11: расширенный rate table для IPv4+IPv6 */
@@ -23,6 +24,8 @@ typedef struct {
         uint32_t count;
         time_t   window_start;
     } rate_table[DNS_RATE_TABLE_SIZE];
+    /* Async DoH/DoT pool (инициализируется в dns_server_register_epoll) */
+    async_dns_pool_t async_pool;
 } dns_server_t;
 
 int  dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg);
@@ -36,5 +39,15 @@ void dns_server_handle_event(dns_server_t *ds, int fd, int master_epoll_fd);
 
 /* Проверить, принадлежит ли fd ожидающему DNS запросу */
 bool dns_server_is_pending_fd(const dns_server_t *ds, int fd);
+
+/* Проверить принадлежность ptr к async DoH/DoT pool (epoll data.ptr) */
+bool dns_server_is_async_ptr(const dns_server_t *ds, void *ptr);
+
+/* Обработать async DoH/DoT epoll событие */
+void dns_server_handle_async_event(dns_server_t *ds, void *ptr,
+                                   uint32_t events);
+
+/* Проверить таймауты async DNS соединений (~каждые 100ms) */
+void dns_server_check_async_timeouts(dns_server_t *ds);
 
 #endif /* DNS_SERVER_H */

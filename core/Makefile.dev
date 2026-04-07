@@ -25,6 +25,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/net_utils.c \
           $(SRCDIR)/dns/dns_packet.c $(SRCDIR)/dns/dns_cache.c \
           $(SRCDIR)/dns/dns_rules.c $(SRCDIR)/dns/dns_upstream.c \
+          $(SRCDIR)/dns/dns_upstream_async.c \
           $(SRCDIR)/dns/dns_server.c \
           $(SRCDIR)/dns/dns_resolver.c \
           $(SRCDIR)/geo/geo_loader.c

@@ -512,6 +512,16 @@ int main(int argc, char *argv[])
         int n = epoll_wait(master_epoll, events, EPOLL_MAX_EVENTS, EPOLL_TIMEOUT_MS);
 
         for (int i = 0; i < n; i++) {
+            /* Async DoH/DoT — epoll data.ptr, не data.fd */
+            if (cfg.dns.enabled && dns_state.initialized) {
+                void *ptr = events[i].data.ptr;
+                if (dns_server_is_async_ptr(&dns_state, ptr)) {
+                    dns_server_handle_async_event(&dns_state, ptr,
+                                                  events[i].events);
+                    continue;
+                }
+            }
+
             int fd = events[i].data.fd;
             if (fd == state.ipc_fd) {
                 ipc_process(state.ipc_fd, &state);
@@ -530,6 +540,11 @@ int main(int argc, char *argv[])
         /* DNS pending таймауты — каждый тик (10ms), CLOCK_MONOTONIC дёшев (L-07) */
         if (cfg.dns.enabled && dns_state.initialized)
             dns_pending_check_timeouts(&dns_state.pending, master_epoll);
+
+        /* Async DoH/DoT таймауты — каждые ~100мс (10 тиков × 10мс) */
+        if (cfg.dns.enabled && dns_state.initialized &&
+            dispatcher_state.tick_count % 10 == 0)
+            dns_server_check_async_timeouts(&dns_state);
 
         /* Relay события в своём epoll — timeout=0, не блокирует */
         dispatcher_tick(&dispatcher_state);
