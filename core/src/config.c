@@ -448,6 +448,14 @@ int config_load(const char *path, PhoenixConfig *cfg)
                     d->cache_ttl_min = (int)strtol(value, NULL, 10);
                 else if (strcmp(key, "parallel_query") == 0)
                     d->parallel_query = (strcmp(value, "1") == 0);
+                else if (strcmp(key, "fake_ip_enabled") == 0)
+                    d->fake_ip_enabled = (strcmp(value, "1") == 0);
+                else if (strcmp(key, "fake_ip_range") == 0)
+                    snprintf(d->fake_ip_range, sizeof(d->fake_ip_range), "%s", value);
+                else if (strcmp(key, "fake_ip_pool_size") == 0)
+                    d->fake_ip_pool_size = (int)strtol(value, NULL, 10);
+                else if (strcmp(key, "fake_ip_ttl") == 0)
+                    d->fake_ip_ttl = (int)strtol(value, NULL, 10);
                 break;
             }
             case SECTION_DNS_RULE:
