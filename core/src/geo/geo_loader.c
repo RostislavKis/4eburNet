@@ -69,8 +69,11 @@ static int grow_categories(geo_manager_t *gm)
 }
 
 /* Освободить содержимое категории (не саму структуру) */
+static void ptrie_free(ptrie_node_t *n);  /* forward decl */
+
 static void free_category_data(geo_category_t *c)
 {
+    ptrie_free(c->trie_v4); c->trie_v4 = NULL;
     free(c->v4); c->v4 = NULL; c->v4_count = 0;
     free(c->v6); c->v6 = NULL; c->v6_count = 0;
     for (int i = 0; i < c->domain_count; i++) free(c->domains[i]);
@@ -78,6 +81,60 @@ static void free_category_data(geo_category_t *c)
     for (int i = 0; i < c->suffix_count; i++) free(c->suffixes[i]);
     free(c->suffixes); c->suffixes = NULL; c->suffix_count = 0;
     c->loaded = false;
+}
+
+/* ── Patricia trie для IPv4 CIDR ── */
+
+static ptrie_node_t *ptrie_alloc(void)
+{
+    ptrie_node_t *n = calloc(1, sizeof(ptrie_node_t));
+    if (n) n->region = GEO_REGION_UNKNOWN;
+    return n;
+}
+
+static void ptrie_free(ptrie_node_t *n)
+{
+    if (!n) return;
+    ptrie_free(n->child[0]);
+    ptrie_free(n->child[1]);
+    free(n);
+}
+
+/* Вставить CIDR в trie */
+static int ptrie_insert(ptrie_node_t *root, uint32_t net,
+                        uint32_t mask, geo_region_t region)
+{
+    /* Считаем prefix length из маски */
+    int prefix = 0;
+    uint32_t m = mask;
+    while (m & 0x80000000u) { prefix++; m <<= 1; }
+
+    ptrie_node_t *cur = root;
+    for (int bit = 31; bit >= (32 - prefix); bit--) {
+        int b = (net >> bit) & 1;
+        if (!cur->child[b]) {
+            cur->child[b] = ptrie_alloc();
+            if (!cur->child[b]) return -1;
+        }
+        cur = cur->child[b];
+    }
+    cur->terminal = true;
+    cur->region   = region;
+    return 0;
+}
+
+/* Поиск IP в trie — возвращает наиболее специфичный match */
+static geo_region_t ptrie_lookup(const ptrie_node_t *root, uint32_t ip)
+{
+    const ptrie_node_t *cur = root;
+    geo_region_t best = GEO_REGION_UNKNOWN;
+    for (int bit = 31; bit >= 0 && cur; bit--) {
+        if (cur->terminal) best = cur->region;
+        int b = (ip >> bit) & 1;
+        cur = cur->child[b];
+    }
+    if (cur && cur->terminal) best = cur->region;
+    return best;
 }
 
 /* Компаратор для qsort/bsearch по geo_cidr4_t::net */
@@ -358,6 +415,27 @@ int geo_load_category(geo_manager_t *gm, const char *name,
     if (c->suffix_count > 1)
         qsort(c->suffixes, c->suffix_count, sizeof(char *), cmp_str);
 
+    /* Построить Patricia trie для быстрого IPv4 lookup */
+    if (c->v4_count > 0) {
+        c->trie_v4 = ptrie_alloc();
+        if (c->trie_v4) {
+            for (int j = 0; j < c->v4_count; j++) {
+                if (ptrie_insert(c->trie_v4,
+                                 c->v4[j].net,
+                                 c->v4[j].mask,
+                                 c->region) < 0) {
+                    /* OOM — освободить trie, fallback на O(n) */
+                    ptrie_free(c->trie_v4);
+                    c->trie_v4 = NULL;
+                    log_msg(LOG_WARN,
+                        "GeoIP %s: trie OOM, fallback на линейный скан",
+                        c->name);
+                    break;
+                }
+            }
+        }
+    }
+
     c->loaded = true;
     c->loaded_at = time(NULL);
 
@@ -397,12 +475,17 @@ geo_region_t geo_match_ip(const geo_manager_t *gm,
         if (addr->ss_family == AF_INET && c->v4_count > 0) {
             const struct sockaddr_in *s4 = (const struct sockaddr_in *)addr;
             uint32_t ip = ntohl(s4->sin_addr.s_addr);
-            /* Линейный скан с ранним выходом.
-               Binary search здесь сложен — CIDR перекрываются.
-               При > 10K записей заменить на interval tree (3.6). */
-            for (int j = 0; j < c->v4_count; j++) {
-                if ((ip & c->v4[j].mask) == c->v4[j].net)
-                    return c->region;
+
+            if (c->trie_v4) {
+                /* O(32) Patricia trie lookup */
+                geo_region_t r = ptrie_lookup(c->trie_v4, ip);
+                if (r != GEO_REGION_UNKNOWN) return r;
+            } else {
+                /* Fallback: O(n) линейный скан */
+                for (int j = 0; j < c->v4_count; j++) {
+                    if ((ip & c->v4[j].mask) == c->v4[j].net)
+                        return c->region;
+                }
             }
         }
 
