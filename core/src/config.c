@@ -170,6 +170,9 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "xhttp_host") == 0) {
         strncpy(srv->xhttp_host, value, sizeof(srv->xhttp_host) - 1);
         srv->xhttp_host[sizeof(srv->xhttp_host) - 1] = '\0';
+    } else if (strcmp(key, "reality_short_id") == 0) {
+        strncpy(srv->reality_short_id, value, sizeof(srv->reality_short_id) - 1);
+        srv->reality_short_id[sizeof(srv->reality_short_id) - 1] = '\0';
     /* AWG параметры */
     } else if (strcmp(key, "awg_private_key") == 0) {
         snprintf(srv->awg_private_key, sizeof(srv->awg_private_key), "%s", value);
