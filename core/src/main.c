@@ -519,6 +519,10 @@ int main(int argc, char *argv[])
     if (cfg.dns.enabled && dns_state.udp_fd >= 0)
         dns_server_register_epoll(&dns_state, master_epoll);
 
+    /* Fake-IP: передать таблицу диспетчеру для reverse lookup */
+    if (dns_state.fake_ip_ready)
+        dispatcher_set_fake_ip(&dns_state.fake_ip);
+
     /* Главный цикл */
     state.running    = true;
     state.reload     = false;
@@ -566,6 +570,12 @@ int main(int argc, char *argv[])
         if (cfg.dns.enabled && dns_state.initialized &&
             dispatcher_state.tick_count % 10 == 0)
             dns_server_check_async_timeouts(&dns_state);
+
+        /* Fake-IP TTL eviction — каждые ~60 сек (6000 тиков × 10мс) */
+        if (dns_state.fake_ip_ready &&
+            dispatcher_state.tick_count % 6000 == 0 &&
+            dispatcher_state.tick_count > 0)
+            fake_ip_evict_expired(&dns_state.fake_ip);
 
         /* Relay события в своём epoll — timeout=0, не блокирует */
         dispatcher_tick(&dispatcher_state);

@@ -158,3 +158,59 @@ uint32_t dns_extract_min_ttl(const uint8_t *reply, size_t len)
     }
     return min_ttl > 0 ? min_ttl : 60;
 }
+
+int dns_build_a_reply(const dns_query_t *q,
+                       uint32_t ip,
+                       uint32_t ttl,
+                       uint8_t *buf, size_t buf_len)
+{
+    if (!q || !buf || buf_len < 64) return -1;
+
+    size_t pos = 0;
+
+    /* Заголовок: ID, QR=1 AA=0 TC=0 RD=1 RA=1, QDCOUNT=1, ANCOUNT=1 */
+    buf[pos++] = (q->id >> 8) & 0xFF;
+    buf[pos++] = q->id & 0xFF;
+    buf[pos++] = 0x81;  /* QR=1 OPCODE=0 AA=0 TC=0 RD=1 */
+    buf[pos++] = 0x80;  /* RA=1 Z=0 RCODE=0 */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;  /* QDCOUNT=1 */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;  /* ANCOUNT=1 */
+    buf[pos++] = 0x00; buf[pos++] = 0x00;  /* NSCOUNT=0 */
+    buf[pos++] = 0x00; buf[pos++] = 0x00;  /* ARCOUNT=0 */
+
+    /* Секция вопроса: кодируем qname как DNS labels */
+    const char *name = q->qname;
+    while (*name) {
+        const char *dot = strchr(name, '.');
+        size_t label_len = dot
+            ? (size_t)(dot - name) : strlen(name);
+        if (label_len > 63 || pos + label_len + 2 >= buf_len)
+            return -1;
+        buf[pos++] = (uint8_t)label_len;
+        memcpy(buf + pos, name, label_len);
+        pos += label_len;
+        if (!dot) break;
+        name = dot + 1;
+    }
+    if (pos + 5 >= buf_len) return -1;
+    buf[pos++] = 0x00;              /* конец имени */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;  /* QTYPE=A */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;  /* QCLASS=IN */
+
+    /* Секция ответа: compression pointer к qname (offset 12) */
+    if (pos + 16 >= buf_len) return -1;
+    buf[pos++] = 0xC0; buf[pos++] = 0x0C;  /* NAME → offset 12 */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;  /* TYPE=A */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;  /* CLASS=IN */
+    buf[pos++] = (ttl >> 24) & 0xFF;
+    buf[pos++] = (ttl >> 16) & 0xFF;
+    buf[pos++] = (ttl >> 8)  & 0xFF;
+    buf[pos++] =  ttl & 0xFF;
+    buf[pos++] = 0x00; buf[pos++] = 0x04;  /* RDLENGTH=4 */
+    buf[pos++] = (ip >> 24) & 0xFF;
+    buf[pos++] = (ip >> 16) & 0xFF;
+    buf[pos++] = (ip >> 8)  & 0xFF;
+    buf[pos++] =  ip & 0xFF;
+
+    return (int)pos;
+}
