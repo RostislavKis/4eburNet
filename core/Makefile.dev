@@ -21,6 +21,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/proxy/proxy_group.c \
           $(SRCDIR)/proxy/rule_provider.c \
           $(SRCDIR)/proxy/rules_engine.c \
+          $(SRCDIR)/proxy/sniffer.c \
           $(SRCDIR)/net_utils.c \
           $(SRCDIR)/dns/dns_packet.c $(SRCDIR)/dns/dns_cache.c \
           $(SRCDIR)/dns/dns_rules.c $(SRCDIR)/dns/dns_upstream.c \
