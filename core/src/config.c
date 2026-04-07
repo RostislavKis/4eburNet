@@ -413,6 +413,10 @@ int config_load(const char *path, PhoenixConfig *cfg)
                     snprintf(d->doh_url, sizeof(d->doh_url), "%s", value);
                 else if (strcmp(key, "doh_sni") == 0)
                     snprintf(d->doh_sni, sizeof(d->doh_sni), "%s", value);
+                else if (strcmp(key, "doh_ip") == 0)
+                    snprintf(d->doh_ip, sizeof(d->doh_ip), "%s", value);
+                else if (strcmp(key, "doh_port") == 0)
+                    d->doh_port = (uint16_t)strtol(value, NULL, 10);
                 else if (strcmp(key, "dot_enabled") == 0)
                     d->dot_enabled = (strcmp(value, "1") == 0);
                 else if (strcmp(key, "dot_server_ip") == 0)
