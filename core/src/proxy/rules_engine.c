@@ -101,9 +101,12 @@ static void cache_free(void)
     s_cache_count = 0;
 }
 
-/* Загрузить провайдер в кэш */
+/* Загрузить провайдер в кэш.
+ * hint_format: RULE_FORMAT_DOMAIN / RULE_FORMAT_IPCIDR → явная типизация;
+ *              RULE_FORMAT_CLASSICAL → автоопределение по первой строке. */
 static provider_cache_t *cache_load(const char *provider_name,
-                                     rule_provider_manager_t *rpm)
+                                     rule_provider_manager_t *rpm,
+                                     rule_format_t hint_format)
 {
     if (!rpm || s_cache_count >= MAX_PROVIDER_CACHE) return NULL;
 
@@ -129,10 +132,17 @@ static provider_cache_t *cache_load(const char *provider_name,
                           &pc->entries, &pc->count) < 0)
         return NULL;
 
-    /* Определить тип: если есть '/' — CIDR, иначе домен */
-    pc->is_domain = true;
-    if (pc->count > 0 && strchr(pc->entries[0], '/'))
+    /* Определить тип: явный hint_format приоритетнее автоопределения */
+    if (hint_format == RULE_FORMAT_DOMAIN) {
+        pc->is_domain = true;
+    } else if (hint_format == RULE_FORMAT_IPCIDR) {
         pc->is_domain = false;
+    } else {
+        /* RULE_FORMAT_CLASSICAL или неизвестен → автоопределение */
+        pc->is_domain = true;
+        if (pc->count > 0 && strchr(pc->entries[0], '/'))
+            pc->is_domain = false;
+    }
 
     /* Сортировать для binary search (только домены) */
     if (pc->is_domain)
@@ -169,10 +179,22 @@ int rules_engine_init(rules_engine_t *re, const PhoenixConfig *cfg,
     qsort(re->sorted_rules, re->rule_count, sizeof(TrafficRule),
           cmp_priority);
 
-    /* C-4: загрузить RULE_SET провайдеры в кэш */
+    /* C-4: загрузить RULE_SET провайдеры в кэш с format из конфига */
     for (int i = 0; i < re->rule_count; i++) {
-        if (re->sorted_rules[i].type == RULE_TYPE_RULE_SET)
-            cache_load(re->sorted_rules[i].value, rpm);
+        if (re->sorted_rules[i].type != RULE_TYPE_RULE_SET) continue;
+
+        /* Найти format в RuleProviderConfig для точной типизации */
+        rule_format_t fmt = RULE_FORMAT_CLASSICAL;
+        if (rpm && rpm->cfg) {
+            for (int j = 0; j < rpm->cfg->rule_provider_count; j++) {
+                if (strcmp(rpm->cfg->rule_providers[j].name,
+                           re->sorted_rules[i].value) == 0) {
+                    fmt = rpm->cfg->rule_providers[j].format;
+                    break;
+                }
+            }
+        }
+        cache_load(re->sorted_rules[i].value, rpm, fmt);
     }
 
     /* H-4: валидация target — проверить что группы существуют */
