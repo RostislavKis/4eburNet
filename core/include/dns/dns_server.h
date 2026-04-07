@@ -4,6 +4,7 @@
 #include "dns/dns_cache.h"
 #include "dns/dns_resolver.h"
 #include "dns/dns_upstream_async.h"
+#include "dns/fake_ip.h"
 #include "config.h"
 
 /* H-10/H-11: расширенный rate table для IPv4+IPv6 */
@@ -26,6 +27,9 @@ typedef struct {
     } rate_table[DNS_RATE_TABLE_SIZE];
     /* Async DoH/DoT pool (инициализируется в dns_server_register_epoll) */
     async_dns_pool_t async_pool;
+    /* Fake-IP таблица (backlog_C4) */
+    fake_ip_table_t  fake_ip;
+    bool             fake_ip_ready;  /* инициализирована */
 } dns_server_t;
 
 int  dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg);

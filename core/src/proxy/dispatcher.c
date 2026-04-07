@@ -50,9 +50,10 @@
 
 /* TODO: передавать контекст явно через параметр вместо глобальных указателей.
  * Сейчас безопасно — однопоточная архитектура, один экземпляр (M-09). */
-static dispatcher_state_t *g_dispatcher = NULL;
-static const PhoenixConfig *g_config    = NULL;
+static dispatcher_state_t *g_dispatcher   = NULL;
+static const PhoenixConfig *g_config      = NULL;
 static rules_engine_t     *g_rules_engine = NULL;
+static fake_ip_table_t    *g_fake_ip      = NULL;
 
 void dispatcher_set_context(dispatcher_state_t *ds,
                             const PhoenixConfig *cfg)
@@ -64,6 +65,11 @@ void dispatcher_set_context(dispatcher_state_t *ds,
 void dispatcher_set_rules_engine(rules_engine_t *re)
 {
     g_rules_engine = re;
+}
+
+void dispatcher_set_fake_ip(fake_ip_table_t *t)
+{
+    g_fake_ip = t;
 }
 
 /* ------------------------------------------------------------------ */
@@ -756,7 +762,19 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
         /* 3.6: SNI sniffer — извлечь домен из TLS ClientHello */
         char sni[256] = {0};
         const char *domain = NULL;
-        if (conn->fd >= 0) {
+
+        /* Fake-IP: если dst IP из пула → знаем домен без SNI */
+        if (g_fake_ip) {
+            const char *fake_domain =
+                fake_ip_lookup_by_ip(g_fake_ip, &conn->dst);
+            if (fake_domain) {
+                domain = fake_domain;
+                log_msg(LOG_DEBUG,
+                    "dispatcher: fake-ip reverse %s", fake_domain);
+            }
+        }
+
+        if (!domain && conn->fd >= 0) {
             if (sniffer_peek_sni(conn->fd, sni, sizeof(sni)) > 0) {
                 domain = sni;
                 log_msg(LOG_DEBUG, "SNI sniffer: %s", sni);
