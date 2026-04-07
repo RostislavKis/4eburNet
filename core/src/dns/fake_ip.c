@@ -161,6 +161,16 @@ int fake_ip_init(fake_ip_table_t *t, const PhoenixConfig *cfg,
     t->pool_size  = t->pool_end - t->pool_start + 1;
     t->next_ip    = t->pool_start;
 
+    /* Проверить корректность пула (защита от /31, /32) */
+    if (t->pool_end < t->pool_start ||
+        t->pool_size < 2) {
+        log_msg(LOG_ERROR,
+            "fake-ip: диапазон %s слишком мал "
+            "(минимум /30, рекомендуется /15)",
+            range ? range : "(null)");
+        goto fail;
+    }
+
     /* Ограничить max_entries размером пула */
     if ((uint32_t)max_entries > t->pool_size)
         max_entries = (int)t->pool_size;
