@@ -211,24 +211,34 @@ void ipc_process(int server_fd, PhoenixState *state)
 
     case IPC_CMD_RULES_LIST:
         if (g_re && g_re->sorted_rules) {
+            /* ~200 байт на правило + запас */
+            size_t need = (size_t)g_re->rule_count * 200 + 64;
+            if (need < 256) need = 256;
+            char *rbuf = malloc(need);
+            if (!rbuf) {
+                ipc_respond(client_fd, "{\"error\":\"OOM\"}");
+                break;
+            }
             int p = 0;
-            p += snprintf(buf + p, sizeof(buf) - p, "{\"rules\":[");
-            for (int ri = 0; ri < g_re->rule_count &&
-                 (size_t)p < sizeof(buf) - 256; ri++) {
+            p += snprintf(rbuf + p, need - (size_t)p, "{\"rules\":[");
+            for (int ri = 0; ri < g_re->rule_count; ri++) {
                 const TrafficRule *tr = &g_re->sorted_rules[ri];
-                if (ri > 0) p += snprintf(buf + p, sizeof(buf) - (size_t)p, ",");
-                /* H-02: экранируем value и target для JSON */
+                if ((size_t)p >= need - 256) break;
+                if (ri > 0)
+                    p += snprintf(rbuf + p, need - (size_t)p, ",");
+                /* экранируем value и target для JSON */
                 char esc_val[512], esc_tgt[128];
                 json_escape_str(tr->value,  esc_val, sizeof(esc_val));
                 json_escape_str(tr->target, esc_tgt, sizeof(esc_tgt));
-                p += snprintf(buf + p, sizeof(buf) - (size_t)p,
-                    "{\"type\":%d,\"value\":\"%s\",\"target\":\"%s\","
-                    "\"priority\":%d}",
+                p += snprintf(rbuf + p, need - (size_t)p,
+                    "{\"type\":%d,\"value\":\"%s\","
+                    "\"target\":\"%s\",\"priority\":%d}",
                     tr->type, esc_val, esc_tgt, tr->priority);
             }
-            if ((size_t)p < sizeof(buf) - 2)
-                p += snprintf(buf + p, sizeof(buf) - (size_t)p, "]}");
-            ipc_respond(client_fd, buf);
+            if ((size_t)p < need - 2)
+                p += snprintf(rbuf + p, need - (size_t)p, "]}");
+            ipc_respond(client_fd, rbuf);
+            free(rbuf);
         } else {
             ipc_respond(client_fd, "{\"rules\":[]}");
         }

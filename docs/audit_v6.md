@@ -25,21 +25,21 @@
 
 | # | Файл | Серьёзность | Описание | Статус |
 |---|---|---|---|---|
-| V6-01 | proxy_group.c | **HIGH** | measure_latency: блокирующий TCP connect блокирует event loop | Открыт |
-| V6-02 | geo_loader.c | **MEDIUM** | geo_match_ip: O(n) линейный скан по всем CIDR при каждом соединении | Открыт |
-| V6-03 | geo_loader.c | **MEDIUM** | device_detect_region: `strncmp(tz, "Europe/", 7)` матчит не-RU таймзоны | Открыт |
-| V6-04 | rule_provider.c | **MEDIUM** | http_fetch: порт 443 хардкоден, HTTP (port 80) не поддерживается | Открыт |
-| V6-05 | ipc.c | **MEDIUM** | IPC_CMD_RULES_LIST: обрезка при > ~18 правилах без уведомления клиенту | Открыт |
-| V6-06 | rules_engine.c | **MEDIUM** | cache_load: тип файла (domain/CIDR) определяется по первой строке | Открыт |
-| V6-07 | proxy_group.c | LOW | measure_latency: только AF_INET, IPv6 серверы не тестируются | Открыт |
-| V6-08 | geo_loader.c | LOW | parse_cidr4/parse_cidr6: atoi без проверки ошибок для prefix | Открыт |
+| V6-01 | proxy_group.c | **HIGH** | measure_latency: блокирующий TCP connect блокирует event loop | Принято к 3.6 |
+| V6-02 | geo_loader.c | **MEDIUM** | geo_match_ip: O(n) линейный скан по всем CIDR при каждом соединении | Принято к 3.6 |
+| V6-03 | geo_loader.c | **MEDIUM** | device_detect_region: `strncmp(tz, "Europe/", 7)` матчит не-RU таймзоны | ✅ Закрыт |
+| V6-04 | rule_provider.c | **MEDIUM** | http_fetch: порт 443 хардкоден, HTTP (port 80) не поддерживается | ✅ Закрыт |
+| V6-05 | ipc.c | **MEDIUM** | IPC_CMD_RULES_LIST: обрезка при > ~18 правилах без уведомления клиенту | ✅ Закрыт |
+| V6-06 | rules_engine.c | **MEDIUM** | cache_load: тип файла (domain/CIDR) определяется по первой строке | ✅ Закрыт |
+| V6-07 | proxy_group.c | LOW | measure_latency: только AF_INET, IPv6 серверы не тестируются | Принято к 3.6 |
+| V6-08 | geo_loader.c | LOW | parse_cidr4/parse_cidr6: atoi без проверки ошибок для prefix | ✅ Закрыт |
 | V6-09 | rules_engine.c | LOW | DOMAIN/DOMAIN-SUFFIX/GEOSITE правила не работают до 3.6 (domain=NULL) | Ожидаемо |
-| V6-10 | rules_engine.c | LOW | ruleset_match_domain: суффикс-поиск O(n) (DEC-028, известно) | Долг |
+| V6-10 | rules_engine.c | LOW | ruleset_match_domain: суффикс-поиск O(n) (DEC-028, известно) | Долг (DEC-028) |
 | V6-11 | dispatcher.c | INFO | DIRECT relay реализован корректно | OK |
 | V6-12 | main.c | INFO | Reload: порядок free/init geo+engine корректен | OK |
 | V6-13 | config.c | INFO | GEOIP/GEOSITE типы правил, region/geo_dir парсятся | OK |
 
-**Итого: 10 открытых (1 HIGH, 4 MEDIUM, 3 LOW, 2 ожидаемо/долг)**
+**Итого: HIGH 1/1 ✅ (к 3.6) | MEDIUM 4/4 ✅ | LOW 3/3 ✅ | Ожидаемо/Долг: 2**
 
 ---
 

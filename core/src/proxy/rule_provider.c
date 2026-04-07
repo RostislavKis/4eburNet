@@ -82,10 +82,12 @@ static int http_fetch(const char *url, const char *dest_path)
 {
     if (!url || !url[0]) return -1;
 
-    /* Парсить URL */
+    /* Определить схему и порт по умолчанию */
     const char *u = url;
-    if (strncmp(u, "https://", 8) == 0) u += 8;
-    else if (strncmp(u, "http://", 7) == 0) u += 7;
+    uint16_t port;
+    if (strncmp(u, "https://", 8) == 0) { u += 8; port = 443; }
+    else if (strncmp(u, "http://", 7) == 0) { u += 7; port = 80; }
+    else { port = 443; }
 
     char host[256] = {0};
     char path[512] = "/";
@@ -99,11 +101,21 @@ static int http_fetch(const char *url, const char *dest_path)
         snprintf(host, sizeof(host), "%s", u);
     }
 
+    /* Найти :port в host (напр. "1.2.3.4:8443") */
+    char *colon = strchr(host, ':');
+    if (colon) {
+        char *endptr;
+        long p = strtol(colon + 1, &endptr, 10);
+        if (endptr != colon + 1 && *endptr == '\0' && p > 0 && p <= 65535)
+            port = (uint16_t)p;
+        *colon = '\0';  /* убрать :port из host */
+    }
+
     /* TCP + TLS (C-3: только IP адреса, DNS lookup не поддержан) */
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
 
-    struct sockaddr_in addr = { .sin_family = AF_INET, .sin_port = htons(443) };
+    struct sockaddr_in addr = { .sin_family = AF_INET, .sin_port = htons(port) };
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
         /* Не IP — доменные имена не поддерживаются в v1 */
         log_msg(LOG_WARN,
