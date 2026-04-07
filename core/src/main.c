@@ -78,12 +78,15 @@ static void geo_load_region_categories(geo_manager_t *gm,
     }
 
     char path[300];
+    char cat_name[48];
     if (rl) {
+        snprintf(cat_name, sizeof(cat_name), "geoip-%s", rl);
         snprintf(path, sizeof(path), "%s/geoip-%s.lst", geo_dir, rl);
-        geo_load_category(gm, rl, gm->current_region, path);
+        geo_load_category(gm, cat_name, gm->current_region, path);
 
+        snprintf(cat_name, sizeof(cat_name), "geosite-%s", rl);
         snprintf(path, sizeof(path), "%s/geosite-%s.lst", geo_dir, rl);
-        geo_load_category(gm, rl, gm->current_region, path);
+        geo_load_category(gm, cat_name, gm->current_region, path);
     }
 
     /* Антиреклама — если файл существует */
