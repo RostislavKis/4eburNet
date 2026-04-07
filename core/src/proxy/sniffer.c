@@ -8,10 +8,11 @@
 
 #include "proxy/sniffer.h"
 
+#include "phoenix.h"
+
 #include <stdint.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <errno.h>
 
 /* Размер буфера для peek — достаточно для большинства ClientHello */
 #define SNIFFER_PEEK_SIZE  512
@@ -39,13 +40,13 @@ int sniffer_peek_sni(int fd, char *sni_buf, size_t sni_buflen)
 
     /* Record length */
     uint16_t rec_len = ((uint16_t)buf[3] << 8) | buf[4];
-    if (rec_len < 4 || (size_t)(5 + rec_len) > (size_t)n) return 0;
+    if (rec_len < 4) return 0;           /* V7-01: partial record допустим */
+    if ((size_t)n < 9) return 0;         /* V7-02: n>=9 ДО buf[5..8] */
 
     /* Handshake Type: ClientHello = 0x01 */
     if (buf[5] != 0x01) return 0;
 
     /* Handshake length (3 байта big-endian) */
-    if (n < 9) return 0;
     uint32_t hs_len = ((uint32_t)buf[6] << 16) |
                       ((uint32_t)buf[7] << 8)  |
                       (uint32_t)buf[8];
@@ -103,6 +104,13 @@ int sniffer_peek_sni(int fd, char *sni_buf, size_t sni_buflen)
                 copy_len = sni_buflen - 1;
             memcpy(sni_buf, buf + pos + 5, copy_len);
             sni_buf[copy_len] = '\0';
+            /* V7-03: null-байт в SNI невалиден (RFC 6066) —
+               strlen < copy_len означает встроенный \0 */
+            if (strlen(sni_buf) != copy_len) {
+                log_msg(LOG_DEBUG, "SNI sniffer: null-байт в SNI — отклонено");
+                sni_buf[0] = '\0';
+                return 0;
+            }
             return (int)copy_len;
         }
 

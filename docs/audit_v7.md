@@ -25,9 +25,9 @@
 
 | # | Файл | Серьёзность | Описание | Статус |
 |---|---|---|---|---|
-| V7-01 | sniffer.c:42 | **MEDIUM** | Строгая проверка rec_len обрезает ClientHello >507 байт | Принято к 3.6 |
-| V7-02 | sniffer.c:45 | **MEDIUM** | buf[5] читается без гарантии n≥6 (UB при n==5) | Принято к 3.6 |
-| V7-03 | sniffer.c:104 | LOW | Нет валидации null-байтов в SNI — обход DOMAIN-SUFFIX правил | Принято к 3.6 |
+| V7-01 | sniffer.c:42 | **MEDIUM** | Строгая проверка rec_len обрезает ClientHello >507 байт | ✅ Закрыт |
+| V7-02 | sniffer.c:45 | **MEDIUM** | buf[5] читается без гарантии n≥6 (UB при n==5) | ✅ Закрыт |
+| V7-03 | sniffer.c:104 | LOW | Нет валидации null-байтов в SNI — обход DOMAIN-SUFFIX правил | ✅ Закрыт |
 | V7-04 | rule_provider.c:124 | LOW | getaddrinfo() блокирует event loop на DNS (acceptable) | Долг (DEC-031) |
 | V7-05 | sniffer.c:14 | INFO | `#include <errno.h>` — не используется | ✅ Закрыт |
 | V7-06 | dispatcher.c:755 | INFO | SNI интеграция корректна, lifetimes sni/domain правильные | OK |
@@ -35,7 +35,7 @@
 | V7-08 | device.h | INFO | Пороги MICRO/NORMAL/FULL соответствуют CLAUDE.md | OK |
 | V7-09 | dispatcher.c:109 | INFO | reality_short_id pointer lifetime корректен (strdup в tls.c) | OK |
 
-**Итого: MEDIUM 2 (к 3.6) | LOW 1+1 | INFO 5**
+**Итого: MEDIUM 2/2 ✅ | LOW 1/1 ✅ + DEC-031 | INFO 5 OK**
 
 ---
 

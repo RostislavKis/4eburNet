@@ -101,3 +101,4 @@
 - DEC-019: NTP Bootstrap перед wolfSSL init
 - DEC-020: MAC per-device routing через ether_addr sets
 - DEC-021: VLESS+Reality — первый реализуемый протокол (не SS2022)
+- DEC-031: rule_provider getaddrinfo() async — вынести в dns_resolver (4.x)
