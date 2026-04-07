@@ -11,6 +11,7 @@
 #include "dns/dns_resolver.h"
 #include "net_utils.h"
 #include "phoenix.h"
+#include "resource_manager.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,6 +104,10 @@ void dns_server_cleanup(dns_server_t *ds)
             dns_pending_complete(&ds->pending, i, ds->master_epoll_fd);
     }
     async_dns_pool_free(&ds->async_pool);
+    if (ds->fake_ip_ready) {
+        fake_ip_free(&ds->fake_ip);
+        ds->fake_ip_ready = false;
+    }
     if (ds->udp_fd >= 0) { close(ds->udp_fd); ds->udp_fd = -1; }
     if (ds->tcp_fd >= 0) { close(ds->tcp_fd); ds->tcp_fd = -1; }
     dns_cache_free(&ds->cache);
@@ -115,6 +120,25 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
     ds->master_epoll_fd = master_epoll_fd;
     /* Инициализировать async pool теперь когда известен master epoll fd */
     async_dns_pool_init(&ds->async_pool, master_epoll_fd);
+
+    /* Инициализировать fake-ip если включён */
+    const DnsConfig *dcfg = &ds->cfg->dns;
+    if (dcfg->fake_ip_enabled) {
+        DeviceProfile profile = rm_detect_profile();
+        int max_e = fake_ip_max_entries_for_profile(
+            profile, dcfg->fake_ip_pool_size);
+        const char *range = dcfg->fake_ip_range[0]
+            ? dcfg->fake_ip_range : "198.18.0.0/15";
+        if (fake_ip_init(&ds->fake_ip, ds->cfg,
+                          range, max_e) == 0) {
+            ds->fake_ip_ready = true;
+            log_msg(LOG_INFO,
+                "fake-ip: включён, пул %s, макс. %d записей",
+                range, max_e);
+        } else {
+            log_msg(LOG_WARN, "fake-ip: init не удался, отключён");
+        }
+    }
 
     struct epoll_event ev = { .events = EPOLLIN };
 
@@ -420,6 +444,79 @@ static void handle_udp_query(dns_server_t *ds)
                 "DNS: upstream_bypass не задан, "
                 "RU домены могут утекать через прокси");
         goto udp_upstream;
+    }
+
+    /* Fake-IP: только для A-запросов PROXY доменов */
+    if (ds->fake_ip_ready &&
+        ds->cfg->dns.fake_ip_enabled &&
+        action == DNS_ACTION_PROXY &&
+        q.qtype == 1) {  /* QTYPE=A */
+
+        uint32_t fake_ip_addr = fake_ip_alloc(
+            &ds->fake_ip, q.qname, 0, 0);
+
+        if (fake_ip_addr != 0) {
+            uint8_t *reply = malloc(DNS_MAX_PACKET);
+            if (reply) {
+                int cfg_ttl = ds->cfg->dns.fake_ip_ttl;
+                uint32_t ttl = (cfg_ttl > 0)
+                    ? (uint32_t)cfg_ttl : 60u;
+                int reply_len = dns_build_a_reply(
+                    &q, fake_ip_addr, ttl,
+                    reply, DNS_MAX_PACKET);
+                if (reply_len > 0) {
+                    dns_cache_put(&ds->cache, q.qname,
+                                  q.qtype, reply,
+                                  (uint16_t)reply_len, ttl);
+                    if (sendto(ds->udp_fd, reply,
+                               reply_len, 0,
+                               (struct sockaddr *)&client_addr,
+                               client_len) < 0)
+                        log_msg(LOG_DEBUG,
+                            "fake-ip: sendto: %s",
+                            strerror(errno));
+                    log_msg(LOG_DEBUG,
+                        "DNS fake-ip: %s → %u.%u.%u.%u",
+                        q.qname,
+                        (fake_ip_addr >> 24) & 0xFF,
+                        (fake_ip_addr >> 16) & 0xFF,
+                        (fake_ip_addr >> 8)  & 0xFF,
+                         fake_ip_addr & 0xFF);
+                }
+                free(reply);
+            }
+            return;  /* ответили fake IP, реальный upstream не нужен */
+        }
+        /* fake_ip_alloc вернул 0 — пул исчерпан, fallback реальный upstream */
+        log_msg(LOG_WARN,
+            "fake-ip: пул исчерпан для %s, fallback", q.qname);
+    }
+
+    /* AAAA запрос для fake-ip домена → NODATA (нет IPv6 в режиме fake-ip).
+       Это предотвращает утечку доменов на реальный IPv6 upstream. */
+    if (ds->fake_ip_ready &&
+        ds->cfg->dns.fake_ip_enabled &&
+        action == DNS_ACTION_PROXY &&
+        q.qtype == 28) {  /* QTYPE=AAAA */
+        /* Проверить что домен уже в fake-ip таблице
+           (т.е. клиент уже получил fake A-ответ) */
+        if (fake_ip_lookup_by_domain(&ds->fake_ip, q.qname) != 0) {
+            uint8_t *nodata = malloc(DNS_MAX_PACKET);
+            if (nodata) {
+                int nd_len = dns_build_nxdomain(&q, nodata, DNS_MAX_PACKET);
+                if (nd_len > 3) {
+                    /* Переписать RCODE с 3 (NXDOMAIN) на 0 (NODATA) */
+                    nodata[2] = 0x81;  /* QR=1 RD=1 */
+                    nodata[3] = 0x80;  /* RA=1 RCODE=0 */
+                    nodata[6] = 0; nodata[7] = 0;  /* ANCOUNT=0 */
+                    sendto(ds->udp_fd, nodata, nd_len, 0,
+                           (struct sockaddr *)&client_addr, client_len);
+                    log_msg(LOG_DEBUG, "fake-ip: %s AAAA → NODATA", q.qname);
+                }
+                free(nodata);
+            }
+            return;
+        }
     }
 
     /* DoH/DoT — только для PROXY доменов, async через pool */

@@ -3,6 +3,7 @@
 
 #include "proxy/tproxy.h"
 #include "crypto/tls.h"
+#include "dns/fake_ip.h"
 #include "config.h"
 
 #include <stdint.h>
@@ -134,6 +135,9 @@ int  dispatcher_select_server(dispatcher_state_t *ds,
 /* Обновить статус сервера после попытки подключения */
 void dispatcher_server_result(dispatcher_state_t *ds,
                               int server_idx, bool success);
+
+/* Установить глобальную fake-ip таблицу для reverse lookup */
+void dispatcher_set_fake_ip(fake_ip_table_t *t);
 
 /* --- Вызывается из tproxy.c (сигнатура НЕ меняется) --- */
 
