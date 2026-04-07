@@ -15,18 +15,21 @@
 /* Размер буфера для ответов */
 #define IPC_RESPONSE_MAX 2048
 
-/* Контекст для команд proxy_group/rule_provider/rules_engine */
+/* Контекст для команд proxy_group/rule_provider/rules_engine/geo */
 static proxy_group_manager_t    *g_pgm = NULL;
 static rule_provider_manager_t  *g_rpm = NULL;
 static rules_engine_t           *g_re  = NULL;
+static geo_manager_t            *g_gm  = NULL;
 
 void ipc_set_3x_context(proxy_group_manager_t *pgm,
                         rule_provider_manager_t *rpm,
-                        rules_engine_t *re)
+                        rules_engine_t *re,
+                        geo_manager_t *gm)
 {
     g_pgm = pgm;
     g_rpm = rpm;
     g_re  = re;
+    g_gm  = gm;
 }
 
 /* Backlog для listen() — количество ожидающих подключений */
@@ -228,6 +231,34 @@ void ipc_process(int server_fd, PhoenixState *state)
             ipc_respond(client_fd, buf);
         } else {
             ipc_respond(client_fd, "{\"rules\":[]}");
+        }
+        break;
+
+    case IPC_CMD_GEO_STATUS:
+        if (g_gm) {
+            int p = 0;
+            p += snprintf(buf + p, sizeof(buf) - (size_t)p,
+                "{\"region\":\"%s\",\"categories\":[",
+                geo_region_name(g_gm->current_region));
+            for (int gi = 0; gi < g_gm->count &&
+                 (size_t)p < sizeof(buf) - 128; gi++) {
+                const geo_category_t *gc = &g_gm->categories[gi];
+                if (gi > 0 && (size_t)p < sizeof(buf) - 2)
+                    p += snprintf(buf + p, sizeof(buf) - (size_t)p, ",");
+                p += snprintf(buf + p, sizeof(buf) - (size_t)p,
+                    "{\"name\":\"%s\",\"region\":\"%s\","
+                    "\"loaded\":%s,\"v4\":%d,\"v6\":%d,"
+                    "\"domains\":%d,\"suffixes\":%d}",
+                    gc->name, geo_region_name(gc->region),
+                    gc->loaded ? "true" : "false",
+                    gc->v4_count, gc->v6_count,
+                    gc->domain_count, gc->suffix_count);
+            }
+            if ((size_t)p < sizeof(buf) - 2)
+                p += snprintf(buf + p, sizeof(buf) - (size_t)p, "]}");
+            ipc_respond(client_fd, buf);
+        } else {
+            ipc_respond(client_fd, "{\"region\":\"UNKNOWN\",\"categories\":[]}");
         }
         break;
 

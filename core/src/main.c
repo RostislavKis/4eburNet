@@ -15,6 +15,7 @@
 #include "proxy/proxy_group.h"
 #include "proxy/rule_provider.h"
 #include "proxy/rules_engine.h"
+#include "geo/geo_loader.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,7 @@ static device_manager_t device_state;
 static proxy_group_manager_t pgm_state;
 static rule_provider_manager_t rpm_state;
 static rules_engine_t re_state;
+static geo_manager_t geo_state;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -54,6 +56,39 @@ static void handle_reload(int sig)
 {
     (void)sig;
     state.reload = true;
+}
+
+/* Загрузить гео-категории для текущего региона */
+static void geo_load_region_categories(geo_manager_t *gm,
+                                        const PhoenixConfig *cfg)
+{
+    const char *geo_dir = (cfg->geo_dir[0])
+        ? cfg->geo_dir : "/etc/phoenix/geo";
+
+    const char *rl = NULL;
+    if (cfg->geo_region[0]) {
+        rl = cfg->geo_region;
+    } else {
+        switch (gm->current_region) {
+        case GEO_REGION_RU: rl = "ru"; break;
+        case GEO_REGION_CN: rl = "cn"; break;
+        case GEO_REGION_US: rl = "us"; break;
+        default: break;
+        }
+    }
+
+    char path[300];
+    if (rl) {
+        snprintf(path, sizeof(path), "%s/geoip-%s.lst", geo_dir, rl);
+        geo_load_category(gm, rl, gm->current_region, path);
+
+        snprintf(path, sizeof(path), "%s/geosite-%s.lst", geo_dir, rl);
+        geo_load_category(gm, rl, gm->current_region, path);
+    }
+
+    /* Антиреклама — если файл существует */
+    snprintf(path, sizeof(path), "%s/geosite-ads.lst", geo_dir);
+    geo_load_category(gm, "ads", GEO_REGION_UNKNOWN, path);
 }
 
 /* Вывод справки */
@@ -388,9 +423,14 @@ int main(int argc, char *argv[])
         proxy_group_init(&pgm_state, &cfg);
         rule_provider_init(&rpm_state, &cfg);
         rule_provider_load_all(&rpm_state);
-        rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state);
+        if (geo_manager_init(&geo_state, &cfg) == 0)
+            geo_load_region_categories(&geo_state, &cfg);
+        else
+            log_msg(LOG_WARN, "GeoIP: не удалось инициализировать");
+        rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state,
+                          &geo_state);
         dispatcher_set_rules_engine(&re_state);
-        ipc_set_3x_context(&pgm_state, &rpm_state, &re_state);
+        ipc_set_3x_context(&pgm_state, &rpm_state, &re_state, &geo_state);
     }
 
     /* Установка обработчиков сигналов (M-10: SA_RESTART) */
@@ -528,14 +568,19 @@ int main(int argc, char *argv[])
                     device_policy_apply(&device_state, cfg.lan_interface);
                 }
                 rules_engine_free(&re_state);
+                geo_manager_free(&geo_state);
                 rule_provider_free(&rpm_state);
                 proxy_group_free(&pgm_state);
                 proxy_group_init(&pgm_state, &cfg);
                 rule_provider_init(&rpm_state, &cfg);
                 rule_provider_load_all(&rpm_state);
-                rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state);
+                if (geo_manager_init(&geo_state, &cfg) == 0)
+                    geo_load_region_categories(&geo_state, &cfg);
+                rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state,
+                                  &geo_state);
                 dispatcher_set_rules_engine(&re_state);
-                ipc_set_3x_context(&pgm_state, &rpm_state, &re_state);
+                ipc_set_3x_context(&pgm_state, &rpm_state, &re_state,
+                                   &geo_state);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
@@ -552,6 +597,7 @@ cleanup:
     log_flush();
 
     rules_engine_free(&re_state);
+    geo_manager_free(&geo_state);
     rule_provider_free(&rpm_state);
     proxy_group_free(&pgm_state);
     device_policy_free(&device_state);

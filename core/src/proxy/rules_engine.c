@@ -147,12 +147,14 @@ static provider_cache_t *cache_load(const char *provider_name,
 
 int rules_engine_init(rules_engine_t *re, const PhoenixConfig *cfg,
                       proxy_group_manager_t *pgm,
-                      rule_provider_manager_t *rpm)
+                      rule_provider_manager_t *rpm,
+                      geo_manager_t *gm)
 {
     memset(re, 0, sizeof(*re));
     re->cfg = cfg;
     re->pgm = pgm;
     re->rpm = rpm;
+    re->gm  = gm;
 
     if (cfg->traffic_rule_count == 0) return 0;
 
@@ -359,6 +361,24 @@ rule_match_result_t rules_engine_match(rules_engine_t *re,
             break;
         case RULE_TYPE_MATCH:
             matched = true;
+            break;
+        case RULE_TYPE_GEOIP:
+            /* value = "RU", target = "DIRECT" */
+            if (re->gm && dst) {
+                geo_region_t r    = geo_match_ip(re->gm, dst);
+                geo_region_t want = geo_region_from_str(tr->value);
+                if (r == want && want != GEO_REGION_UNKNOWN)
+                    matched = true;
+            }
+            break;
+        case RULE_TYPE_GEOSITE:
+            /* value = "ru", target = "DIRECT" */
+            if (re->gm && domain) {
+                geo_region_t r    = geo_match_domain(re->gm, domain);
+                geo_region_t want = geo_region_from_str(tr->value);
+                if (r == want && want != GEO_REGION_UNKNOWN)
+                    matched = true;
+            }
             break;
         }
 
