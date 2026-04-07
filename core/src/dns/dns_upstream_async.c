@@ -93,9 +93,11 @@ void async_dns_pool_free(async_dns_pool_t *pool)
 
 bool async_dns_is_pool_ptr(const async_dns_pool_t *pool, const void *ptr)
 {
-    const async_dns_conn_t *first = &pool->conns[0];
-    const async_dns_conn_t *last  = &pool->conns[DNS_ASYNC_POOL_SIZE - 1];
-    return (ptr >= (const void *)first && ptr <= (const void *)last);
+    /* Проверить что ptr указывает на один из слотов пула.
+       Используем полуоткрытый интервал [first, end) */
+    const void *first = (const void *)&pool->conns[0];
+    const void *end   = (const void *)&pool->conns[DNS_ASYNC_POOL_SIZE];
+    return (ptr >= first && ptr < end);
 }
 
 /* ── Вспомогательные ── */
