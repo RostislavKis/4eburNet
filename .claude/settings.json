@@ -10,7 +10,12 @@
       "\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\core\\src",
       "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\core\\src",
       "\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\docs",
-      "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\docs"
+      "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\docs",
+      "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\core\\crypto",
+      "\\tmp",
+      "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\core\\src\\crypto",
+      "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\core\\include",
+      "\\\\wsl$\\Ubuntu-24.04\\home\\rosti\\phoenix-router-dev\\project\\phoenix-router\\core\\include\\dns"
     ]
   }
 }
