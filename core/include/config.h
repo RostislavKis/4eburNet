@@ -43,6 +43,8 @@ typedef struct {
     bool     doh_enabled;
     char     doh_url[512];
     char     doh_sni[256];
+    char     doh_ip[64];     /* IP адрес DoH сервера (если URL содержит домен) */
+    uint16_t doh_port;       /* порт DoH, 0 = авто (443 для https) */
     bool     dot_enabled;
     char     dot_server_ip[64];
     uint16_t dot_port;
