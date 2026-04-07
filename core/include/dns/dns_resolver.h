@@ -26,6 +26,14 @@ typedef struct {
     struct timespec sent_at;        /* CLOCK_MONOTONIC (L-07) */
     char      qname[256];
     uint16_t  qtype;
+    /* Fallback upstream (backlog_C3) */
+    char     fallback_ip[256];      /* IP fallback upstream, "" = нет */
+    uint16_t fallback_port;         /* порт fallback upstream */
+    int      fallback_fd;           /* -1 = fallback не активен */
+    bool     fallback_used;         /* true = уже используем fallback */
+    /* Parallel query fd (backlog_C3 C5) */
+    int      parallel_fd;           /* -1 = parallel не активен */
+    uint16_t parallel_upstream_id;  /* ID для parallel запроса */
 } dns_pending_t;
 
 /* Очередь ожидающих запросов */
@@ -47,7 +55,7 @@ int dns_pending_add(dns_pending_queue_t *q,
 
 dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd);
 
-void dns_pending_complete(dns_pending_queue_t *q, int idx);
+void dns_pending_complete(dns_pending_queue_t *q, int idx, int epoll_fd);
 
 void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd);
 

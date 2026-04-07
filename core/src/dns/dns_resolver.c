@@ -15,8 +15,11 @@
 void dns_pending_init(dns_pending_queue_t *q)
 {
     memset(q, 0, sizeof(*q));
-    for (int i = 0; i < DNS_PENDING_MAX; i++)
+    for (int i = 0; i < DNS_PENDING_MAX; i++) {
         q->slots[i].upstream_fd = -1;
+        q->slots[i].fallback_fd = -1;
+        q->slots[i].parallel_fd = -1;
+    }
 }
 
 int dns_pending_add(dns_pending_queue_t *q,
@@ -60,6 +63,11 @@ int dns_pending_add(dns_pending_queue_t *q,
     memcpy(p->qname, query->qname, qname_len);
     p->qname[qname_len] = '\0';
     p->qtype = query->qtype;
+    p->fallback_fd   = -1;
+    p->parallel_fd   = -1;
+    p->fallback_used = false;
+    p->fallback_ip[0] = '\0';
+    p->fallback_port  = 0;
 
     /* L-06: IPv6 поддержка upstream DNS */
     int af = strchr(upstream_ip, ':') ? AF_INET6 : AF_INET;
@@ -103,17 +111,34 @@ int dns_pending_add(dns_pending_queue_t *q,
 
 dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd)
 {
-    for (int i = 0; i < DNS_PENDING_MAX; i++)
-        if (q->slots[i].active && q->slots[i].upstream_fd == fd)
-            return &q->slots[i];
+    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+        if (!q->slots[i].active) continue;
+        if (q->slots[i].upstream_fd == fd) return &q->slots[i];
+        if (q->slots[i].fallback_fd  == fd) return &q->slots[i];
+        if (q->slots[i].parallel_fd  == fd) return &q->slots[i];
+    }
     return NULL;
 }
 
-void dns_pending_complete(dns_pending_queue_t *q, int idx)
+void dns_pending_complete(dns_pending_queue_t *q, int idx, int epoll_fd)
 {
     /* H-12: bounds check */
     if (idx < 0 || idx >= DNS_PENDING_MAX) return;
     dns_pending_t *p = &q->slots[idx];
+    /* Закрыть fallback fd если активен */
+    if (p->fallback_fd >= 0) {
+        if (epoll_fd >= 0)
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->fallback_fd, NULL);
+        close(p->fallback_fd);
+        p->fallback_fd = -1;
+    }
+    /* Закрыть parallel fd если активен */
+    if (p->parallel_fd >= 0) {
+        if (epoll_fd >= 0)
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->parallel_fd, NULL);
+        close(p->parallel_fd);
+        p->parallel_fd = -1;
+    }
     if (p->upstream_fd >= 0) {
         close(p->upstream_fd);
         p->upstream_fd = -1;
@@ -134,12 +159,48 @@ void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd)
         dns_pending_t *p = &q->slots[i];
         if (!p->active) continue;
         long elapsed_sec = now_mono.tv_sec - p->sent_at.tv_sec;
-        if (elapsed_sec > DNS_TIMEOUT_SEC ||
-            (elapsed_sec == DNS_TIMEOUT_SEC &&
-             now_mono.tv_nsec >= p->sent_at.tv_nsec)) {
-            log_msg(LOG_DEBUG, "DNS: upstream таймаут для %s", p->qname);
-            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
-            dns_pending_complete(q, i);
+        if (!(elapsed_sec > DNS_TIMEOUT_SEC ||
+              (elapsed_sec == DNS_TIMEOUT_SEC &&
+               now_mono.tv_nsec >= p->sent_at.tv_nsec)))
+            continue;
+
+        /* Таймаут — попробовать fallback если не использовали */
+        if (!p->fallback_used && p->fallback_ip[0]) {
+            int ffd = socket(AF_INET,
+                             SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+            if (ffd >= 0) {
+                struct sockaddr_in fa = {
+                    .sin_family = AF_INET,
+                    .sin_port   = htons(p->fallback_port),
+                };
+                if (inet_pton(AF_INET, p->fallback_ip, &fa.sin_addr) == 1 &&
+                    sendto(ffd, p->query, p->query_len, 0,
+                           (struct sockaddr *)&fa, sizeof(fa)) >= 0) {
+                    /* Убрать старый primary fd из epoll */
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
+                    close(p->upstream_fd);
+                    /* Переключить на fallback fd */
+                    p->upstream_fd   = ffd;
+                    p->fallback_fd   = ffd;
+                    p->fallback_used = true;
+                    clock_gettime(CLOCK_MONOTONIC, &p->sent_at);
+                    struct epoll_event ev = {
+                        .events  = EPOLLIN,
+                        .data.fd = ffd,
+                    };
+                    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ffd, &ev);
+                    log_msg(LOG_DEBUG,
+                        "DNS: %s timeout, retry via fallback %s",
+                        p->qname, p->fallback_ip);
+                    continue;  /* дать шанс fallback'у */
+                }
+                close(ffd);
+            }
         }
+
+        /* Fallback не помог или не настроен — удалить слот */
+        log_msg(LOG_DEBUG, "DNS: upstream таймаут для %s", p->qname);
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
+        dns_pending_complete(q, i, epoll_fd);
     }
 }
