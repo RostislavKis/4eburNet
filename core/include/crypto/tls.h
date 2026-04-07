@@ -68,4 +68,9 @@ void tls_close(tls_conn_t *conn);
 /* Строка последней ошибки wolfSSL */
 const char *tls_last_error(void);
 
+/* Получить clientRandom из завершённого TLS handshake (DEC-025).
+ * Записывает min(buflen, 32) байт в buf.
+ * Возвращает кол-во записанных байт, или -1 если недоступно. */
+int tls_get_client_random(const tls_conn_t *conn, uint8_t *buf, size_t buflen);
+
 #endif /* TLS_H */

@@ -104,6 +104,9 @@ static int vless_protocol_start(relay_conn_t *relay,
     snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
+    /* DEC-025: передаём shortId для диагностики после handshake */
+    if (server->reality_short_id[0])
+        cfg.reality_short_id = server->reality_short_id;
 
     if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
         return -1;
@@ -990,6 +993,24 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     const ServerConfig *server = NULL;
                     if (g_config && r->server_idx < g_config->server_count)
                         server = &g_config->servers[r->server_idx];
+
+                    /* DEC-025: диагностика Reality shortId */
+                    if (server && server->reality_short_id[0]) {
+                        uint8_t rnd[32];
+                        int rn = tls_get_client_random(&r->tls, rnd, sizeof(rnd));
+                        if (rn >= 8) {
+                            char hex[17] = {0};
+                            for (int hi = 0; hi < 8; hi++)
+                                snprintf(hex + hi * 2, 3, "%02x", rnd[hi]);
+                            log_msg(LOG_DEBUG,
+                                    "Reality shortId=%s clientRandom[0:8]=%s",
+                                    server->reality_short_id, hex);
+                        } else {
+                            log_msg(LOG_DEBUG,
+                                    "Reality shortId=%s (clientRandom недоступен)",
+                                    server->reality_short_id);
+                        }
+                    }
 
                     if (!server) {
                         relay_free(ds, r);

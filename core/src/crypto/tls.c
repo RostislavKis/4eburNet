@@ -405,3 +405,26 @@ const char *tls_last_error(void)
         return "нет ошибок";
     return tls_err_buf;
 }
+
+/* ------------------------------------------------------------------ */
+/*  tls_get_client_random — извлечь clientRandom из TLS сессии        */
+/* ------------------------------------------------------------------ */
+
+int tls_get_client_random(const tls_conn_t *conn, uint8_t *buf, size_t buflen)
+{
+    if (!conn || !conn->ssl || !conn->connected || !buf || buflen == 0)
+        return -1;
+
+    /* wolfSSL_get_client_random доступен при OPENSSL_EXTRA (DEC-025) */
+#ifdef OPENSSL_EXTRA
+    size_t n = wolfSSL_get_client_random(
+                    (const WOLFSSL *)conn->ssl,
+                    buf,
+                    buflen < 32 ? buflen : 32);
+    return (n > 0) ? (int)n : -1;
+#else
+    /* OPENSSL_EXTRA не включён — clientRandom недоступен */
+    (void)buf; (void)buflen;
+    return -1;
+#endif
+}

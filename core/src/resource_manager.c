@@ -1,4 +1,5 @@
 #include "resource_manager.h"
+#include "device.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,6 +80,18 @@ bool rm_quic_enabled(DeviceProfile profile)
     case DEVICE_FULL:   return true;
     }
     return false;
+}
+
+/* ── device.h API — тонкие обёртки (DEC-013) ───────────────────────────── */
+
+DeviceProfile device_detect_profile(void)
+{
+    return rm_detect_profile();
+}
+
+const char *device_profile_name(DeviceProfile p)
+{
+    return rm_profile_name(p);
 }
 
 void rm_apply_oom_settings(void)
