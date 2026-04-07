@@ -616,6 +616,9 @@ int main(int argc, char *argv[])
                     if (dns_server_init(&dns_state, &cfg) == 0)
                         dns_server_register_epoll(&dns_state, master_epoll);
                 }
+                /* Обновить fake-ip указатель в dispatcher после reload */
+                dispatcher_set_fake_ip(
+                    dns_state.fake_ip_ready ? &dns_state.fake_ip : NULL);
                 if (cfg.device_count > 0 && cfg.lan_interface[0]) {
                     device_policy_free(&device_state);
                     device_policy_init(&device_state, &cfg);
