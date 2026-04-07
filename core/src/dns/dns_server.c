@@ -412,7 +412,17 @@ static void handle_udp_query(dns_server_t *ds)
         return;
     }
 
-    /* DoH/DoT — async через pool (sync fallback если пул полон) */
+    /* BYPASS домены НИКОГДА не идут через DoH/DoT proxy.
+       Это предотвращает DNS утечку паттерна трафика. */
+    if (action == DNS_ACTION_BYPASS) {
+        if (!ds->cfg->dns.upstream_bypass[0])
+            log_msg(LOG_WARN,
+                "DNS: upstream_bypass не задан, "
+                "RU домены могут утекать через прокси");
+        goto udp_upstream;
+    }
+
+    /* DoH/DoT — только для PROXY доменов, async через pool */
     if (action == DNS_ACTION_PROXY) {
         const DnsConfig *d = &ds->cfg->dns;
         if ((d->doh_enabled && d->doh_url[0]) ||
@@ -482,6 +492,7 @@ static void handle_udp_query(dns_server_t *ds)
     }
 
     /* Обычный UDP upstream — неблокирующий async путь */
+    udp_upstream:;
     const char *upstream_ip = NULL;
     uint16_t upstream_port = 53;
     if (!resolve_upstream_addr(ds, action, &upstream_ip, &upstream_port)) {

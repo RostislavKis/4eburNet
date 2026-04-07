@@ -58,6 +58,11 @@ typedef struct {
     int      cache_ttl_min;          /* минимальный TTL кэша, 0=выключено */
     /* Parallel query (C5) */
     bool     parallel_query;         /* отправить запрос на primary+fallback одновременно */
+    /* Fake-IP режим (C4) */
+    bool     fake_ip_enabled;        /* включить fake-ip для PROXY доменов */
+    char     fake_ip_range[64];      /* пул, например "198.18.0.0/15" */
+    int      fake_ip_pool_size;      /* макс. записей, 0 = авто по профилю */
+    int      fake_ip_ttl;            /* TTL fake-ip ответов, сек, 0 = 60 */
 } DnsConfig;
 
 /* Тип upstream для nameserver-policy */
@@ -189,6 +194,7 @@ typedef struct PhoenixConfig {
     int                   traffic_rule_count;
     char                  geo_region[8];   /* "ru","cn","us","" — явный конфиг региона */
     char                  geo_dir[256];    /* директория с geo-файлами, "" = /etc/phoenix/geo */
+    bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
 } PhoenixConfig;
 
 /* Загрузка конфига из UCI-файла, возвращает 0 при успехе */
