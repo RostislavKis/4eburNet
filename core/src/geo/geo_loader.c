@@ -101,7 +101,13 @@ static bool parse_cidr4(const char *line, geo_cidr4_t *out)
     snprintf(buf, sizeof(buf), "%s", line);
     char *slash = strchr(buf, '/');
     int prefix = 32;
-    if (slash) { *slash = '\0'; prefix = atoi(slash + 1); }
+    if (slash) {
+        *slash = '\0';
+        char *endptr;
+        long pval = strtol(slash + 1, &endptr, 10);
+        if (endptr == slash + 1 || *endptr != '\0') return false;
+        prefix = (int)pval;
+    }
     if (prefix < 0 || prefix > 32) return false;
 
     struct in_addr addr;
@@ -120,7 +126,13 @@ static bool parse_cidr6(const char *line, geo_cidr6_t *out)
     snprintf(buf, sizeof(buf), "%s", line);
     char *slash = strchr(buf, '/');
     int prefix = 128;
-    if (slash) { *slash = '\0'; prefix = atoi(slash + 1); }
+    if (slash) {
+        *slash = '\0';
+        char *endptr;
+        long pval = strtol(slash + 1, &endptr, 10);
+        if (endptr == slash + 1 || *endptr != '\0') return false;
+        prefix = (int)pval;
+    }
     if (prefix < 0 || prefix > 128) return false;
 
     struct in6_addr addr6;
@@ -162,18 +174,25 @@ geo_region_t device_detect_region(geo_manager_t *gm,
             *q2 = '\0';
             const char *tz = q1 + 1;
 
-            /* RU timezones */
-            if (strncmp(tz, "Europe/", 7) == 0  ||
-                strstr(tz, "Yekaterinburg")      ||
-                strstr(tz, "Omsk")               ||
-                strstr(tz, "Novosibirsk")        ||
-                strstr(tz, "Krasnoyarsk")        ||
-                strstr(tz, "Irkutsk")            ||
-                strstr(tz, "Yakutsk")            ||
-                strstr(tz, "Vladivostok")        ||
-                strstr(tz, "Magadan")            ||
-                strstr(tz, "Kamchatka")          ||
-                strstr(tz, "Sakhalin")           ||
+            /* RU timezones — явный список, Europe-Berlin/Paris и пр. исключены */
+            if (strncmp(tz, "Europe/Moscow",     13) == 0 ||
+                strncmp(tz, "Europe/Kaliningrad", 17) == 0 ||
+                strncmp(tz, "Europe/Samara",     13) == 0 ||
+                strncmp(tz, "Europe/Ulyanovsk",  16) == 0 ||
+                strncmp(tz, "Europe/Volgograd",  16) == 0 ||
+                strncmp(tz, "Europe/Saratov",    14) == 0 ||
+                strncmp(tz, "Europe/Kirov",      13) == 0 ||
+                strncmp(tz, "Europe/Astrakhan",  16) == 0 ||
+                strstr(tz, "Yekaterinburg")            ||
+                strstr(tz, "Omsk")                     ||
+                strstr(tz, "Novosibirsk")              ||
+                strstr(tz, "Krasnoyarsk")              ||
+                strstr(tz, "Irkutsk")                  ||
+                strstr(tz, "Yakutsk")                  ||
+                strstr(tz, "Vladivostok")              ||
+                strstr(tz, "Magadan")                  ||
+                strstr(tz, "Kamchatka")                ||
+                strstr(tz, "Sakhalin")                 ||
                 strstr(tz, "Moscow")) {
                 fclose(f);
                 log_msg(LOG_INFO, "Регион: RU (timezone %s)", tz);
