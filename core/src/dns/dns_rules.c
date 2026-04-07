@@ -106,6 +106,51 @@ int dns_rules_load_file(const char *path, dns_action_t action)
     return loaded;
 }
 
+/* Матч паттерна policy: exact, *.suffix, .suffix */
+static bool policy_pattern_match(const char *pattern, const char *domain)
+{
+    if (!pattern[0] || !domain[0]) return false;
+
+    /* *.suffix или .suffix — suffix match */
+    const char *sfx = pattern;
+    if (sfx[0] == '*' && sfx[1] == '.') sfx += 2;
+    else if (sfx[0] == '.') sfx += 1;
+    else {
+        /* Точное совпадение (case-insensitive) */
+        return (strcasecmp(pattern, domain) == 0);
+    }
+
+    /* Суффикс: domain должен совпадать с sfx или заканчиваться на ".sfx" */
+    if (strcasecmp(domain, sfx) == 0)
+        return true;
+    size_t dlen = strlen(domain);
+    size_t slen = strlen(sfx);
+    if (dlen > slen + 1 &&
+        domain[dlen - slen - 1] == '.' &&
+        strcasecmp(domain + dlen - slen, sfx) == 0)
+        return true;
+    return false;
+}
+
+const DnsPolicy *dns_policy_match(const DnsPolicy *policies,
+                                   int count,
+                                   const char *domain)
+{
+    if (!policies || count <= 0 || !domain || !domain[0])
+        return NULL;
+
+    const DnsPolicy *best = NULL;
+    for (int i = 0; i < count; i++) {
+        if (!policies[i].pattern[0]) continue;
+        if (!policy_pattern_match(policies[i].pattern, domain))
+            continue;
+        /* Выбрать с наименьшим priority */
+        if (!best || policies[i].priority < best->priority)
+            best = &policies[i];
+    }
+    return best;
+}
+
 /* Проверить суффикс: qname оканчивается на suffix */
 static bool suffix_match(const char *qname, const char *suffix)
 {

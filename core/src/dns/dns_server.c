@@ -293,7 +293,106 @@ static void handle_udp_query(dns_server_t *ds)
         return;
     }
 
-    /* Определить action */
+    /* Nameserver-policy: проверить до стандартного routing */
+    const DnsPolicy *policy = dns_policy_match(
+        ds->cfg->dns_policies,
+        ds->cfg->dns_policy_count,
+        q.qname);
+
+    if (policy && policy->upstream[0]) {
+        log_msg(LOG_DEBUG, "DNS: %s -> policy upstream %s (type=%d)",
+                q.qname, policy->upstream, policy->type);
+
+        uint16_t up_port = policy->port > 0
+            ? policy->port
+            : dns_policy_default_port(policy->type);
+
+        if (policy->type == DNS_UPSTREAM_UDP) {
+            /* UDP: через существующий pending queue */
+            int idx = dns_pending_add(&ds->pending, &q, pkt, n,
+                                      &client_addr, client_len,
+                                      DNS_ACTION_DEFAULT,
+                                      policy->upstream, up_port);
+            if (idx >= 0) {
+                struct epoll_event ev = {
+                    .events  = EPOLLIN,
+                    .data.fd = ds->pending.slots[idx].upstream_fd,
+                };
+                epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
+                          ds->pending.slots[idx].upstream_fd, &ev);
+                return;
+            }
+            log_msg(LOG_WARN, "DNS policy: pending полон, fallback");
+        } else if (policy->type == DNS_UPSTREAM_DOT) {
+            /* DoT: async если доступен */
+            DnsConfig policy_cfg = ds->cfg->dns;
+            {
+                size_t ulen = strlen(policy->upstream);
+                if (ulen >= sizeof(policy_cfg.dot_server_ip))
+                    ulen = sizeof(policy_cfg.dot_server_ip) - 1;
+                memcpy(policy_cfg.dot_server_ip, policy->upstream, ulen);
+                policy_cfg.dot_server_ip[ulen] = '\0';
+            }
+            policy_cfg.dot_port    = up_port;
+            policy_cfg.dot_enabled = true;
+            if (policy->sni[0])
+                snprintf(policy_cfg.dot_sni,
+                         sizeof(policy_cfg.dot_sni),
+                         "%s", policy->sni);
+
+            dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
+            if (ctx) {
+                ctx->ds             = ds;
+                ctx->client_addr    = client_addr;
+                ctx->client_addrlen = client_len;
+                ctx->query          = q;
+                snprintf(ctx->qname, sizeof(ctx->qname),
+                         "%s", q.qname);
+                ctx->qtype = q.qtype;
+                if (async_dns_dot_start(&ds->async_pool,
+                                        &policy_cfg,
+                                        pkt, (size_t)n, q.id,
+                                        async_doh_dot_cb, ctx) == 0)
+                    return;
+                free(ctx);
+            }
+            log_msg(LOG_WARN, "DNS policy DoT: async failed, fallback");
+        } else if (policy->type == DNS_UPSTREAM_DOH) {
+            /* DoH: async если доступен */
+            DnsConfig policy_cfg = ds->cfg->dns;
+            snprintf(policy_cfg.doh_url,
+                     sizeof(policy_cfg.doh_url),
+                     "%s", policy->upstream);
+            policy_cfg.doh_port    = up_port;
+            policy_cfg.doh_enabled = true;
+            if (policy->sni[0])
+                snprintf(policy_cfg.doh_sni,
+                         sizeof(policy_cfg.doh_sni),
+                         "%s", policy->sni);
+            policy_cfg.doh_ip[0] = '\0';  /* использовать URL */
+
+            dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
+            if (ctx) {
+                ctx->ds             = ds;
+                ctx->client_addr    = client_addr;
+                ctx->client_addrlen = client_len;
+                ctx->query          = q;
+                snprintf(ctx->qname, sizeof(ctx->qname),
+                         "%s", q.qname);
+                ctx->qtype = q.qtype;
+                if (async_dns_doh_start(&ds->async_pool,
+                                        &policy_cfg,
+                                        pkt, (size_t)n, q.id,
+                                        async_doh_dot_cb, ctx) == 0)
+                    return;
+                free(ctx);
+            }
+            log_msg(LOG_WARN, "DNS policy DoH: async failed, fallback");
+        }
+        /* Fallback: продолжаем со стандартным routing */
+    }
+
+    /* Определить action — стандартный routing */
     dns_action_t action = dns_rules_match(q.qname);
 
     /* BLOCK — мгновенный NXDOMAIN, без upstream */
