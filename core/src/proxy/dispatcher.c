@@ -15,6 +15,7 @@
 #include "proxy/protocols/shadowsocks.h"
 #include "proxy/protocols/awg.h"
 #include "proxy/rules_engine.h"
+#include "proxy/sniffer.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -752,7 +753,16 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     /* Выбрать сервер через health-check */
     int idx;
     if (g_rules_engine && g_rules_engine->rule_count > 0) {
-        idx = rules_engine_get_server(g_rules_engine, NULL, &conn->dst);
+        /* 3.6: SNI sniffer — извлечь домен из TLS ClientHello */
+        char sni[256] = {0};
+        const char *domain = NULL;
+        if (conn->fd >= 0) {
+            if (sniffer_peek_sni(conn->fd, sni, sizeof(sni)) > 0) {
+                domain = sni;
+                log_msg(LOG_DEBUG, "SNI sniffer: %s", sni);
+            }
+        }
+        idx = rules_engine_get_server(g_rules_engine, domain, &conn->dst);
         if (idx == -2) {
             log_msg(LOG_DEBUG, "relay: REJECT (rules engine)");
             close(conn->fd);
