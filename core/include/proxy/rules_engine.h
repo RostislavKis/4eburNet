@@ -4,6 +4,7 @@
 #include "config.h"
 #include "proxy/proxy_group.h"
 #include "proxy/rule_provider.h"
+#include "geo/geo_loader.h"
 #include <sys/socket.h>
 
 typedef enum {
@@ -21,6 +22,7 @@ typedef struct rules_engine {
     const PhoenixConfig      *cfg;
     proxy_group_manager_t    *pgm;
     rule_provider_manager_t  *rpm;
+    geo_manager_t            *gm;   /* NULL если geo не инициализирован */
     /* Сортированные правила (по priority ASC) */
     TrafficRule              *sorted_rules;
     int                       rule_count;
@@ -28,7 +30,8 @@ typedef struct rules_engine {
 
 int  rules_engine_init(rules_engine_t *re, const PhoenixConfig *cfg,
                        proxy_group_manager_t *pgm,
-                       rule_provider_manager_t *rpm);
+                       rule_provider_manager_t *rpm,
+                       geo_manager_t *gm);
 void rules_engine_free(rules_engine_t *re);
 
 /* Определить target: domain может быть NULL */
