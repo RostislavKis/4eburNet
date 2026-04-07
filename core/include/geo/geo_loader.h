@@ -43,6 +43,13 @@ typedef struct {
     uint8_t prefix;  /* длина префикса (0..128) */
 } geo_cidr6_t;
 
+/* Patricia trie для O(32) IPv4 CIDR lookup */
+typedef struct ptrie_node {
+    struct ptrie_node *child[2];  /* [0]=left, [1]=right */
+    geo_region_t       region;    /* GEO_REGION_UNKNOWN = промежуточный */
+    bool               terminal;  /* true = здесь есть CIDR запись */
+} ptrie_node_t;
+
 /* ── Категория (один файл/провайдер) ────────────────────────────────────── */
 
 typedef struct {
@@ -66,6 +73,8 @@ typedef struct {
     /* Суффиксы (отсортированы для bsearch) */
     char       **suffixes;
     int          suffix_count;
+
+    ptrie_node_t *trie_v4;  /* Patricia trie для IPv4 (NULL = не построен) */
 
     bool loaded;
 } geo_category_t;
