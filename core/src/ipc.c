@@ -113,17 +113,22 @@ void ipc_process(int server_fd, PhoenixState *state)
         return;
 
     /* Только root может управлять демоном через IPC */
-    struct ucred cred;
+    struct ucred cred = {0};
     socklen_t cred_len = sizeof(cred);
+    /* Fail-secure: если PEERCRED недоступен — отклоняем */
     if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED,
-                   &cred, &cred_len) == 0) {
-        if (cred.uid != 0) {
-            log_msg(LOG_WARN,
-                "IPC: отклонён non-root клиент (uid=%u)",
-                (unsigned)cred.uid);
-            close(client_fd);
-            return;
-        }
+                   &cred, &cred_len) != 0) {
+        log_msg(LOG_WARN,
+            "IPC: SO_PEERCRED недоступен, соединение отклонено");
+        close(client_fd);
+        return;
+    }
+    if (cred.uid != 0) {
+        log_msg(LOG_WARN,
+            "IPC: отклонён non-root клиент (uid=%u)",
+            (unsigned)cred.uid);
+        close(client_fd);
+        return;
     }
 
     /* Читаем заголовок команды (MSG_DONTWAIT — не блокируем) (H-10) */
