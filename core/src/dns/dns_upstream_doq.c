@@ -391,6 +391,9 @@ static int hkdf_expand_label_sha256(const uint8_t *prk, size_t prklen,
     size_t  plen = 6;
     size_t  llen = strlen(label);
 
+    /* info = 2 + 1 + plen + llen + 1; max label в RFC 9001 = 15 байт → 25 */
+    if (2 + 1 + plen + llen + 1 > sizeof(info)) return -1;
+
     info[pos++] = (uint8_t)(outlen >> 8);
     info[pos++] = (uint8_t)(outlen & 0xFFu);
     info[pos++] = (uint8_t)(plen + llen);
@@ -488,9 +491,10 @@ static int doq_conn_flush_hs(doq_conn_t *dc)
         dc->recv_need_ack[ki] = 0;
     }
 
-    /* CRYPTO frame с TLS данными (offset всегда 0 — мы очищаем буфер) */
+    /* CRYPTO frame с TLS данными — offset накапливается per уровень */
     flen += frame_crypto(frames + flen, sizeof(frames) - flen,
-                          0, dc->hs_buf, dc->hs_buf_len);
+                          dc->hs_offset[ki], dc->hs_buf, dc->hs_buf_len);
+    dc->hs_offset[ki] += dc->hs_buf_len;
     dc->hs_buf_len = 0;
 
     uint8_t out[DOQ_MAX_PKT + 64u];
@@ -897,6 +901,9 @@ int doq_query_start(doq_pool_t *pool, const DnsConfig *cfg,
                      const uint8_t *query, size_t query_len,
                      doq_response_cb_t cb, void *cb_ctx)
 {
+    /* Валидация входных данных до занятия stream slot */
+    if (!query || query_len < 12 || query_len > 512) return -1;
+
     /* Найти READY соединение со свободным stream */
     doq_conn_t *dc = NULL;
     for (int i = 0; i < pool->count && !dc; i++) {
@@ -936,7 +943,6 @@ int doq_query_start(doq_pool_t *pool, const DnsConfig *cfg,
         st->orig_qid = ((uint16_t)query[0] << 8) | query[1];
 
     /* DoQ payload: 2-byte length + DNS с ID=0 (RFC 9250 §4.2.1) */
-    if (query_len > 512) return -1;
     uint8_t doq_buf[2 + 512];
     doq_buf[0] = (uint8_t)(query_len >> 8);
     doq_buf[1] = (uint8_t)(query_len & 0xFFu);
