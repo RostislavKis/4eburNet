@@ -298,9 +298,6 @@ int main(int argc, char *argv[])
             device_relay_buf(state.profile) / 1024,
             device_max_conns(state.profile),
             device_dns_pending(state.profile));
-    /* TODO DEC-013: DNS_PENDING_MAX хардкожен в dns_resolver.h=64 (FULL).
-       При профиле MICRO/NORMAL использует лишнюю память. Исправить в 3.6. */
-
     /* Настройка OOM */
     rm_apply_oom_settings();
 

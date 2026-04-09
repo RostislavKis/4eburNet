@@ -9,9 +9,6 @@
 #include "dns/dns_packet.h"
 #include "dns/dns_rules.h"
 
-/* Максимальное число параллельных DNS запросов */
-#define DNS_PENDING_MAX  64
-
 /* Ожидающий DNS запрос */
 typedef struct {
     bool      active;
@@ -38,13 +35,15 @@ typedef struct {
     int      tcp_client_idx;        /* индекс в ds->tcp_clients[], -1 = UDP клиент */
 } dns_pending_t;
 
-/* Очередь ожидающих запросов */
+/* Очередь ожидающих запросов (heap, capacity по профилю устройства) */
 typedef struct {
-    dns_pending_t slots[DNS_PENDING_MAX];
-    int           count;
+    dns_pending_t *slots;    /* heap, capacity элементов */
+    int            count;
+    int            capacity;
 } dns_pending_queue_t;
 
-void dns_pending_init(dns_pending_queue_t *q);
+int  dns_pending_init(dns_pending_queue_t *q, int capacity);
+void dns_pending_free(dns_pending_queue_t *q);
 
 int dns_pending_add(dns_pending_queue_t *q,
                     const dns_query_t *query,

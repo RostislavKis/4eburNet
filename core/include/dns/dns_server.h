@@ -18,9 +18,6 @@
 #define DNS_RATE_TABLE_NORMAL  256
 #define DNS_RATE_TABLE_FULL    512
 
-/* Максимум параллельных TCP DNS клиентов */
-#define DNS_TCP_MAX_CLIENTS  4
-
 /* Состояния TCP DNS клиента */
 typedef enum {
     DNS_TCP_READING_LEN = 0,  /* ждём 2-байтный length prefix */
@@ -62,8 +59,9 @@ typedef struct {
     /* Per-source rate limiting (heap, размер по профилю) */
     dns_rate_entry_t *rate_table;
     int               rate_table_size;
-    /* TCP DNS клиенты — async state machine */
-    dns_tcp_client_t  tcp_clients[DNS_TCP_MAX_CLIENTS];
+    /* TCP DNS клиенты — async state machine (heap, tcp_clients_count элементов) */
+    dns_tcp_client_t *tcp_clients;
+    int               tcp_clients_count;
 #if CONFIG_PHOENIX_DOH
     /* Async DoH/DoT pool (инициализируется в dns_server_register_epoll) */
     async_dns_pool_t async_pool;
