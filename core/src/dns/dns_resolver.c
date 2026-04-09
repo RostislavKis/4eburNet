@@ -127,6 +127,7 @@ void dns_pending_complete(dns_pending_queue_t *q, int idx, int epoll_fd)
     /* H-12: bounds check */
     if (idx < 0 || idx >= DNS_PENDING_MAX) return;
     dns_pending_t *p = &q->slots[idx];
+    if (!p->active) return;  /* F1: guard против двойного вызова */
     /* Закрыть fallback fd если активен */
     if (p->fallback_fd >= 0) {
         if (epoll_fd >= 0)
