@@ -12,15 +12,28 @@
 #include <time.h>
 #include <errno.h>
 
-void dns_pending_init(dns_pending_queue_t *q)
+int dns_pending_init(dns_pending_queue_t *q, int capacity)
 {
-    memset(q, 0, sizeof(*q));
-    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+    if (capacity <= 0) return -1;
+    q->slots = calloc((size_t)capacity, sizeof(dns_pending_t));
+    if (!q->slots) return -1;
+    q->capacity = capacity;
+    q->count    = 0;
+    for (int i = 0; i < capacity; i++) {
         q->slots[i].upstream_fd    = -1;
         q->slots[i].fallback_fd    = -1;
         q->slots[i].parallel_fd    = -1;
         q->slots[i].tcp_client_idx = -1;
     }
+    return 0;
+}
+
+void dns_pending_free(dns_pending_queue_t *q)
+{
+    free(q->slots);
+    q->slots    = NULL;
+    q->capacity = 0;
+    q->count    = 0;
 }
 
 int dns_pending_add(dns_pending_queue_t *q,
@@ -34,7 +47,7 @@ int dns_pending_add(dns_pending_queue_t *q,
 {
     /* Найти свободный слот */
     int idx = -1;
-    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+    for (int i = 0; i < q->capacity; i++) {
         if (!q->slots[i].active) { idx = i; break; }
     }
     if (idx < 0) return -1;
@@ -113,7 +126,7 @@ int dns_pending_add(dns_pending_queue_t *q,
 
 dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd)
 {
-    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+    for (int i = 0; i < q->capacity; i++) {
         if (!q->slots[i].active) continue;
         if (q->slots[i].upstream_fd == fd) return &q->slots[i];
         if (q->slots[i].fallback_fd  == fd) return &q->slots[i];
@@ -125,7 +138,7 @@ dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd)
 void dns_pending_complete(dns_pending_queue_t *q, int idx, int epoll_fd)
 {
     /* H-12: bounds check */
-    if (idx < 0 || idx >= DNS_PENDING_MAX) return;
+    if (idx < 0 || idx >= q->capacity) return;
     dns_pending_t *p = &q->slots[idx];
     if (!p->active) return;  /* F1: guard против двойного вызова */
     /* Закрыть fallback fd если активен */
@@ -158,7 +171,7 @@ void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd)
 
     #define DNS_TIMEOUT_SEC 2
 
-    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+    for (int i = 0; i < q->capacity; i++) {
         dns_pending_t *p = &q->slots[i];
         if (!p->active) continue;
         long elapsed_sec = now_mono.tv_sec - p->sent_at.tv_sec;
@@ -221,7 +234,7 @@ int dns_pending_add_tcp(dns_pending_queue_t *q,
                         int tcp_client_idx)
 {
     int idx = -1;
-    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+    for (int i = 0; i < q->capacity; i++) {
         if (!q->slots[i].active) { idx = i; break; }
     }
     if (idx < 0) return -1;

@@ -55,6 +55,20 @@ static inline int device_dns_pending(DeviceProfile p)
     }
 }
 
+/* ── DNS TCP клиенты ─────────────────────────────────────────────── */
+#define DNS_TCP_CLIENTS_MICRO   2
+#define DNS_TCP_CLIENTS_NORMAL  4
+#define DNS_TCP_CLIENTS_FULL    8
+
+static inline int device_dns_tcp_clients(DeviceProfile p)
+{
+    switch (p) {
+    case DEVICE_MICRO:  return DNS_TCP_CLIENTS_MICRO;
+    case DEVICE_NORMAL: return DNS_TCP_CLIENTS_NORMAL;
+    default:            return DNS_TCP_CLIENTS_FULL;
+    }
+}
+
 /* ── Определение профиля ─────────────────────────────────────────────────── */
 
 /* Определить профиль по /proc/meminfo MemTotal.
