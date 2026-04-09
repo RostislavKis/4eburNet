@@ -138,6 +138,12 @@ int quic_keys_derive(quic_keys_t *keys,
     return 0;
 }
 
+/* Публичная обёртка над init_hp_ctx — для Initial keys вне quic_keys_derive */
+int quic_hp_init(quic_hp_ctx_t *ctx, const uint8_t *key, size_t key_len)
+{
+    return init_hp_ctx(ctx, key, key_len);
+}
+
 /* ── AEAD защита пакетов ─────────────────────────────────────── */
 
 /* Nonce = iv_base XOR pn big-endian (RFC 9001 §5.3) */
@@ -275,3 +281,6 @@ void quic_hp_remove(quic_hp_ctx_t *ctx,
 }
 
 #endif /* CONFIG_PHOENIX_DOQ */
+
+/* заглушка: подавить предупреждение "empty translation unit" */
+typedef int quic_c_module_t;

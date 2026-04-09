@@ -59,6 +59,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dns/dns_server.c \
           $(SRCDIR)/dns/dns_resolver.c \
           $(SRCDIR)/dns/fake_ip.c \
+          $(SRCDIR)/dns/dns_upstream_doq.c \
+          $(SRCDIR)/crypto/quic.c \
           $(SRCDIR)/geo/geo_loader.c
 TARGET = $(BUILDDIR)/phoenixd
 

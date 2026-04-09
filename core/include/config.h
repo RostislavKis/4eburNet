@@ -66,6 +66,11 @@ typedef struct {
     char     fake_ip_range[64];      /* пул, например "198.18.0.0/15" */
     int      fake_ip_pool_size;      /* макс. записей, 0 = авто по профилю */
     int      fake_ip_ttl;            /* TTL fake-ip ответов, сек, 0 = 60 */
+    /* DNS-over-QUIC (DoQ, RFC 9250) */
+    bool     doq_enabled;            /* включить DoQ upstream */
+    char     doq_server_ip[64];      /* IP адрес DoQ сервера */
+    uint16_t doq_server_port;        /* порт (0 = 853) */
+    char     doq_sni[256];           /* SNI для TLS-рукопожатия */
 } DnsConfig;
 
 /* Тип upstream для nameserver-policy */

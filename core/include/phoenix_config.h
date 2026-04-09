@@ -44,4 +44,9 @@
 #define CONFIG_PHOENIX_SNIFFER 1
 #endif
 
+/* DNS-over-QUIC (требует wolfSSL --enable-quic, не поддерживается на MICRO) */
+#ifndef CONFIG_PHOENIX_DOQ
+#define CONFIG_PHOENIX_DOQ 1
+#endif
+
 #endif /* PHOENIX_CONFIG_H */
