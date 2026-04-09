@@ -1395,8 +1395,10 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 /* AWG → client */
                 int arc = awg_process_incoming(r->awg);
                 if (arc == 2) {
-                    uint8_t buf[2048];
-                    ssize_t n = awg_recv(r->awg, buf, sizeof(buf));
+                    /* heap буфер relay_buf вместо 2KB стека (audit v8 F7) */
+                    uint8_t *buf = ds->relay_buf;
+                    size_t   buf_sz = ds->relay_buf_size;
+                    ssize_t n = awg_recv(r->awg, buf, buf_sz);
                     if (n > 0) {
                         ssize_t wr = write(r->client_fd, buf, (size_t)n);
                         if (wr < 0) {

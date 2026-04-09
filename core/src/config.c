@@ -620,7 +620,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
             }
         } else if (strcmp(keyword, "list") == 0) {
             /* Списки пока не поддержаны */
-            log_msg(LOG_INFO, "Строка %d: 'list' пока не поддерживается", line_num);
+            log_msg(LOG_WARN, "Строка %d: 'list' не поддерживается", line_num);
         } else {
             log_msg(LOG_WARN, "Строка %d: неизвестное ключевое слово '%s'",
                     line_num, keyword);
