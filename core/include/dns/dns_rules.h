@@ -19,6 +19,9 @@ dns_action_t dns_rules_match(const char *qname);
 /* Загрузить домены из файла */
 int dns_rules_load_file(const char *path, dns_action_t action);
 
+/* Перестроить sorted index после загрузки правил */
+void dns_rules_rebuild_index(void);
+
 /*
  * Проверить что ответ содержит bogus IP (redirect NXDOMAIN от ISP).
  * bogus_list — пробел-разделённый список IP (из конфига bogus_nxdomain).

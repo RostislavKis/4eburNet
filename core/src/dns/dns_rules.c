@@ -17,6 +17,82 @@ static struct {
     int           capacity;
 } g_rules = {0};
 
+/* ── Sorted index для O(log n) поиска ── */
+
+typedef struct {
+    const char  *key;    /* для exact: сам паттерн
+                            для suffix: паттерн + 2 (без "*.") */
+    dns_action_t action;
+} rule_idx_t;
+
+static struct {
+    rule_idx_t *exact;    /* sorted by key (strcmp) */
+    int         exact_n;
+    rule_idx_t *suffix;   /* sorted by key (strcmp), key = pat+2 */
+    int         suffix_n;
+    bool        ready;    /* true если индекс успешно построен */
+} g_idx = {0};
+
+static void idx_free(void)
+{
+    free(g_idx.exact);
+    free(g_idx.suffix);
+    memset(&g_idx, 0, sizeof(g_idx));
+}
+
+static int cmp_rule_idx(const void *a, const void *b)
+{
+    const rule_idx_t *ra = (const rule_idx_t *)a;
+    const rule_idx_t *rb = (const rule_idx_t *)b;
+    int c = strcmp(ra->key, rb->key);
+    if (c != 0) return c;
+    /* При совпадении ключа: block первым, затем bypass, proxy, default */
+    static const int prio[4] = {1, 2, 0, 3};  /* indexed by dns_action_t */
+    return prio[(int)ra->action] - prio[(int)rb->action];
+}
+
+void dns_rules_rebuild_index(void)
+{
+    idx_free();
+    if (g_rules.count == 0) return;
+
+    g_idx.exact  = malloc((size_t)g_rules.count * sizeof(rule_idx_t));
+    g_idx.suffix = malloc((size_t)g_rules.count * sizeof(rule_idx_t));
+    if (!g_idx.exact || !g_idx.suffix) {
+        idx_free();
+        log_msg(LOG_WARN,
+            "DNS rules: не удалось создать индекс (OOM), fallback O(n)");
+        return;
+    }
+
+    int en = 0, sn = 0;
+    for (int i = 0; i < g_rules.count; i++) {
+        const char *pat = g_rules.patterns[i];
+        dns_action_t act = g_rules.actions[i];
+        if (pat[0] == '*' && pat[1] == '.') {
+            g_idx.suffix[sn++] = (rule_idx_t){
+                .key    = pat + 2,
+                .action = act,
+            };
+        } else {
+            g_idx.exact[en++] = (rule_idx_t){
+                .key    = pat,
+                .action = act,
+            };
+        }
+    }
+
+    qsort(g_idx.exact,  (size_t)en, sizeof(rule_idx_t), cmp_rule_idx);
+    qsort(g_idx.suffix, (size_t)sn, sizeof(rule_idx_t), cmp_rule_idx);
+
+    g_idx.exact_n  = en;
+    g_idx.suffix_n = sn;
+
+    log_msg(LOG_DEBUG, "DNS rules index: %d exact + %d suffix (total %d)",
+            en, sn, g_rules.count);
+    g_idx.ready = true;
+}
+
 int dns_rules_init(const PhoenixConfig *cfg)
 {
     dns_rules_free();
@@ -51,11 +127,13 @@ int dns_rules_init(const PhoenixConfig *cfg)
     }
 
     log_msg(LOG_INFO, "DNS правила загружены: %d записей", g_rules.count);
+    dns_rules_rebuild_index();
     return 0;
 }
 
 void dns_rules_free(void)
 {
+    idx_free();
     for (int i = 0; i < g_rules.count; i++)
         free(g_rules.patterns[i]);
     free(g_rules.patterns);
@@ -103,6 +181,7 @@ int dns_rules_load_file(const char *path, dns_action_t action)
     }
     fclose(f);
     log_msg(LOG_INFO, "DNS правила из %s: %d записей", path, loaded);
+    dns_rules_rebuild_index();
     return loaded;
 }
 
@@ -226,32 +305,73 @@ bool dns_is_bogus_response(const char *bogus_list,
     return false;
 }
 
+static dns_action_t idx_lookup(const rule_idx_t *arr, int n,
+                                const char *key)
+{
+    if (!arr || n == 0) return DNS_ACTION_DEFAULT;
+    rule_idx_t needle = { .key = key };
+    const rule_idx_t *found = (const rule_idx_t *)bsearch(
+        &needle, arr, (size_t)n, sizeof(rule_idx_t), cmp_rule_idx);
+    if (!found) return DNS_ACTION_DEFAULT;
+    /* bsearch может вернуть любой из дубликатов.
+       Откатиться к первому — он имеет наивысший приоритет
+       (cmp_rule_idx сортирует BLOCK первым). */
+    while (found > arr &&
+           strcmp((found - 1)->key, found->key) == 0)
+        found--;
+    return found->action;
+}
+
 dns_action_t dns_rules_match(const char *qname)
 {
-    /* Приоритет: block > bypass > proxy > default
-     * TODO v2: разделить exact/wildcard, qsort+bsearch для exact (M-29).
-     * Текущий O(n) допустим при count < 10K, при 300K+ нужна оптимизация. */
+    if (!qname || !qname[0]) return DNS_ACTION_DEFAULT;
+
+    /* Если индекс не построен (OOM при init) — fallback O(n) */
+    if (!g_idx.ready)
+        goto fallback;
+
     dns_action_t best = DNS_ACTION_DEFAULT;
 
+    /* 1. Exact lookup: O(log n) */
+    {
+        dns_action_t act = idx_lookup(g_idx.exact, g_idx.exact_n, qname);
+        if (act == DNS_ACTION_BLOCK) return DNS_ACTION_BLOCK;
+        if (act != DNS_ACTION_DEFAULT) {
+            if (best == DNS_ACTION_DEFAULT || act < best) best = act;
+        }
+    }
+
+    /* 2. Suffix lookup: проверить каждый уровень домена O(d × log n)
+       Для "api.example.com" проверяем: "example.com", "com" */
+    {
+        const char *p = qname;
+        while ((p = strchr(p, '.')) != NULL) {
+            p++;  /* шаг за точку */
+            if (!*p) break;  /* trailing dot */
+            dns_action_t act = idx_lookup(g_idx.suffix,
+                                           g_idx.suffix_n, p);
+            if (act == DNS_ACTION_BLOCK) return DNS_ACTION_BLOCK;
+            if (act != DNS_ACTION_DEFAULT) {
+                if (best == DNS_ACTION_DEFAULT || act < best) best = act;
+            }
+        }
+    }
+
+    return best;
+
+fallback:; /* OOM path: original O(n) */
+    best = DNS_ACTION_DEFAULT;
     for (int i = 0; i < g_rules.count; i++) {
         const char *pat = g_rules.patterns[i];
         dns_action_t act = g_rules.actions[i];
-
         bool matched = false;
-        if (pat[0] == '*' && pat[1] == '.') {
-            /* Wildcard: *.example.com */
+        if (pat[0] == '*' && pat[1] == '.')
             matched = suffix_match(qname, pat + 2);
-        } else {
-            /* Точное совпадение */
+        else
             matched = (strcmp(qname, pat) == 0);
-        }
-
         if (!matched) continue;
-
-        /* Приоритет: block(2) > bypass(0) > proxy(1) > default(3) */
         if (act == DNS_ACTION_BLOCK) return DNS_ACTION_BLOCK;
         if (act < best || best == DNS_ACTION_DEFAULT) best = act;
     }
-
     return best;
 }
