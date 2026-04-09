@@ -345,7 +345,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
                     ProxyProviderConfig *pp = &pp_tmp[pp_count++];
                     memset(pp, 0, sizeof(*pp));
                     pp->enabled = true;
-                    if (name[0])
+                    if (name && name[0])
                         snprintf(pp->name, sizeof(pp->name), "%s", name);
                 }
             } else if (strcmp(type, "rule_provider") == 0) {

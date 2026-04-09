@@ -21,6 +21,7 @@ typedef struct {
 typedef struct {
     proxy_provider_state_t *providers;
     int                     count;
+    int                     round_robin;  /* индекс следующего провайдера для tick */
     PhoenixConfig          *cfg;   /* не const — меняем provider_servers */
 } proxy_provider_manager_t;
 

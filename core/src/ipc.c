@@ -206,9 +206,54 @@ void ipc_process(int server_fd, PhoenixState *state)
         }
         break;
 
-    case IPC_CMD_GROUP_SELECT:
-        ipc_respond(client_fd, "{\"status\":\"not_implemented\"}");
+    case IPC_CMD_GROUP_SELECT: {
+        /* Ожидаем payload: {"group":"name","server":"name"} */
+        char payload[IPC_RESPONSE_MAX] = {0};
+        if (hdr.length > 0) {
+            ssize_t pr = recv(client_fd, payload, hdr.length, MSG_DONTWAIT);
+            if (pr > 0) payload[pr] = '\0';
+        }
+        char grp[64] = {0}, srv[64] = {0};
+        const char *gp = strstr(payload, "\"group\":\"");
+        if (gp) {
+            gp += 9;
+            const char *ge = strchr(gp, '"');
+            if (ge && (size_t)(ge - gp) < sizeof(grp))
+                snprintf(grp, sizeof(grp), "%.*s", (int)(ge - gp), gp);
+        }
+        const char *sp = strstr(payload, "\"server\":\"");
+        if (sp) {
+            sp += 10;
+            const char *se = strchr(sp, '"');
+            if (se && (size_t)(se - sp) < sizeof(srv))
+                snprintf(srv, sizeof(srv), "%.*s", (int)(se - sp), sp);
+        }
+        if (grp[0] && srv[0] && g_pgm) {
+            /* Найти server_idx по имени сервера в cfg->servers[] */
+            int srv_idx = -1;
+            for (int si = 0; si < g_pgm->cfg->server_count; si++) {
+                if (strcmp(g_pgm->cfg->servers[si].name, srv) == 0) {
+                    srv_idx = si;
+                    break;
+                }
+            }
+            int r = (srv_idx >= 0)
+                    ? proxy_group_select_manual(g_pgm, grp, srv_idx)
+                    : -1;
+            if (r == 0)
+                ipc_respond(client_fd, "{\"status\":\"ok\"}");
+            else
+                ipc_respond(client_fd,
+                    "{\"status\":\"error\",\"msg\":\"group or server not found\"}");
+        } else if (!g_pgm) {
+            ipc_respond(client_fd,
+                "{\"status\":\"error\",\"msg\":\"no groups\"}");
+        } else {
+            ipc_respond(client_fd,
+                "{\"status\":\"error\",\"msg\":\"missing group or server\"}");
+        }
         break;
+    }
 
     case IPC_CMD_GROUP_TEST:
         if (g_pgm) {
@@ -228,9 +273,36 @@ void ipc_process(int server_fd, PhoenixState *state)
         }
         break;
 
-    case IPC_CMD_PROVIDER_UPDATE:
-        ipc_respond(client_fd, "{\"status\":\"not_implemented\"}");
+    case IPC_CMD_PROVIDER_UPDATE: {
+        char payload[IPC_RESPONSE_MAX] = {0};
+        if (hdr.length > 0) {
+            ssize_t pr = recv(client_fd, payload, hdr.length, MSG_DONTWAIT);
+            if (pr > 0) payload[pr] = '\0';
+        }
+        char pname[64] = {0};
+        const char *np = strstr(payload, "\"name\":\"");
+        if (np) {
+            np += 8;
+            const char *ne = strchr(np, '"');
+            if (ne && (size_t)(ne - np) < sizeof(pname))
+                snprintf(pname, sizeof(pname), "%.*s", (int)(ne - np), np);
+        }
+        if (pname[0] && g_rpm) {
+            int r = rule_provider_update(g_rpm, pname);
+            if (r == 0)
+                ipc_respond(client_fd, "{\"status\":\"ok\"}");
+            else
+                ipc_respond(client_fd,
+                    "{\"status\":\"error\",\"msg\":\"provider not found\"}");
+        } else if (!g_rpm) {
+            ipc_respond(client_fd,
+                "{\"status\":\"error\",\"msg\":\"no providers\"}");
+        } else {
+            ipc_respond(client_fd,
+                "{\"status\":\"error\",\"msg\":\"missing name\"}");
+        }
         break;
+    }
 
     case IPC_CMD_RULES_LIST:
         if (g_re && g_re->sorted_rules) {
