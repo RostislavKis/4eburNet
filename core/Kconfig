@@ -1,33 +1,46 @@
-# Флаги компиляции phoenix-core
-# Kconfig интеграция запланирована для OpenWrt SDK build.
-# В dev-сборке (Makefile.dev) все протоколы включены.
+mainmenu "Phoenix Router Configuration"
 
-config PHOENIX_SHADOWSOCKS
-    bool "Поддержка Shadowsocks"
-    default y
-    help
-      Протокол Shadowsocks с AEAD шифрованием.
-
+menu "Protocols"
 config PHOENIX_VLESS
-    bool "Поддержка VLESS"
+    bool "VLESS + Reality"
     default y
     help
-      Протокол VLESS (без шифрования на уровне протокола, TLS обязателен).
+      VLESS protocol with XTLS-Vision and Reality transport.
+      Disable to save ~3KB text.
 
 config PHOENIX_TROJAN
-    bool "Поддержка Trojan"
+    bool "Trojan"
     default y
-    help
-      Протокол Trojan, маскировка под HTTPS-трафик.
 
-config PHOENIX_ADBLOCK
-    bool "Блокировка рекламы"
+config PHOENIX_SS
+    bool "Shadowsocks 2022"
     default y
     help
-      Встроенный DNS-фильтр рекламных доменов.
+      Shadowsocks with AEAD-2022 ciphers.
+      Disable to save ~4KB text.
 
-config PHOENIX_REALITY
-    bool "Поддержка REALITY"
+config PHOENIX_AWG
+    bool "AmneziaWG"
     default y
     help
-      REALITY TLS — маскировка под легитимный сайт.
+      AmneziaWG (WireGuard obfuscation).
+      Disable to save ~6KB text.
+endmenu
+
+menu "DNS"
+config PHOENIX_FAKE_IP
+    bool "Fake-IP DNS mode"
+    default y
+
+config PHOENIX_DOH
+    bool "DNS over HTTPS / DNS over TLS"
+    default y
+endmenu
+
+config PHOENIX_PROXY_PROVIDERS
+    bool "Proxy providers (subscription URLs)"
+    default y
+
+config PHOENIX_SNIFFER
+    bool "TLS SNI sniffer"
+    default y
