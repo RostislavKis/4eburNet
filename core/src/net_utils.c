@@ -21,6 +21,11 @@
 #include <sys/syscall.h>
 #include <stdint.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <sys/stat.h>
+#include "crypto/tls.h"
+#include "phoenix.h"
 
 extern char **environ;
 
@@ -229,4 +234,135 @@ int json_escape_str(const char *src, char *dst, size_t dst_size)
     }
     dst[pos] = '\0';
     return (int)pos;
+}
+
+int net_http_fetch(const char *url, const char *dest_path)
+{
+    if (!url || !url[0]) return -1;
+
+    const char *u = url;
+    uint16_t port;
+    if (strncmp(u, "https://", 8) == 0) { u += 8; port = 443; }
+    else if (strncmp(u, "http://", 7) == 0) { u += 7; port = 80; }
+    else { port = 443; }
+
+    char host[256] = {0};
+    char path[512] = "/";
+    const char *slash = strchr(u, '/');
+    if (slash) {
+        size_t hlen = slash - u;
+        if (hlen >= sizeof(host)) hlen = sizeof(host) - 1;
+        memcpy(host, u, hlen);
+        snprintf(path, sizeof(path), "%s", slash);
+    } else {
+        snprintf(host, sizeof(host), "%s", u);
+    }
+
+    char *colon = strchr(host, ':');
+    if (colon) {
+        char *endptr;
+        long p = strtol(colon + 1, &endptr, 10);
+        if (endptr != colon + 1 && *endptr == '\0' && p > 0 && p <= 65535)
+            port = (uint16_t)p;
+        *colon = '\0';
+    }
+
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
+
+    struct addrinfo hints = {0};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *res = NULL;
+    int gai = getaddrinfo(host, port_str, &hints, &res);
+    if (gai != 0) {
+        log_msg(LOG_WARN, "net_http_fetch: не удалось резолвить '%s': %s",
+                host, gai_strerror(gai));
+        return -1;
+    }
+
+    int fd = socket(res->ai_family,
+                    res->ai_socktype | SOCK_CLOEXEC, res->ai_protocol);
+    if (fd < 0) { freeaddrinfo(res); return -1; }
+
+    struct timeval tv = { .tv_sec = 10 };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    if (connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
+        freeaddrinfo(res); close(fd); return -1;
+    }
+    freeaddrinfo(res);
+
+    tls_config_t tls_cfg = {0};
+    snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", host);
+    tls_cfg.verify_cert = false;
+
+    tls_conn_t tls;
+    if (tls_connect(&tls, fd, &tls_cfg) < 0) {
+        close(fd); return -1;
+    }
+
+    char req[1024];
+    int req_len = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+        path, host);
+    tls_send(&tls, req, req_len);
+
+    char tmppath[280];
+    snprintf(tmppath, sizeof(tmppath), "%s.XXXXXX", dest_path);
+    int tmpfd = mkstemp(tmppath);
+    if (tmpfd < 0) { tls_close(&tls); close(fd); return -1; }
+    fchmod(tmpfd, 0644);
+    FILE *out = fdopen(tmpfd, "w");
+    if (!out) {
+        close(tmpfd); unlink(tmppath);
+        tls_close(&tls); close(fd);
+        return -1;
+    }
+
+    uint8_t buf[4096];
+    bool headers_done = false;
+    bool http_ok = false;
+    ssize_t total = 0;
+
+    while (1) {
+        ssize_t n = tls_recv(&tls, buf, sizeof(buf));
+        if (n <= 0) break;
+
+        if (!headers_done) {
+            size_t safe_n = (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1;
+            buf[safe_n] = '\0';
+            for (ssize_t j = 0; j < n - 3; j++) {
+                if (buf[j]=='\r' && buf[j+1]=='\n' &&
+                    buf[j+2]=='\r' && buf[j+3]=='\n') {
+                    buf[j] = '\0';
+                    http_ok = (strstr((char*)buf, " 200") != NULL);
+                    headers_done = true;
+                    ssize_t body_start = j + 4;
+                    if (http_ok && body_start < n)
+                        fwrite(buf + body_start, 1, n - body_start, out);
+                    total += n - body_start;
+                    break;
+                }
+            }
+        } else if (http_ok) {
+            fwrite(buf, 1, n, out);
+            total += n;
+        }
+    }
+
+    fclose(out);
+    tls_close(&tls);
+    close(fd);
+
+    if (!http_ok || total == 0) {
+        unlink(tmppath);
+        return -1;
+    }
+
+    rename(tmppath, dest_path);
+    log_msg(LOG_INFO, "net_http_fetch: загружен %s (%zd байт)", dest_path, total);
+    return 0;
 }

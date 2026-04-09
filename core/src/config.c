@@ -27,15 +27,17 @@ typedef enum {
     SECTION_DEVICE_POLICY,
     SECTION_PROXY_GROUP,
     SECTION_RULE_PROVIDER,
+    SECTION_PROXY_PROVIDER,
     SECTION_TRAFFIC_RULE,
 } section_type_t;
 
 #define MAX_DNS_RULES      256
 #define MAX_DNS_POLICIES   64
 #define MAX_DEVICES        64
-#define MAX_PROXY_GROUPS   32
-#define MAX_RULE_PROVIDERS 16
-#define MAX_TRAFFIC_RULES  512
+#define MAX_PROXY_GROUPS    32
+#define MAX_PROXY_PROVIDERS 16
+#define MAX_RULE_PROVIDERS  16
+#define MAX_TRAFFIC_RULES   512
 
 /* Удаление окружающих кавычек из строки */
 static void strip_quotes(char *s)
@@ -261,15 +263,16 @@ int config_load(const char *path, PhoenixConfig *cfg)
     DnsPolicy *dp_tmp = calloc(MAX_DNS_POLICIES, sizeof(DnsPolicy));
     device_config_t *devices_tmp = calloc(MAX_DEVICES, sizeof(device_config_t));
     ProxyGroupConfig *pg_tmp = calloc(MAX_PROXY_GROUPS, sizeof(ProxyGroupConfig));
+    ProxyProviderConfig *pp_tmp = calloc(MAX_PROXY_PROVIDERS, sizeof(ProxyProviderConfig));
     RuleProviderConfig *rp_tmp = calloc(MAX_RULE_PROVIDERS, sizeof(RuleProviderConfig));
     TrafficRule *tr_tmp = calloc(MAX_TRAFFIC_RULES, sizeof(TrafficRule));
-    int pg_count = 0, rp_count = 0, tr_count = 0, dp_count = 0;
+    int pg_count = 0, pp_count = 0, rp_count = 0, tr_count = 0, dp_count = 0;
 
     if (!servers || !dns_rules || !dp_tmp || !devices_tmp ||
-        !pg_tmp || !rp_tmp || !tr_tmp) {
+        !pg_tmp || !pp_tmp || !rp_tmp || !tr_tmp) {
         log_msg(LOG_ERROR, "Конфиг: нет памяти для временных массивов");
         free(servers); free(dns_rules); free(dp_tmp); free(devices_tmp);
-        free(pg_tmp); free(rp_tmp); free(tr_tmp);
+        free(pg_tmp); free(pp_tmp); free(rp_tmp); free(tr_tmp);
         fclose(f);
         return -1;
     }
@@ -335,6 +338,15 @@ int config_load(const char *path, PhoenixConfig *cfg)
                     if (name) snprintf(pg_tmp[pg_count].name,
                         sizeof(pg_tmp[pg_count].name), "%s", name);
                     pg_count++;
+                }
+            } else if (strcmp(type, "proxy_provider") == 0) {
+                section = SECTION_PROXY_PROVIDER;
+                if (pp_count < MAX_PROXY_PROVIDERS) {
+                    ProxyProviderConfig *pp = &pp_tmp[pp_count++];
+                    memset(pp, 0, sizeof(*pp));
+                    pp->enabled = true;
+                    if (name[0])
+                        snprintf(pp->name, sizeof(pp->name), "%s", name);
                 }
             } else if (strcmp(type, "rule_provider") == 0) {
                 section = SECTION_RULE_PROVIDER;
@@ -537,6 +549,27 @@ int config_load(const char *path, PhoenixConfig *cfg)
                         snprintf(rp->region, sizeof(rp->region), "%s", value);
                 }
                 break;
+            case SECTION_PROXY_PROVIDER:
+                if (pp_count > 0) {
+                    ProxyProviderConfig *pp = &pp_tmp[pp_count - 1];
+                    if (strcmp(key, "name") == 0)
+                        snprintf(pp->name, sizeof(pp->name), "%s", value);
+                    else if (strcmp(key, "type") == 0) {
+                        if (strcmp(value, "url") == 0) pp->type = PROXY_PROVIDER_URL;
+                        else pp->type = PROXY_PROVIDER_FILE;
+                    }
+                    else if (strcmp(key, "url") == 0)
+                        snprintf(pp->url, sizeof(pp->url), "%s", value);
+                    else if (strcmp(key, "path") == 0)
+                        snprintf(pp->path, sizeof(pp->path), "%s", value);
+                    else if (strcmp(key, "interval") == 0)
+                        pp->interval = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "enabled") == 0)
+                        pp->enabled = (strcmp(value, "1") == 0);
+                    else if (strcmp(key, "max_servers") == 0)
+                        pp->max_servers = (int)strtol(value, NULL, 10);
+                }
+                break;
             case SECTION_TRAFFIC_RULE:
                 if (tr_count > 0) {
                     TrafficRule *tr = &tr_tmp[tr_count - 1];
@@ -659,6 +692,17 @@ int config_load(const char *path, PhoenixConfig *cfg)
                (size_t)pg_count * sizeof(ProxyGroupConfig));
         cfg->proxy_group_count = pg_count;
     }
+    if (pp_count > 0) {
+        cfg->proxy_providers = malloc((size_t)pp_count * sizeof(ProxyProviderConfig));
+        if (!cfg->proxy_providers) {
+            log_msg(LOG_ERROR, "Конфиг: нет памяти для proxy_providers");
+            config_free(cfg);
+            goto cleanup_fail;
+        }
+        memcpy(cfg->proxy_providers, pp_tmp,
+               (size_t)pp_count * sizeof(ProxyProviderConfig));
+        cfg->proxy_provider_count = pp_count;
+    }
     if (rp_count > 0) {
         cfg->rule_providers = malloc((size_t)rp_count * sizeof(RuleProviderConfig));
         if (!cfg->rule_providers) {
@@ -683,7 +727,7 @@ int config_load(const char *path, PhoenixConfig *cfg)
     }
 
     free(servers); free(dns_rules); free(dp_tmp); free(devices_tmp);
-    free(pg_tmp); free(rp_tmp); free(tr_tmp);
+    free(pg_tmp); free(pp_tmp); free(rp_tmp); free(tr_tmp);
 
     log_msg(LOG_INFO,
             "Конфиг загружен: %s (серверов: %d, групп: %d, правил: %d, policy: %d)",
@@ -697,6 +741,7 @@ cleanup_fail:
     free(dp_tmp);
     free(devices_tmp);
     free(pg_tmp);
+    free(pp_tmp);
     free(rp_tmp);
     free(tr_tmp);
     return -1;
@@ -704,9 +749,13 @@ cleanup_fail:
 
 void config_free(PhoenixConfig *cfg)
 {
-    free(cfg->proxy_groups);   cfg->proxy_groups = NULL;
-    free(cfg->rule_providers); cfg->rule_providers = NULL;
-    free(cfg->traffic_rules);  cfg->traffic_rules = NULL;
+    free(cfg->proxy_groups);        cfg->proxy_groups = NULL;
+    free(cfg->proxy_providers);     cfg->proxy_providers = NULL;
+    cfg->proxy_provider_count = 0;
+    free(cfg->provider_servers);    cfg->provider_servers = NULL;
+    cfg->provider_server_count = 0;
+    free(cfg->rule_providers);      cfg->rule_providers = NULL;
+    free(cfg->traffic_rules);       cfg->traffic_rules = NULL;
     if (cfg->devices) {
         free(cfg->devices);
         cfg->devices = NULL;
