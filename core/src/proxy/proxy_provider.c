@@ -535,10 +535,9 @@ void proxy_provider_tick(proxy_provider_manager_t *ppm)
     if (!ppm || ppm->count == 0) return;
     time_t now = time(NULL);
     /* Обновлять по одному провайдеру за тик */
-    static int round_robin = 0;
     for (int attempts = 0; attempts < ppm->count; attempts++) {
-        int i = round_robin % ppm->count;
-        round_robin++;
+        int i = ppm->round_robin % ppm->count;
+        ppm->round_robin++;
         const ProxyProviderConfig *pc = &ppm->cfg->proxy_providers[i];
         proxy_provider_state_t    *ps = &ppm->providers[i];
         if (!pc->enabled) continue;
