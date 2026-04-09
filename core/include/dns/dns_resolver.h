@@ -34,6 +34,8 @@ typedef struct {
     /* Parallel query fd (backlog_C3 C5) */
     int      parallel_fd;           /* -1 = parallel не активен */
     uint16_t parallel_upstream_id;  /* ID для parallel запроса */
+    /* TCP клиент (audit_v9: async TCP DNS state machine) */
+    int      tcp_client_idx;        /* индекс в ds->tcp_clients[], -1 = UDP клиент */
 } dns_pending_t;
 
 /* Очередь ожидающих запросов */
@@ -52,6 +54,15 @@ int dns_pending_add(dns_pending_queue_t *q,
                     dns_action_t action,
                     const char *upstream_ip,
                     uint16_t upstream_port);
+
+/* Вариант для TCP DNS клиентов — без client_addr, с tcp_client_idx */
+int dns_pending_add_tcp(dns_pending_queue_t *q,
+                        const dns_query_t *query,
+                        const uint8_t *pkt, size_t pkt_len,
+                        dns_action_t action,
+                        const char *upstream_ip,
+                        uint16_t upstream_port,
+                        int tcp_client_idx);
 
 dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd);
 
