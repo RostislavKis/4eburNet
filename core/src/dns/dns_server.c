@@ -844,6 +844,48 @@ static void tcp_client_dispatch(dns_server_t *ds, dns_tcp_client_t *tc)
         return;
     }
 
+    /* G1: проверить кэш — TCP клиенты тоже получают закэшированные ответы */
+    {
+        uint16_t cached_len = 0;
+        const uint8_t *cached = dns_cache_get(&ds->cache, q.qname, q.qtype,
+                                              &cached_len, q.id);
+        if (cached) {
+            if (tcp_client_queue_response(ds, tc, cached, cached_len) < 0)
+                tcp_client_close(ds, tc);
+            log_msg(LOG_DEBUG, "DNS TCP: %s из кэша", q.qname);
+            return;
+        }
+    }
+
+    /* G2: nameserver-policy — до стандартного routing (как в UDP пути) */
+    const DnsPolicy *policy = dns_policy_match(
+        ds->cfg->dns_policies,
+        ds->cfg->dns_policy_count,
+        q.qname);
+    if (policy && policy->upstream[0] && policy->type == DNS_UPSTREAM_UDP) {
+        uint16_t up_port = policy->port > 0
+            ? policy->port : dns_policy_default_port(policy->type);
+        int tc_idx = (int)(tc - ds->tcp_clients);
+        int pidx = dns_pending_add_tcp(&ds->pending, &q, pkt, plen,
+                                       DNS_ACTION_DEFAULT,
+                                       policy->upstream, up_port, tc_idx);
+        if (pidx >= 0) {
+            tc->pending_idx = pidx;
+            tc->state       = DNS_TCP_PROCESSING;
+            struct epoll_event ev = {
+                .events  = EPOLLIN,
+                .data.fd = ds->pending.slots[pidx].upstream_fd,
+            };
+            epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
+                      ds->pending.slots[pidx].upstream_fd, &ev);
+            log_msg(LOG_DEBUG, "DNS TCP: %s -> policy upstream %s",
+                    q.qname, policy->upstream);
+            return;
+        }
+        log_msg(LOG_WARN, "DNS TCP policy: pending полон, fallback");
+    }
+    /* DoT/DoH policy для TCP не поддерживается — fallback стандартный routing */
+
     dns_action_t action = dns_rules_match(q.qname);
 
     if (action == DNS_ACTION_BLOCK) {
