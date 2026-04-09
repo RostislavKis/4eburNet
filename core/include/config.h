@@ -28,6 +28,9 @@ typedef struct {
     char     xhttp_host[128];      /* Host заголовок для XHTTP */
     /* Reality параметры (DEC-025) */
     char     reality_short_id[17]; /* hex-строка до 16 символов + '\0' */
+    char     reality_pbk[64];      /* Reality public key (x25519, base64url) */
+    /* Источник сервера: "" = основной конфиг, иначе имя провайдера */
+    char     source_provider[64];
 } ServerConfig;
 
 /* DNS конфигурация */
@@ -128,6 +131,23 @@ typedef struct {
     bool               enabled;
 } ProxyGroupConfig;
 
+/* Тип proxy-provider */
+typedef enum {
+    PROXY_PROVIDER_URL  = 0,
+    PROXY_PROVIDER_FILE = 1,
+} proxy_provider_type_t;
+
+typedef struct {
+    char                  name[64];
+    proxy_provider_type_t type;
+    char                  url[512];    /* URL подписки */
+    char                  path[256];   /* кэш на диске */
+    int                   interval;    /* сек обновления, 0=никогда */
+    bool                  enabled;
+    /* Лимит серверов: 0 = авто по профилю */
+    int                   max_servers;
+} ProxyProviderConfig;
+
 /* Тип rule-provider */
 typedef enum {
     RULE_PROVIDER_HTTP = 0,
@@ -177,6 +197,9 @@ typedef struct PhoenixConfig {
     char           mode[16];        /* rules / global / direct */
     int            server_count;
     ServerConfig  *servers;         /* динамический массив */
+    /* Серверы из proxy-providers (динамические, отдельно от servers[]) */
+    ServerConfig  *provider_servers;
+    int            provider_server_count;
     DnsConfig      dns;
     DnsRule       *dns_rules;
     int            dns_rule_count;
@@ -188,6 +211,8 @@ typedef struct PhoenixConfig {
     int                   device_count;
     ProxyGroupConfig     *proxy_groups;
     int                   proxy_group_count;
+    ProxyProviderConfig  *proxy_providers;
+    int                   proxy_provider_count;
     RuleProviderConfig   *rule_providers;
     int                   rule_provider_count;
     TrafficRule          *traffic_rules;

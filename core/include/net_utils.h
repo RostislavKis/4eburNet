@@ -46,4 +46,11 @@ int net_random_bytes(uint8_t *buf, size_t len);
    Возвращает количество записанных байт (без NUL). */
 int json_escape_str(const char *src, char *dst, size_t dst_size);
 
+/*
+ * Скачать файл по HTTP/HTTPS URL.
+ * dest_path: путь для сохранения (atomic через mkstemp + rename).
+ * Возвращает 0 при успехе, -1 при ошибке.
+ */
+int net_http_fetch(const char *url, const char *dest_path);
+
 #endif /* NET_UTILS_H */
