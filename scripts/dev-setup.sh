@@ -187,12 +187,13 @@ else
             --enable-curve25519 \
             --enable-chacha \
             --enable-poly1305 \
-            --enable-aesGcm \
+            --enable-aesgcm \
             --enable-harden \
             --enable-tlsx \
             --enable-supportedcurves \
             --enable-session-ticket \
             --enable-alpn \
+            --enable-quic \
             --silent >/dev/null 2>&1
 
         echo "Компиляция ($(nproc) потоков)..."
