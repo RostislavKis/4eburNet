@@ -236,67 +236,113 @@ int json_escape_str(const char *src, char *dst, size_t dst_size)
     return (int)pos;
 }
 
-int net_http_fetch(const char *url, const char *dest_path)
+/* ── Вспомогательные функции HTTP/HTTPS ── */
+
+/* Парсить host и port из URL */
+int net_parse_url_host(const char *url,
+                       char *host, size_t host_size,
+                       uint16_t *port)
 {
-    if (!url || !url[0]) return -1;
-
+    if (!url || !host || !host_size || !port) return -1;
     const char *u = url;
-    uint16_t port;
-    if (strncmp(u, "https://", 8) == 0) { u += 8; port = 443; }
-    else if (strncmp(u, "http://", 7) == 0) { u += 7; port = 80; }
-    else { port = 443; }
+    if (strncmp(u, "https://", 8) == 0) { u += 8; *port = 443; }
+    else if (strncmp(u, "http://", 7) == 0) { u += 7; *port = 80; }
+    else { *port = 443; }
 
-    char host[256] = {0};
-    char path[512] = "/";
     const char *slash = strchr(u, '/');
-    if (slash) {
-        size_t hlen = slash - u;
-        if (hlen >= sizeof(host)) hlen = sizeof(host) - 1;
-        memcpy(host, u, hlen);
-        snprintf(path, sizeof(path), "%s", slash);
-    } else {
-        snprintf(host, sizeof(host), "%s", u);
-    }
+    size_t hlen = slash ? (size_t)(slash - u) : strlen(u);
+    if (hlen == 0 || hlen >= host_size) return -1;
+    memcpy(host, u, hlen);
+    host[hlen] = '\0';
 
     char *colon = strchr(host, ':');
     if (colon) {
-        char *endptr;
-        long p = strtol(colon + 1, &endptr, 10);
-        if (endptr != colon + 1 && *endptr == '\0' && p > 0 && p <= 65535)
-            port = (uint16_t)p;
+        long p = strtol(colon + 1, NULL, 10);
+        if (p > 0 && p <= 65535) *port = (uint16_t)p;
         *colon = '\0';
     }
+    return 0;
+}
 
+/* Разрешить hostname → IP строку */
+int net_resolve_host(const char *host, uint16_t port,
+                     char *out_ip, size_t out_ip_size,
+                     int *out_family)
+{
+    if (!host || !host[0] || !out_ip || !out_ip_size) return -1;
+
+    /* Fast path: уже IPv4 */
+    struct in_addr a4;
+    if (inet_pton(AF_INET, host, &a4) == 1) {
+        snprintf(out_ip, out_ip_size, "%s", host);
+        if (out_family) *out_family = AF_INET;
+        return 0;
+    }
+
+    /* Fast path: уже IPv6 (с квадратными скобками или без) */
+    struct in6_addr a6;
+    const char *h = host;
+    char h_clean[256] = {0};
+    if (h[0] == '[') {
+        const char *rb = strchr(h, ']');
+        if (rb) {
+            size_t l = (size_t)(rb - h - 1);
+            if (l < sizeof(h_clean)) {
+                memcpy(h_clean, h + 1, l);
+                h = h_clean;
+            }
+        }
+    }
+    if (inet_pton(AF_INET6, h, &a6) == 1) {
+        snprintf(out_ip, out_ip_size, "%s", h);
+        if (out_family) *out_family = AF_INET6;
+        return 0;
+    }
+
+    /* Domain: нужен getaddrinfo — блокирует */
     char port_str[8];
     snprintf(port_str, sizeof(port_str), "%u", (unsigned)port);
-
     struct addrinfo hints = {0};
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-
     struct addrinfo *res = NULL;
     int gai = getaddrinfo(host, port_str, &hints, &res);
     if (gai != 0) {
-        log_msg(LOG_WARN, "net_http_fetch: не удалось резолвить '%s': %s",
+        log_msg(LOG_WARN, "net_resolve_host: '%s': %s",
                 host, gai_strerror(gai));
         return -1;
     }
 
-    int fd = socket(res->ai_family,
-                    res->ai_socktype | SOCK_CLOEXEC, res->ai_protocol);
-    if (fd < 0) { freeaddrinfo(res); return -1; }
-
-    struct timeval tv = { .tv_sec = 10 };
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    if (connect(fd, res->ai_addr, res->ai_addrlen) < 0) {
-        freeaddrinfo(res); close(fd); return -1;
+    /* Предпочесть IPv4 для совместимости */
+    struct addrinfo *best = res;
+    for (struct addrinfo *r = res; r; r = r->ai_next) {
+        if (r->ai_family == AF_INET) { best = r; break; }
     }
-    freeaddrinfo(res);
 
+    if (best->ai_family == AF_INET) {
+        inet_ntop(AF_INET,
+            &((struct sockaddr_in *)best->ai_addr)->sin_addr,
+            out_ip, (socklen_t)out_ip_size);
+    } else {
+        inet_ntop(AF_INET6,
+            &((struct sockaddr_in6 *)best->ai_addr)->sin6_addr,
+            out_ip, (socklen_t)out_ip_size);
+    }
+    if (out_family) *out_family = best->ai_family;
+    freeaddrinfo(res);
+    log_msg(LOG_DEBUG, "net_resolve_host: %s → %s", host, out_ip);
+    return 0;
+}
+
+/*
+ * Общий TLS GET + сохранение в файл.
+ * fd: уже подключённый сокет (передаётся в tls_connect, затем close).
+ */
+static int http_do_tls_get(int fd, const char *sni_host,
+                            const char *path, const char *dest_path)
+{
     tls_config_t tls_cfg = {0};
-    snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", host);
+    snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", sni_host);
     tls_cfg.verify_cert = false;
 
     tls_conn_t tls;
@@ -307,7 +353,7 @@ int net_http_fetch(const char *url, const char *dest_path)
     char req[1024];
     int req_len = snprintf(req, sizeof(req),
         "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
-        path, host);
+        path, sni_host);
     tls_send(&tls, req, req_len);
 
     char tmppath[280];
@@ -365,4 +411,74 @@ int net_http_fetch(const char *url, const char *dest_path)
     rename(tmppath, dest_path);
     log_msg(LOG_INFO, "net_http_fetch: загружен %s (%zd байт)", dest_path, total);
     return 0;
+}
+
+/* net_http_fetch_ip — connect по кэшированному IP, без getaddrinfo */
+int net_http_fetch_ip(const char *url,
+                      const char *resolved_ip,
+                      int         addr_family,
+                      const char *dest_path)
+{
+    if (!url || !url[0] || !resolved_ip || !resolved_ip[0]) return -1;
+
+    char sni_host[256] = {0};
+    uint16_t port = 443;
+    net_parse_url_host(url, sni_host, sizeof(sni_host), &port);
+
+    /* Путь из URL */
+    const char *u = url;
+    if (strncmp(u, "https://", 8) == 0) u += 8;
+    else if (strncmp(u, "http://", 7) == 0) u += 7;
+    char path[512] = "/";
+    const char *slash = strchr(u, '/');
+    if (slash) snprintf(path, sizeof(path), "%s", slash);
+
+    /* Подключиться к resolved_ip напрямую */
+    struct sockaddr_storage ss;
+    socklen_t ss_len;
+    memset(&ss, 0, sizeof(ss));
+    if (addr_family == AF_INET6) {
+        struct sockaddr_in6 *a6 = (struct sockaddr_in6 *)&ss;
+        a6->sin6_family = AF_INET6;
+        a6->sin6_port   = htons(port);
+        inet_pton(AF_INET6, resolved_ip, &a6->sin6_addr);
+        ss_len = sizeof(*a6);
+    } else {
+        struct sockaddr_in *a4 = (struct sockaddr_in *)&ss;
+        a4->sin_family = AF_INET;
+        a4->sin_port   = htons(port);
+        inet_pton(AF_INET, resolved_ip, &a4->sin_addr);
+        ss_len = sizeof(*a4);
+    }
+
+    int fd = socket(addr_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return -1;
+
+    struct timeval tv = { .tv_sec = 10 };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    if (connect(fd, (struct sockaddr *)&ss, ss_len) < 0) {
+        close(fd); return -1;
+    }
+
+    return http_do_tls_get(fd, sni_host, path, dest_path);
+}
+
+/* net_http_fetch — полный fetch с резолвингом (обратная совместимость) */
+int net_http_fetch(const char *url, const char *dest_path)
+{
+    if (!url || !url[0]) return -1;
+
+    char host[256] = {0};
+    uint16_t port = 443;
+    if (net_parse_url_host(url, host, sizeof(host), &port) < 0) return -1;
+
+    char resolved_ip[64] = {0};
+    int family = AF_INET;
+    if (net_resolve_host(host, port, resolved_ip, sizeof(resolved_ip),
+                         &family) < 0)
+        return -1;
+
+    return net_http_fetch_ip(url, resolved_ip, family, dest_path);
 }
