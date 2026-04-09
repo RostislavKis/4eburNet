@@ -204,12 +204,13 @@ int rule_provider_update(rule_provider_manager_t *rpm, const char *name)
         rule_provider_state_t *ps = &rpm->providers[i];
 
         if (rc->type == RULE_PROVIDER_HTTP && rc->url[0]) {
-            if (fetch_with_ip_cache(rc->url, ps->cache_path,
-                                    ps->resolved_ip, sizeof(ps->resolved_ip),
-                                    &ps->resolved_family) == 0) {
-                ps->loaded = true;
-                ps->rule_count = count_rules(ps->cache_path);
-                ps->last_update = time(NULL);
+            if (ps->fetch_pipe_fd >= 0) return 0;  /* уже идёт */
+            int pfd = net_spawn_fetch(rc->url, ps->cache_path);
+            if (pfd >= 0) {
+                ps->fetch_pipe_fd    = pfd;
+                ps->fetch_registered = false;
+                ps->fetch_started    = time(NULL);
+                /* Результат придёт через handle_fetch в event loop */
                 return 0;
             }
         }

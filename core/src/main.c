@@ -15,6 +15,7 @@
 #include "routing/device_policy.h"
 #include "proxy/proxy_group.h"
 #include "proxy/rule_provider.h"
+#include "proxy/proxy_provider.h"
 #include "proxy/rules_engine.h"
 #include "geo/geo_loader.h"
 
@@ -42,6 +43,7 @@ static dns_server_t dns_state;
 static device_manager_t device_state;
 static proxy_group_manager_t pgm_state;
 static rule_provider_manager_t rpm_state;
+static proxy_provider_manager_t ppm_state;
 static rules_engine_t re_state;
 static geo_manager_t geo_state;
 
@@ -454,10 +456,12 @@ int main(int argc, char *argv[])
     } else {
         dispatcher_set_context(&dispatcher_state, cfg_ptr);
 
-        /* Proxy groups + rule providers + rules engine */
+        /* Proxy groups + rule/proxy providers + rules engine */
         proxy_group_init(&pgm_state, cfg_ptr);
         rule_provider_init(&rpm_state, cfg_ptr);
         rule_provider_load_all(&rpm_state);
+        proxy_provider_init(&ppm_state, cfg_ptr);
+        proxy_provider_load_all(&ppm_state);
         if (geo_manager_init(&geo_state, cfg_ptr) == 0)
             geo_load_region_categories(&geo_state, cfg_ptr);
         else
@@ -576,6 +580,10 @@ int main(int argc, char *argv[])
                 /* Результат async fetch правил */
                 epoll_ctl(master_epoll, EPOLL_CTL_DEL, fd, NULL);
                 rule_provider_handle_fetch(&rpm_state, fd, events[i].events);
+            } else if (proxy_provider_owns_fd(&ppm_state, fd)) {
+                /* Результат async fetch proxy-провайдера */
+                epoll_ctl(master_epoll, EPOLL_CTL_DEL, fd, NULL);
+                proxy_provider_handle_fetch(&ppm_state, fd, events[i].events);
             } else {
                 /* Проверить proxy_group health-check pipe */
                 bool hc_done = false;
@@ -620,6 +628,7 @@ int main(int argc, char *argv[])
             dispatcher_state.tick_count > 0) {
             proxy_group_tick(&pgm_state);
             rule_provider_tick(&rpm_state);
+            proxy_provider_tick(&ppm_state);
 
             /* Зарегистрировать новые pipe fd в master epoll */
             for (int gi = 0; gi < pgm_state.count; gi++) {
@@ -644,6 +653,18 @@ int main(int argc, char *argv[])
                     epoll_ctl(master_epoll, EPOLL_CTL_ADD,
                               ps->fetch_pipe_fd, &pev);
                     ps->fetch_registered = true;
+                }
+            }
+            for (int pi = 0; pi < ppm_state.count; pi++) {
+                proxy_provider_state_t *pps = &ppm_state.providers[pi];
+                if (pps->fetch_pipe_fd >= 0 && !pps->fetch_registered) {
+                    struct epoll_event pev = {
+                        .events  = EPOLLIN | EPOLLHUP,
+                        .data.fd = pps->fetch_pipe_fd,
+                    };
+                    epoll_ctl(master_epoll, EPOLL_CTL_ADD,
+                              pps->fetch_pipe_fd, &pev);
+                    pps->fetch_registered = true;
                 }
             }
         }
@@ -688,11 +709,14 @@ int main(int argc, char *argv[])
                 }
                 rules_engine_free(&re_state);
                 geo_manager_free(&geo_state);
+                proxy_provider_free(&ppm_state);
                 rule_provider_free(&rpm_state);
                 proxy_group_free(&pgm_state);
                 proxy_group_init(&pgm_state, cfg_ptr);
                 rule_provider_init(&rpm_state, cfg_ptr);
                 rule_provider_load_all(&rpm_state);
+                proxy_provider_init(&ppm_state, cfg_ptr);
+                proxy_provider_load_all(&ppm_state);
                 if (geo_manager_init(&geo_state, cfg_ptr) == 0)
                     geo_load_region_categories(&geo_state, cfg_ptr);
                 rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
@@ -718,6 +742,7 @@ cleanup:
 
     rules_engine_free(&re_state);
     geo_manager_free(&geo_state);
+    proxy_provider_free(&ppm_state);
     rule_provider_free(&rpm_state);
     proxy_group_free(&pgm_state);
     device_policy_free(&device_state);
