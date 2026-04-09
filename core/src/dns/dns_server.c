@@ -111,6 +111,14 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
         ds->rate_table_size = rtsize;
     }
 
+    /* Инициализировать TCP клиентские слоты */
+    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+        ds->tcp_clients[i].active      = false;
+        ds->tcp_clients[i].fd          = -1;
+        ds->tcp_clients[i].pending_idx = -1;
+        ds->tcp_clients[i].tx_buf      = NULL;
+    }
+
     ds->initialized = true;
     log_msg(LOG_INFO, "DNS демон запущен на порту %u (кэш: %d)", port, cache_sz);
     return 0;
@@ -118,6 +126,18 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
 
 void dns_server_cleanup(dns_server_t *ds)
 {
+    /* Закрыть TCP DNS клиентов */
+    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+        dns_tcp_client_t *tc = &ds->tcp_clients[i];
+        if (!tc->active) continue;
+        if (ds->master_epoll_fd >= 0)
+            epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, tc->fd, NULL);
+        close(tc->fd);
+        free(tc->tx_buf);
+        tc->active = false;
+        tc->fd     = -1;
+        tc->tx_buf = NULL;
+    }
     /* Закрыть все pending upstream сокеты */
     for (int i = 0; i < DNS_PENDING_MAX; i++) {
         if (ds->pending.slots[i].active)
@@ -724,6 +744,241 @@ skip_rate:;
             q.qname, upstream_ip, upstream_port, idx);
 }
 
+/* ── TCP DNS async state machine (audit_v9) ── */
+
+static dns_tcp_client_t *tcp_client_alloc(dns_server_t *ds)
+{
+    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+        if (!ds->tcp_clients[i].active)
+            return &ds->tcp_clients[i];
+    }
+    return NULL;
+}
+
+static dns_tcp_client_t *tcp_client_find_fd(dns_server_t *ds, int fd)
+{
+    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+        if (ds->tcp_clients[i].active && ds->tcp_clients[i].fd == fd)
+            return &ds->tcp_clients[i];
+    }
+    return NULL;
+}
+
+static void tcp_client_close(dns_server_t *ds, dns_tcp_client_t *tc)
+{
+    if (!tc->active) return;
+    epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, tc->fd, NULL);
+    close(tc->fd);
+    /* Отменить pending если был — до dns_pending_complete во избежание re-entrant */
+    if (tc->pending_idx >= 0) {
+        int idx = tc->pending_idx;
+        tc->pending_idx = -1;
+        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
+    }
+    free(tc->tx_buf);
+    tc->tx_buf     = NULL;
+    tc->active     = false;
+    tc->fd         = -1;
+}
+
+/* Слить буфер отправки (вызывается из EPOLLOUT или сразу после queue_response) */
+static void tcp_client_send(dns_server_t *ds, dns_tcp_client_t *tc)
+{
+    while (tc->tx_sent < tc->tx_len) {
+        ssize_t n = send(tc->fd,
+                         tc->tx_buf + tc->tx_sent,
+                         tc->tx_len  - tc->tx_sent,
+                         MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            tcp_client_close(ds, tc);
+            return;
+        }
+        tc->tx_sent += (size_t)n;
+    }
+    /* Всё отправлено — закрыть соединение */
+    tcp_client_close(ds, tc);
+}
+
+/* Подготовить ответ к отправке: malloc tx_buf с length prefix, попробовать сразу */
+static int tcp_client_queue_response(dns_server_t *ds, dns_tcp_client_t *tc,
+                                     const uint8_t *resp, size_t resp_len)
+{
+    free(tc->tx_buf);
+    tc->tx_buf = malloc(2 + resp_len);
+    if (!tc->tx_buf) return -1;
+    tc->tx_buf[0] = (resp_len >> 8) & 0xFF;
+    tc->tx_buf[1] = resp_len & 0xFF;
+    memcpy(tc->tx_buf + 2, resp, resp_len);
+    tc->tx_len  = 2 + resp_len;
+    tc->tx_sent = 0;
+    tc->state   = DNS_TCP_SENDING;
+
+    /* Попытка отправить немедленно — без ожидания EPOLLOUT */
+    tcp_client_send(ds, tc);
+
+    /* Если tc ещё жив и не всё отправлено — зарегистрировать EPOLLOUT */
+    if (tc->active && tc->state == DNS_TCP_SENDING) {
+        struct epoll_event ev = {
+            .events  = EPOLLOUT | EPOLLET,
+            .data.fd = tc->fd,
+        };
+        epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_MOD, tc->fd, &ev);
+    }
+    return 0;
+}
+
+/* Разобрать DNS запрос из rx_buf и направить в pending или ответить BLOCK */
+static void tcp_client_dispatch(dns_server_t *ds, dns_tcp_client_t *tc)
+{
+    const uint8_t *pkt  = tc->rx_buf + 2;
+    uint16_t       plen = tc->pkt_len;
+
+    dns_query_t q;
+    if (dns_parse_query(pkt, plen, &q) < 0) {
+        tcp_client_close(ds, tc);
+        return;
+    }
+
+    dns_action_t action = dns_rules_match(q.qname);
+
+    if (action == DNS_ACTION_BLOCK) {
+        uint8_t *resp = malloc(DNS_MAX_PACKET);
+        if (!resp) { tcp_client_close(ds, tc); return; }
+        int nx_len = dns_build_nxdomain(&q, resp, DNS_MAX_PACKET);
+        if (nx_len > 0) {
+            if (tcp_client_queue_response(ds, tc, resp, (size_t)nx_len) < 0)
+                tcp_client_close(ds, tc);
+        } else {
+            tcp_client_close(ds, tc);
+        }
+        free(resp);
+        return;
+    }
+
+    const char *upstream_ip  = NULL;
+    uint16_t    upstream_port = 53;
+    if (!resolve_upstream_addr(ds, action, &upstream_ip, &upstream_port)) {
+        tcp_client_close(ds, tc);
+        return;
+    }
+
+    int tc_idx = (int)(tc - ds->tcp_clients);
+    int idx = dns_pending_add_tcp(&ds->pending, &q, pkt, plen,
+                                  action, upstream_ip, upstream_port, tc_idx);
+    if (idx < 0) {
+        log_msg(LOG_WARN, "DNS TCP: pending полон для %s", q.qname);
+        tcp_client_close(ds, tc);
+        return;
+    }
+
+    tc->pending_idx = idx;
+    tc->state       = DNS_TCP_PROCESSING;
+
+    /* Добавить upstream fd в master epoll */
+    struct epoll_event ev = {
+        .events  = EPOLLIN,
+        .data.fd = ds->pending.slots[idx].upstream_fd,
+    };
+    epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
+              ds->pending.slots[idx].upstream_fd, &ev);
+    log_msg(LOG_DEBUG, "DNS TCP: %s -> async upstream %s:%u (slot %d)",
+            q.qname, upstream_ip, upstream_port, idx);
+}
+
+/* Обработать epoll событие на TCP DNS клиентском соединении */
+static void handle_tcp_client_event(dns_server_t *ds, dns_tcp_client_t *tc,
+                                    uint32_t events)
+{
+    if (tc->state == DNS_TCP_SENDING) {
+        tcp_client_send(ds, tc);
+        return;
+    }
+
+    if (!(events & (EPOLLIN | EPOLLHUP | EPOLLERR))) return;
+
+    /* Дренаж приёма до EAGAIN (EPOLLET) */
+    for (;;) {
+        size_t target;
+        if (tc->state == DNS_TCP_READING_LEN)
+            target = 2;
+        else if (tc->state == DNS_TCP_READING_PKT)
+            target = 2 + (size_t)tc->pkt_len;
+        else
+            return;  /* PROCESSING — ждём ответа от upstream */
+
+        size_t to_read = target - tc->rx_len;
+        if (to_read == 0) break;
+
+        ssize_t n = recv(tc->fd, tc->rx_buf + tc->rx_len,
+                         to_read, MSG_DONTWAIT);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            tcp_client_close(ds, tc);
+            return;
+        }
+        if (n == 0) {
+            tcp_client_close(ds, tc);
+            return;
+        }
+        tc->rx_len += (size_t)n;
+
+        if (tc->state == DNS_TCP_READING_LEN && tc->rx_len == 2) {
+            uint16_t plen = ((uint16_t)tc->rx_buf[0] << 8) | tc->rx_buf[1];
+            if (plen < 12 || plen > DNS_MAX_PACKET) {
+                tcp_client_close(ds, tc);
+                return;
+            }
+            tc->pkt_len = plen;
+            tc->state   = DNS_TCP_READING_PKT;
+            continue;
+        }
+
+        if (tc->state == DNS_TCP_READING_PKT &&
+            tc->rx_len == (size_t)(2 + tc->pkt_len)) {
+            tcp_client_dispatch(ds, tc);
+            return;
+        }
+    }
+}
+
+/* Принять новое TCP DNS соединение и разместить в свободный слот */
+static void accept_tcp_client(dns_server_t *ds)
+{
+    int fd = accept4(ds->tcp_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (fd < 0) return;
+
+    dns_tcp_client_t *tc = tcp_client_alloc(ds);
+    if (!tc) {
+        /* Нет свободных слотов */
+        log_msg(LOG_DEBUG, "DNS TCP: нет свободных слотов (max %d)",
+                DNS_TCP_MAX_CLIENTS);
+        close(fd);
+        return;
+    }
+
+    tc->fd          = fd;
+    tc->state       = DNS_TCP_READING_LEN;
+    tc->rx_len      = 0;
+    tc->pkt_len     = 0;
+    tc->pending_idx = -1;
+    tc->tx_buf      = NULL;
+    tc->tx_len      = 0;
+    tc->tx_sent     = 0;
+    clock_gettime(CLOCK_MONOTONIC, &tc->accepted_at);
+
+    struct epoll_event ev = {
+        .events  = EPOLLIN | EPOLLET,
+        .data.fd = fd,
+    };
+    if (epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {
+        close(fd);
+        return;
+    }
+    tc->active = true;
+    log_msg(LOG_DEBUG, "DNS TCP: новое соединение fd=%d", fd);
+}
+
 /* Обработка ответа от upstream DNS */
 static void handle_upstream_response(dns_server_t *ds, int fd)
 {
@@ -797,9 +1052,20 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
         if (nx) {
             int nx_len = dns_build_nxdomain(&bogus_q, nx, DNS_MAX_PACKET);
             if (nx_len > 0) {
-                sendto(ds->udp_fd, nx, nx_len, 0,
-                       (struct sockaddr *)&p->client_addr,
-                       p->client_addrlen);
+                if (p->tcp_client_idx >= 0 &&
+                    p->tcp_client_idx < DNS_TCP_MAX_CLIENTS) {
+                    dns_tcp_client_t *tc = &ds->tcp_clients[p->tcp_client_idx];
+                    if (tc->active) {
+                        tc->pending_idx = -1;
+                        if (tcp_client_queue_response(ds, tc, nx,
+                                                      (size_t)nx_len) < 0)
+                            tcp_client_close(ds, tc);
+                    }
+                } else {
+                    sendto(ds->udp_fd, nx, nx_len, 0,
+                           (struct sockaddr *)&p->client_addr,
+                           p->client_addrlen);
+                }
             }
             free(nx);
         }
@@ -823,10 +1089,20 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     dns_cache_put(&ds->cache, p->qname, p->qtype,
                   resp, resp_n, ttl);
 
-    /* Отправить клиенту */
-    if (sendto(ds->udp_fd, resp, resp_n, 0,
-               (struct sockaddr *)&p->client_addr, p->client_addrlen) < 0)
-        log_msg(LOG_DEBUG, "DNS: sendto клиенту: %s", strerror(errno));
+    /* Отправить клиенту — UDP или TCP */
+    if (p->tcp_client_idx >= 0 &&
+        p->tcp_client_idx < DNS_TCP_MAX_CLIENTS) {
+        dns_tcp_client_t *tc = &ds->tcp_clients[p->tcp_client_idx];
+        if (tc->active) {
+            tc->pending_idx = -1;
+            if (tcp_client_queue_response(ds, tc, resp, (size_t)resp_n) < 0)
+                tcp_client_close(ds, tc);
+        }
+    } else {
+        if (sendto(ds->udp_fd, resp, resp_n, 0,
+                   (struct sockaddr *)&p->client_addr, p->client_addrlen) < 0)
+            log_msg(LOG_DEBUG, "DNS: sendto клиенту: %s", strerror(errno));
+    }
 
     log_msg(LOG_DEBUG, "DNS: %s -> %s (ttl %u, async%s)",
             p->qname,
@@ -841,123 +1117,49 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     free(tcp_buf);  /* NULL-safe */
 }
 
-/* Обработка TCP DNS (accept + read + process + write + close)
- * TCP DNS остаётся синхронным — допустимо для малой нагрузки (SO_RCVTIMEO=2s). */
-static void handle_tcp_query(dns_server_t *ds)
-{
-    /* Blocking сокет с таймаутом вместо NONBLOCK+MSG_WAITALL (H-07) */
-    int client = accept4(ds->tcp_fd, NULL, NULL, SOCK_CLOEXEC);
-    if (client < 0)
-        return;
-
-    struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
-    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    /* M-01: буферы на heap вместо стека (12KB+ на MICRO опасно) */
-    uint8_t *pkt = malloc(DNS_MAX_PACKET);
-    uint8_t *response = malloc(DNS_MAX_PACKET);
-    uint8_t *tcp_reply = malloc(DNS_MAX_PACKET + 2);
-    if (!pkt || !response || !tcp_reply) {
-        free(pkt); free(response); free(tcp_reply);
-        close(client); return;
-    }
-
-    /* Читаем [2 bytes length][DNS query] */
-    uint8_t len_buf[2];
-    if (recv(client, len_buf, 2, MSG_WAITALL) != 2)
-        goto cleanup;
-    uint16_t qlen = ((uint16_t)len_buf[0] << 8) | len_buf[1];
-    if (qlen < 12 || qlen > DNS_MAX_PACKET)
-        goto cleanup;
-
-    if (recv(client, pkt, qlen, MSG_WAITALL) != qlen)
-        goto cleanup;
-
-    dns_query_t q;
-    if (dns_parse_query(pkt, qlen, &q) < 0)
-        goto cleanup;
-
-    /* TCP DNS остаётся синхронным: upstream запрос */
-    ssize_t resp_n;
-
-    dns_action_t action = dns_rules_match(q.qname);
-    if (action == DNS_ACTION_BLOCK) {
-        resp_n = dns_build_nxdomain(&q, response, DNS_MAX_PACKET);
-    } else {
-        /* Для TCP используем блокирующий upstream */
-        const DnsConfig *d = &ds->cfg->dns;
-        const char *server = NULL;
-        uint16_t port = d->upstream_port ? d->upstream_port : 53;
-
-        switch (action) {
-        case DNS_ACTION_BYPASS:
-            server = d->upstream_bypass;
-            break;
-        case DNS_ACTION_PROXY:
-            if (d->doh_enabled && d->doh_url[0]) {
-                resp_n = dns_doh_query(d, pkt, qlen, response, DNS_MAX_PACKET);
-                goto tcp_reply;
-            }
-            if (d->dot_enabled && d->dot_server_ip[0]) {
-                resp_n = dns_dot_query(d->dot_server_ip, d->dot_port,
-                                       d->dot_sni, pkt, qlen,
-                                       response, DNS_MAX_PACKET);
-                goto tcp_reply;
-            }
-            server = d->upstream_proxy;
-            break;
-        case DNS_ACTION_DEFAULT:
-        default:
-            server = d->upstream_default;
-            break;
-        case DNS_ACTION_BLOCK:
-            break;  /* уже обработано выше */
-        }
-
-        if (!server || !server[0])
-            goto cleanup;
-        resp_n = dns_upstream_query(server, port, pkt, qlen,
-                                    response, DNS_MAX_PACKET, 2000);
-    }
-
-tcp_reply:
-    if (resp_n > 0) {
-        /* Подставить ID клиента */
-        response[0] = (q.id >> 8) & 0xFF;
-        response[1] = q.id & 0xFF;
-
-        tcp_reply[0] = (resp_n >> 8) & 0xFF;
-        tcp_reply[1] = resp_n & 0xFF;
-        memcpy(tcp_reply + 2, response, resp_n);
-        ssize_t w = write(client, tcp_reply, 2 + resp_n);
-        if (w < 0)
-            log_msg(LOG_DEBUG, "DNS TCP: write: %s", strerror(errno));
-    }
-
-cleanup:
-    free(pkt);
-    free(response);
-    free(tcp_reply);
-    close(client);
-}
-
-void dns_server_handle_event(dns_server_t *ds, int fd, int master_epoll_fd)
+void dns_server_handle_event(dns_server_t *ds, int fd, int master_epoll_fd,
+                             uint32_t events)
 {
     (void)master_epoll_fd;  /* сохранён в ds->master_epoll_fd при register */
 
-    if (fd == ds->udp_fd)
+    if (fd == ds->udp_fd) {
         handle_udp_query(ds);
-    else if (fd == ds->tcp_fd)
-        handle_tcp_query(ds);
-    else
-        handle_upstream_response(ds, fd);
+    } else if (fd == ds->tcp_fd) {
+        accept_tcp_client(ds);
+    } else {
+        dns_tcp_client_t *tc = tcp_client_find_fd(ds, fd);
+        if (tc)
+            handle_tcp_client_event(ds, tc, events);
+        else
+            handle_upstream_response(ds, fd);
+    }
 }
 
 bool dns_server_is_pending_fd(const dns_server_t *ds, int fd)
 {
-    return dns_pending_find_fd(
-        (dns_pending_queue_t *)&ds->pending, fd) != NULL;
+    if (dns_pending_find_fd((dns_pending_queue_t *)&ds->pending, fd) != NULL)
+        return true;
+    /* TCP клиентские fds тоже маршрутизируются через dns_server_handle_event */
+    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+        if (ds->tcp_clients[i].active && ds->tcp_clients[i].fd == fd)
+            return true;
+    }
+    return false;
+}
+
+void dns_server_check_tcp_timeouts(dns_server_t *ds)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+        dns_tcp_client_t *tc = &ds->tcp_clients[i];
+        if (!tc->active) continue;
+        long elapsed = now.tv_sec - tc->accepted_at.tv_sec;
+        if (elapsed >= 5) {
+            log_msg(LOG_DEBUG, "DNS TCP: клиент [%d] таймаут 5с, закрываем", i);
+            tcp_client_close(ds, tc);
+        }
+    }
 }
 
 #if CONFIG_PHOENIX_DOH
