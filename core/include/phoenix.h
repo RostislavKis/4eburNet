@@ -1,6 +1,7 @@
 #ifndef PHOENIX_H
 #define PHOENIX_H
 
+#include "phoenix_config.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <signal.h>

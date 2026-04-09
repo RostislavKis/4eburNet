@@ -1,5 +1,34 @@
 CC = musl-gcc
-CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -pipe -D_GNU_SOURCE -static
+
+# ── Профили сборки (PROFILE=micro|normal|full) ──
+PROFILE ?= full
+
+ifeq ($(PROFILE),micro)
+  KCONFIG_CFLAGS := \
+    -DCONFIG_PHOENIX_VLESS=1    \
+    -DCONFIG_PHOENIX_TROJAN=1   \
+    -DCONFIG_PHOENIX_SS=0       \
+    -DCONFIG_PHOENIX_AWG=0      \
+    -DCONFIG_PHOENIX_FAKE_IP=0  \
+    -DCONFIG_PHOENIX_DOH=1      \
+    -DCONFIG_PHOENIX_PROXY_PROVIDERS=0 \
+    -DCONFIG_PHOENIX_SNIFFER=1
+else ifeq ($(PROFILE),normal)
+  KCONFIG_CFLAGS := \
+    -DCONFIG_PHOENIX_VLESS=1    \
+    -DCONFIG_PHOENIX_TROJAN=1   \
+    -DCONFIG_PHOENIX_SS=1       \
+    -DCONFIG_PHOENIX_AWG=0      \
+    -DCONFIG_PHOENIX_FAKE_IP=1  \
+    -DCONFIG_PHOENIX_DOH=1      \
+    -DCONFIG_PHOENIX_PROXY_PROVIDERS=1 \
+    -DCONFIG_PHOENIX_SNIFFER=1
+else
+  KCONFIG_CFLAGS :=
+endif
+
+CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
+         $(KCONFIG_CFLAGS)
 WOLFSSL_PREFIX ?= /usr/local/musl-wolfssl
 INCLUDES = -Iinclude -I$(WOLFSSL_PREFIX)/include
 LDFLAGS = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
