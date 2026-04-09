@@ -72,16 +72,6 @@ size_t rm_buffer_size(DeviceProfile profile)
     return MICRO_BUFFER_SIZE;
 }
 
-bool rm_quic_enabled(DeviceProfile profile)
-{
-    switch (profile) {
-    case DEVICE_MICRO:  return false;
-    case DEVICE_NORMAL: return true;
-    case DEVICE_FULL:   return true;
-    }
-    return false;
-}
-
 /* ── device.h API — тонкие обёртки (DEC-013) ───────────────────────────── */
 
 DeviceProfile device_detect_profile(void)
