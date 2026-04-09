@@ -6,6 +6,7 @@
 #include "proxy/proxy_group.h"
 #include "net_utils.h"
 #include "phoenix.h"
+#include "resource_manager.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,22 @@ int proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg)
         gs->type = gc->type;
         snprintf(gs->test_url, sizeof(gs->test_url), "%s", gc->url);
         gs->timeout_ms = gc->timeout_ms > 0 ? gc->timeout_ms : 5000;
+        /* Ограничить таймаут по профилю — защита event loop */
+        {
+            int max_ms;
+            DeviceProfile prof = rm_detect_profile();
+            switch (prof) {
+            case DEVICE_MICRO:   max_ms = 1000; break;
+            case DEVICE_NORMAL:  max_ms = 2000; break;
+            default:             max_ms = 5000; break;
+            }
+            if (gs->timeout_ms > max_ms) {
+                log_msg(LOG_WARN,
+                    "proxy_group[%s]: timeout_ms %d > лимита %d, обрезан",
+                    gs->name, gs->timeout_ms, max_ms);
+                gs->timeout_ms = max_ms;
+            }
+        }
         gs->tolerance_ms = gc->tolerance_ms;
         gs->interval = gc->interval > 0 ? gc->interval : 300;
         gs->next_check = time(NULL) + gs->interval;
