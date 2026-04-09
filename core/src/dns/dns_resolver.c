@@ -163,65 +163,6 @@ void dns_pending_complete(dns_pending_queue_t *q, int idx, int epoll_fd)
     if (q->count > 0) q->count--;
 }
 
-void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd)
-{
-    /* L-07: CLOCK_MONOTONIC — гранулярность ~1ms вместо ~1с */
-    struct timespec now_mono;
-    clock_gettime(CLOCK_MONOTONIC, &now_mono);
-
-    #define DNS_TIMEOUT_SEC 2
-
-    for (int i = 0; i < q->capacity; i++) {
-        dns_pending_t *p = &q->slots[i];
-        if (!p->active) continue;
-        long elapsed_sec = now_mono.tv_sec - p->sent_at.tv_sec;
-        if (!(elapsed_sec > DNS_TIMEOUT_SEC ||
-              (elapsed_sec == DNS_TIMEOUT_SEC &&
-               now_mono.tv_nsec >= p->sent_at.tv_nsec)))
-            continue;
-
-        /* Таймаут — попробовать fallback если не использовали */
-        if (!p->fallback_used && p->fallback_ip[0]) {
-            int ffd = socket(AF_INET,
-                             SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-            if (ffd >= 0) {
-                struct sockaddr_in fa = {
-                    .sin_family = AF_INET,
-                    .sin_port   = htons(p->fallback_port),
-                };
-                if (inet_pton(AF_INET, p->fallback_ip, &fa.sin_addr) == 1 &&
-                    sendto(ffd, p->query, p->query_len, 0,
-                           (struct sockaddr *)&fa, sizeof(fa)) >= 0) {
-                    /* Убрать старый primary fd из epoll */
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
-                    close(p->upstream_fd);
-                    /* Переключить на fallback fd */
-                    /* upstream_fd теперь указывает на ffd.
-                       fallback_fd НЕ дублируем — иначе double close в complete. */
-                    p->upstream_fd   = ffd;
-                    p->fallback_fd   = -1;
-                    p->fallback_used = true;
-                    clock_gettime(CLOCK_MONOTONIC, &p->sent_at);
-                    struct epoll_event ev = {
-                        .events  = EPOLLIN,
-                        .data.fd = ffd,
-                    };
-                    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ffd, &ev);
-                    log_msg(LOG_DEBUG,
-                        "DNS: %s timeout, retry via fallback %s",
-                        p->qname, p->fallback_ip);
-                    continue;  /* дать шанс fallback'у */
-                }
-                close(ffd);
-            }
-        }
-
-        /* Fallback не помог или не настроен — удалить слот */
-        log_msg(LOG_DEBUG, "DNS: upstream таймаут для %s", p->qname);
-        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, p->upstream_fd, NULL);
-        dns_pending_complete(q, i, epoll_fd);
-    }
-}
 
 /* Вариант dns_pending_add для TCP DNS клиентов.
  * Не использует client_addr/addrlen — ответ идёт tcp_clients[tcp_client_idx]. */

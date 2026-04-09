@@ -22,6 +22,9 @@ int dns_parse_query(const uint8_t *pkt, size_t len, dns_query_t *q);
 /* Построить NXDOMAIN ответ */
 int dns_build_nxdomain(const dns_query_t *q, uint8_t *buf, size_t buflen);
 
+/* Построить SERVFAIL ответ (RCODE=2, QR=1, ANCOUNT=0) */
+int dns_build_servfail(const dns_query_t *q, uint8_t *buf, size_t buflen);
+
 /* Подставить ID клиента в ответ upstream */
 int dns_build_forward_reply(const dns_query_t *q,
                             const uint8_t *upstream_reply, size_t reply_len,

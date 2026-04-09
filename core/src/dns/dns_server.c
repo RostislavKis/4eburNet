@@ -278,27 +278,6 @@ static void async_doh_dot_cb(void *ctx, const uint8_t *resp,
     free(c);
 }
 
-/* Блокирующий resolve — только для DoH/DoT (sync fallback) */
-static ssize_t resolve_query_sync(dns_server_t *ds, dns_action_t action,
-                                  const uint8_t *query, size_t query_len,
-                                  uint8_t *response, size_t resp_buflen)
-{
-    const DnsConfig *d = &ds->cfg->dns;
-
-    if (action == DNS_ACTION_PROXY) {
-        if (d->doh_enabled && d->doh_url[0])
-            return dns_doh_query(d, query, query_len,
-                                response, resp_buflen);
-        if (d->dot_enabled && d->dot_server_ip[0])
-            return dns_dot_query(d->dot_server_ip, d->dot_port,
-                                d->dot_sni,
-                                query, query_len,
-                                response, resp_buflen);
-    }
-
-    /* Не должно сюда попасть — обычные UDP через async */
-    return -1;
-}
 #endif /* CONFIG_PHOENIX_DOH */
 
 /* Определить upstream IP и порт для action */
@@ -639,37 +618,14 @@ skip_rate:;
                     return;  /* ctx освободится в callback */
                 }
                 log_msg(LOG_WARN,
-                    "DNS: async DoT start failed (%s), sync fallback", q.qname);
+                    "DNS: async DoT start failed (%s), dropped", q.qname);
             }
 
-            /* Sync fallback если async пул полон */
+            /* DEBT-3: sync fallback удалён — async пул исчерпан, клиент повторит */
             free(ctx);
-            uint8_t *response = malloc(DNS_MAX_PACKET);
-            uint8_t *reply    = malloc(DNS_MAX_PACKET);
-            if (!response || !reply) {
-                free(response); free(reply); return;
-            }
-            ssize_t resp_n = resolve_query_sync(ds, action, pkt, n,
-                                                response, DNS_MAX_PACKET);
-            if (resp_n > 0) {
-                int reply_len = dns_build_forward_reply(&q, response, resp_n,
-                                                        reply, DNS_MAX_PACKET);
-                if (reply_len > 0) {
-                    if (sendto(ds->udp_fd, reply, reply_len, 0,
-                               (struct sockaddr *)&client_addr, client_len) < 0)
-                        log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
-                    uint32_t ttl = dns_extract_min_ttl(response, resp_n);
-                    int max_ttl = ds->cfg->dns.cache_ttl_max;
-                    int min_ttl = ds->cfg->dns.cache_ttl_min;
-                    if (max_ttl > 0 && ttl > (uint32_t)max_ttl) ttl = (uint32_t)max_ttl;
-                    if (min_ttl > 0 && ttl < (uint32_t)min_ttl) ttl = (uint32_t)min_ttl;
-                    dns_cache_put(&ds->cache, q.qname, q.qtype,
-                                  response, resp_n, ttl);
-                    log_msg(LOG_DEBUG, "DNS: %s -> proxy/DoH sync (ttl %u)",
-                            q.qname, ttl);
-                }
-            }
-            free(response); free(reply);
+            log_msg(LOG_WARN,
+                "DNS: async DoH/DoT пул исчерпан, %s dropped (клиент повторит)",
+                q.qname);
             return;
         }
     }
@@ -1221,6 +1177,94 @@ bool dns_server_is_pending_fd(const dns_server_t *ds, int fd)
             return true;
     }
     return false;
+}
+
+void dns_server_check_pending_timeouts(dns_server_t *ds)
+{
+#define DNS_TIMEOUT_SEC 2
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    for (int i = 0; i < ds->pending.capacity; i++) {
+        dns_pending_t *p = &ds->pending.slots[i];
+        if (!p->active) continue;
+
+        long elapsed = now.tv_sec - p->sent_at.tv_sec;
+        if (!(elapsed > DNS_TIMEOUT_SEC ||
+              (elapsed == DNS_TIMEOUT_SEC &&
+               now.tv_nsec >= p->sent_at.tv_nsec)))
+            continue;
+
+        /* Попробовать fallback если не использовали */
+        if (!p->fallback_used && p->fallback_ip[0]) {
+            int ffd = socket(AF_INET,
+                             SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+            if (ffd >= 0) {
+                struct sockaddr_in fa = {
+                    .sin_family = AF_INET,
+                    .sin_port   = htons(p->fallback_port),
+                };
+                if (inet_pton(AF_INET, p->fallback_ip,
+                              &fa.sin_addr) == 1 &&
+                    sendto(ffd, p->query, p->query_len, 0,
+                           (struct sockaddr *)&fa, sizeof(fa)) >= 0) {
+                    epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL,
+                              p->upstream_fd, NULL);
+                    close(p->upstream_fd);
+                    p->upstream_fd   = ffd;
+                    p->fallback_fd   = -1;
+                    p->fallback_used = true;
+                    clock_gettime(CLOCK_MONOTONIC, &p->sent_at);
+                    struct epoll_event ev = {
+                        .events  = EPOLLIN,
+                        .data.fd = ffd,
+                    };
+                    epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
+                              ffd, &ev);
+                    log_msg(LOG_DEBUG,
+                        "DNS: %s timeout, retry via fallback %s",
+                        p->qname, p->fallback_ip);
+                    continue;
+                }
+                close(ffd);
+            }
+        }
+
+        log_msg(LOG_DEBUG, "DNS: upstream timeout для %s", p->qname);
+        epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL,
+                  p->upstream_fd, NULL);
+
+        /* DEBT-2: TCP клиент получает SERVFAIL немедленно */
+        if (p->tcp_client_idx >= 0 &&
+            p->tcp_client_idx < ds->tcp_clients_count) {
+            dns_tcp_client_t *tc = &ds->tcp_clients[p->tcp_client_idx];
+            if (tc->active && tc->pending_idx == i) {
+                tc->pending_idx = -1;
+                dns_query_t sfq = { .id = p->client_id, .qtype = p->qtype };
+                size_t qlen = strlen(p->qname);
+                if (qlen >= sizeof(sfq.qname))
+                    qlen = sizeof(sfq.qname) - 1;
+                memcpy(sfq.qname, p->qname, qlen);
+                sfq.qname[qlen] = '\0';
+                uint8_t *sf = malloc(DNS_MAX_PACKET);
+                if (sf) {
+                    int sf_len = dns_build_servfail(&sfq,
+                                                    sf, DNS_MAX_PACKET);
+                    if (sf_len > 0)
+                        tcp_client_queue_response(ds, tc, sf,
+                                                  (size_t)sf_len);
+                    else
+                        tcp_client_close(ds, tc);
+                    free(sf);
+                } else {
+                    tcp_client_close(ds, tc);
+                }
+            }
+        }
+
+        dns_pending_complete(&ds->pending, i, ds->master_epoll_fd);
+    }
+#undef DNS_TIMEOUT_SEC
 }
 
 void dns_server_check_tcp_timeouts(dns_server_t *ds)

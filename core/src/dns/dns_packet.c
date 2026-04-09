@@ -96,6 +96,15 @@ int dns_build_nxdomain(const dns_query_t *q, uint8_t *buf, size_t buflen)
     return (int)pos;
 }
 
+int dns_build_servfail(const dns_query_t *q, uint8_t *buf, size_t buflen)
+{
+    int len = dns_build_nxdomain(q, buf, buflen);
+    if (len < 4) return len;
+    buf[2] = 0x81;  /* QR=1 AA=0 TC=0 RD=1 */
+    buf[3] = 0x82;  /* RA=1 RCODE=2 (SERVFAIL) */
+    return len;
+}
+
 int dns_build_forward_reply(const dns_query_t *q,
                             const uint8_t *upstream_reply, size_t reply_len,
                             uint8_t *buf, size_t buflen)

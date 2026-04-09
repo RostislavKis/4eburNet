@@ -602,7 +602,7 @@ int main(int argc, char *argv[])
 
         /* DNS pending таймауты — каждый тик (10ms), CLOCK_MONOTONIC дёшев (L-07) */
         if (cfg_ptr->dns.enabled && dns_state.initialized)
-            dns_pending_check_timeouts(&dns_state.pending, master_epoll);
+            dns_server_check_pending_timeouts(&dns_state);
 
         /* Async DoH/DoT таймауты — каждые ~100мс (10 тиков × 10мс) */
         if (cfg_ptr->dns.enabled && dns_state.initialized &&

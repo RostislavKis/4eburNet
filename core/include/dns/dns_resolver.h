@@ -67,6 +67,5 @@ dns_pending_t *dns_pending_find_fd(dns_pending_queue_t *q, int fd);
 
 void dns_pending_complete(dns_pending_queue_t *q, int idx, int epoll_fd);
 
-void dns_pending_check_timeouts(dns_pending_queue_t *q, int epoll_fd);
 
 #endif
