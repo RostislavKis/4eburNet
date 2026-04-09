@@ -86,6 +86,10 @@ void dns_server_handle_event(dns_server_t *ds, int fd, int master_epoll_fd,
 /* Проверить, принадлежит ли fd ожидающему DNS запросу или TCP клиенту */
 bool dns_server_is_pending_fd(const dns_server_t *ds, int fd);
 
+/* Проверить таймауты pending DNS запросов (~каждые 10мс).
+ * TCP-клиентам с истёкшим upstream отправляется SERVFAIL и они закрываются. */
+void dns_server_check_pending_timeouts(dns_server_t *ds);
+
 /* Проверить таймауты TCP DNS клиентов (~каждые 500мс) */
 void dns_server_check_tcp_timeouts(dns_server_t *ds);
 
