@@ -571,11 +571,13 @@ int main(int argc, char *argv[])
                 ipc_process(state.ipc_fd, &state);
             } else if (cfg_ptr->dns.enabled &&
                        dns_server_is_pending_fd(&dns_state, fd)) {
-                /* Ответ от upstream DNS */
-                dns_server_handle_event(&dns_state, fd, master_epoll);
+                /* Ответ от upstream DNS или TCP DNS клиент */
+                dns_server_handle_event(&dns_state, fd, master_epoll,
+                                        events[i].events);
             } else if (dns_state.initialized &&
                        (fd == dns_state.udp_fd || fd == dns_state.tcp_fd)) {
-                dns_server_handle_event(&dns_state, fd, master_epoll);
+                dns_server_handle_event(&dns_state, fd, master_epoll,
+                                        events[i].events);
             } else if (rule_provider_owns_fd(&rpm_state, fd)) {
                 /* Результат async fetch правил */
                 epoll_ctl(master_epoll, EPOLL_CTL_DEL, fd, NULL);
@@ -609,6 +611,11 @@ int main(int argc, char *argv[])
         if (cfg_ptr->dns.enabled && dns_state.initialized &&
             dispatcher_state.tick_count % 10 == 0)
             dns_server_check_async_timeouts(&dns_state);
+
+        /* TCP DNS клиент таймауты — каждые ~500мс (50 тиков × 10мс) */
+        if (cfg_ptr->dns.enabled && dns_state.initialized &&
+            dispatcher_state.tick_count % 50 == 0)
+            dns_server_check_tcp_timeouts(&dns_state);
 
         /* Fake-IP TTL eviction — каждые ~60 сек (6000 тиков × 10мс) */
 #if CONFIG_PHOENIX_FAKE_IP
