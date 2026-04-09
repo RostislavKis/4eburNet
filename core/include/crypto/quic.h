@@ -93,6 +93,9 @@ int quic_keys_derive(quic_keys_t *keys,
 /* Освободить WOLFSSL_EVP_CIPHER_CTX из AEAD-контекстов */
 void quic_keys_free(quic_keys_t *keys);
 
+/* Инициализировать HP контекст напрямую (для Initial keys без WOLFSSL*) */
+int quic_hp_init(quic_hp_ctx_t *ctx, const uint8_t *key, size_t key_len);
+
 /* ── AEAD защита/снятие защиты (RFC 9001 §5.3) ──────────────── */
 
 /* Зашифровать payload. out должен вмещать plain_len + QUIC_AEAD_TAG_LEN байт.
