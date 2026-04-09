@@ -772,8 +772,12 @@ static void tcp_client_close(dns_server_t *ds, dns_tcp_client_t *tc)
     /* Отменить pending если был — до dns_pending_complete во избежание re-entrant */
     if (tc->pending_idx >= 0) {
         int idx = tc->pending_idx;
+        int tc_idx = (int)(tc - ds->tcp_clients);
         tc->pending_idx = -1;
-        dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
+        dns_pending_t *p = &ds->pending.slots[idx];
+        /* F2: проверяем ownership — слот мог быть реаллоцирован */
+        if (p->active && p->tcp_client_idx == tc_idx)
+            dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
     }
     free(tc->tx_buf);
     tc->tx_buf     = NULL;
@@ -904,8 +908,12 @@ static void handle_tcp_client_event(dns_server_t *ds, dns_tcp_client_t *tc,
             target = 2;
         else if (tc->state == DNS_TCP_READING_PKT)
             target = 2 + (size_t)tc->pkt_len;
-        else
-            return;  /* PROCESSING — ждём ответа от upstream */
+        else {
+            /* F3: клиент разорвал соединение пока ждём upstream */
+            if (events & (EPOLLHUP | EPOLLERR))
+                tcp_client_close(ds, tc);
+            return;
+        }
 
         size_t to_read = target - tc->rx_len;
         if (to_read == 0) break;
