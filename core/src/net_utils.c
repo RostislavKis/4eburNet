@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "crypto/tls.h"
 #include "phoenix.h"
 
@@ -481,4 +482,118 @@ int net_http_fetch(const char *url, const char *dest_path)
         return -1;
 
     return net_http_fetch_ip(url, resolved_ip, family, dest_path);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Async spawn: fetch и tcp_ping через fork+pipe для event loop       */
+/* ------------------------------------------------------------------ */
+
+/* Дочерняя функция для fetch: выполняется в child process */
+static void child_do_fetch(const char *url, const char *dest_path,
+                           int pipe_wr)
+{
+    int rc = net_http_fetch(url, dest_path);
+    const char *msg = (rc == 0) ? "OK\n" : "ERR\n";
+    write(pipe_wr, msg, strlen(msg));
+    close(pipe_wr);
+    _exit(0);  /* _exit: не flush stdio, не run atexit */
+}
+
+int net_spawn_fetch(const char *url, const char *dest_path)
+{
+    if (!url || !dest_path) return -1;
+
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]); close(fds[1]); return -1;
+    }
+    if (pid == 0) {
+        /* Дочерний процесс */
+        close(fds[0]);
+        /* Снять CLOEXEC с write end — он нам нужен */
+        fcntl(fds[1], F_SETFD, 0);
+        child_do_fetch(url, dest_path, fds[1]);
+        _exit(1);  /* не достигается */
+    }
+    /* Родительский: закрыть write end, вернуть read end */
+    close(fds[1]);
+    /* Сделать read end nonblocking для epoll */
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    return fds[0];
+}
+
+/* Дочерняя функция для TCP ping */
+static void child_do_tcp_ping(const char *ip, uint16_t port,
+                               int timeout_ms, int pipe_wr)
+{
+    struct sockaddr_storage ss;
+    socklen_t ss_len;
+    memset(&ss, 0, sizeof(ss));
+
+    struct sockaddr_in  *s4 = (struct sockaddr_in  *)&ss;
+    struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&ss;
+
+    if (inet_pton(AF_INET, ip, &s4->sin_addr) == 1) {
+        s4->sin_family = AF_INET;
+        s4->sin_port   = htons(port);
+        ss_len = sizeof(*s4);
+    } else if (inet_pton(AF_INET6, ip, &s6->sin6_addr) == 1) {
+        s6->sin6_family = AF_INET6;
+        s6->sin6_port   = htons(port);
+        ss_len = sizeof(*s6);
+    } else {
+        write(pipe_wr, "ERR\n", 4); _exit(0);
+    }
+
+    int fd = socket((int)ss.ss_family, SOCK_STREAM, 0);
+    if (fd < 0) { write(pipe_wr, "ERR\n", 4); _exit(0); }
+
+    struct timeval tv = {
+        .tv_sec  = timeout_ms / 1000,
+        .tv_usec = (timeout_ms % 1000) * 1000,
+    };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct timespec t1, t2;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    int rc = connect(fd, (struct sockaddr *)&ss, ss_len);
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    close(fd);
+
+    if (rc < 0) {
+        write(pipe_wr, "ERR\n", 4);
+    } else {
+        int64_t ms = (int64_t)(t2.tv_sec  - t1.tv_sec)  * 1000
+                   + (int64_t)(t2.tv_nsec - t1.tv_nsec) / 1000000;
+        char buf[32];
+        int n = snprintf(buf, sizeof(buf), "OK %lld\n", (long long)ms);
+        write(pipe_wr, buf, (size_t)n);
+    }
+    _exit(0);
+}
+
+int net_spawn_tcp_ping(const char *ip, uint16_t port, int timeout_ms)
+{
+    if (!ip || !port) return -1;
+
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]); close(fds[1]); return -1;
+    }
+    if (pid == 0) {
+        close(fds[0]);
+        fcntl(fds[1], F_SETFD, 0);
+        child_do_tcp_ping(ip, port, timeout_ms, fds[1]);
+        _exit(1);
+    }
+    /* Родительский: закрыть write end, вернуть read end */
+    close(fds[1]);
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    return fds[0];
 }

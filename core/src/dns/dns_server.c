@@ -808,68 +808,10 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
         return;
     }
 
-    /* TC bit (truncated) — повторить через TCP */
+    /* TC bit (truncated) — TCP retry отключён (audit_v9: блокирует event loop).
+     * Клиент повторит через UDP с EDNS0 буфером. */
     if (resp_n >= 3 && (resp[2] & 0x02)) {
-        log_msg(LOG_DEBUG, "DNS: %s -> TC bit, retry over TCP", p->qname);
-        const DnsConfig *d = &ds->cfg->dns;
-        const char *server = NULL;
-        uint16_t port = d->upstream_port ? d->upstream_port : 53;
-        switch (p->action) {
-        case DNS_ACTION_BYPASS:  server = d->upstream_bypass;  break;
-        case DNS_ACTION_PROXY:   server = d->upstream_proxy;   break;
-        default:                 server = d->upstream_default; break;
-        }
-        if (server && server[0]) {
-            tcp_buf = malloc(DNS_MAX_PACKET);
-            if (tcp_buf) {
-                bool tcp_ok = false;
-                ssize_t tcp_n = 0;
-                int tfd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-                if (tfd >= 0) {
-                    struct sockaddr_in taddr = {
-                        .sin_family = AF_INET,
-                        .sin_port   = htons(port),
-                    };
-                    struct timeval tv = { .tv_sec = 2 };
-                    setsockopt(tfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-                    setsockopt(tfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-                    if (inet_pton(AF_INET, server, &taddr.sin_addr) == 1 &&
-                        connect(tfd, (struct sockaddr *)&taddr,
-                                sizeof(taddr)) == 0) {
-                        uint8_t lbuf[2] = {
-                            (uint8_t)((p->query_len >> 8) & 0xFF),
-                            (uint8_t)(p->query_len & 0xFF),
-                        };
-                        if (send(tfd, lbuf, 2, 0) == 2 &&
-                            send(tfd, p->query, p->query_len, 0)
-                                == (ssize_t)p->query_len) {
-                            uint8_t rlen[2];
-                            if (recv(tfd, rlen, 2, MSG_WAITALL) == 2) {
-                                uint16_t rsize = ((uint16_t)rlen[0] << 8)
-                                                 | rlen[1];
-                                if (rsize >= 12 &&
-                                    rsize <= DNS_MAX_PACKET &&
-                                    recv(tfd, tcp_buf, rsize,
-                                         MSG_WAITALL) == rsize) {
-                                    tcp_buf[0] = (p->client_id >> 8) & 0xFF;
-                                    tcp_buf[1] = p->client_id & 0xFF;
-                                    tcp_n  = rsize;
-                                    tcp_ok = true;
-                                }
-                            }
-                        }
-                    }
-                    close(tfd);
-                }
-                if (tcp_ok) {
-                    resp   = tcp_buf;
-                    resp_n = tcp_n;
-                } else {
-                    free(tcp_buf);
-                    tcp_buf = NULL;
-                }
-            }
-        }
+        log_msg(LOG_DEBUG, "DNS: %s -> TC bit (retry отключён)", p->qname);
     }
 
     /* TTL: применить min + max */
