@@ -12,6 +12,7 @@
 #include "net_utils.h"
 #include "phoenix.h"
 #include "resource_manager.h"
+#include "device.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,12 +33,12 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
     ds->master_epoll_fd = -1;
     ds->cfg    = cfg;
 
-    dns_pending_init(&ds->pending);
-
     if (!cfg->dns.enabled || cfg->dns.listen_port == 0) {
         log_msg(LOG_DEBUG, "DNS демон отключён");
         return -1;
     }
+
+    DeviceProfile profile = rm_detect_profile();
 
     uint16_t port = cfg->dns.listen_port;
 
@@ -93,9 +94,8 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
 
     /* Rate table: heap, размер по профилю (MICRO=64, NORMAL=256, FULL=512) */
     {
-        DeviceProfile rprof = rm_detect_profile();
         int rtsize;
-        switch (rprof) {
+        switch (profile) {
         case DEVICE_MICRO:   rtsize = DNS_RATE_TABLE_MICRO;  break;
         case DEVICE_NORMAL:  rtsize = DNS_RATE_TABLE_NORMAL; break;
         default:             rtsize = DNS_RATE_TABLE_FULL;   break;
@@ -111,8 +111,30 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
         ds->rate_table_size = rtsize;
     }
 
-    /* Инициализировать TCP клиентские слоты */
-    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+    /* Pending queue: heap, capacity по профилю */
+    if (dns_pending_init(&ds->pending, device_dns_pending(profile)) < 0) {
+        log_msg(LOG_ERROR, "dns_server_init: OOM pending queue");
+        close(ds->udp_fd); ds->udp_fd = -1;
+        close(ds->tcp_fd); ds->tcp_fd = -1;
+        dns_cache_free(&ds->cache);
+        free(ds->rate_table); ds->rate_table = NULL;
+        return -1;
+    }
+
+    /* TCP клиенты: heap, capacity по профилю */
+    int tcp_cap = device_dns_tcp_clients(profile);
+    ds->tcp_clients = calloc((size_t)tcp_cap, sizeof(dns_tcp_client_t));
+    if (!ds->tcp_clients) {
+        log_msg(LOG_ERROR, "dns_server_init: OOM tcp_clients");
+        close(ds->udp_fd); ds->udp_fd = -1;
+        close(ds->tcp_fd); ds->tcp_fd = -1;
+        dns_cache_free(&ds->cache);
+        free(ds->rate_table); ds->rate_table = NULL;
+        dns_pending_free(&ds->pending);
+        return -1;
+    }
+    ds->tcp_clients_count = tcp_cap;
+    for (int i = 0; i < tcp_cap; i++) {
         ds->tcp_clients[i].active      = false;
         ds->tcp_clients[i].fd          = -1;
         ds->tcp_clients[i].pending_idx = -1;
@@ -127,7 +149,7 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
 void dns_server_cleanup(dns_server_t *ds)
 {
     /* Закрыть TCP DNS клиентов */
-    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+    for (int i = 0; i < ds->tcp_clients_count; i++) {
         dns_tcp_client_t *tc = &ds->tcp_clients[i];
         if (!tc->active) continue;
         if (ds->master_epoll_fd >= 0)
@@ -138,11 +160,15 @@ void dns_server_cleanup(dns_server_t *ds)
         tc->fd     = -1;
         tc->tx_buf = NULL;
     }
+    free(ds->tcp_clients);
+    ds->tcp_clients       = NULL;
+    ds->tcp_clients_count = 0;
     /* Закрыть все pending upstream сокеты */
-    for (int i = 0; i < DNS_PENDING_MAX; i++) {
+    for (int i = 0; i < ds->pending.capacity; i++) {
         if (ds->pending.slots[i].active)
             dns_pending_complete(&ds->pending, i, ds->master_epoll_fd);
     }
+    dns_pending_free(&ds->pending);
 #if CONFIG_PHOENIX_DOH
     async_dns_pool_free(&ds->async_pool);
 #endif
@@ -748,7 +774,7 @@ skip_rate:;
 
 static dns_tcp_client_t *tcp_client_alloc(dns_server_t *ds)
 {
-    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+    for (int i = 0; i < ds->tcp_clients_count; i++) {
         if (!ds->tcp_clients[i].active)
             return &ds->tcp_clients[i];
     }
@@ -757,7 +783,7 @@ static dns_tcp_client_t *tcp_client_alloc(dns_server_t *ds)
 
 static dns_tcp_client_t *tcp_client_find_fd(dns_server_t *ds, int fd)
 {
-    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+    for (int i = 0; i < ds->tcp_clients_count; i++) {
         if (ds->tcp_clients[i].active && ds->tcp_clients[i].fd == fd)
             return &ds->tcp_clients[i];
     }
@@ -1002,7 +1028,7 @@ static void accept_tcp_client(dns_server_t *ds)
     if (!tc) {
         /* Нет свободных слотов */
         log_msg(LOG_DEBUG, "DNS TCP: нет свободных слотов (max %d)",
-                DNS_TCP_MAX_CLIENTS);
+                ds->tcp_clients_count);
         close(fd);
         return;
     }
@@ -1103,7 +1129,7 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
             int nx_len = dns_build_nxdomain(&bogus_q, nx, DNS_MAX_PACKET);
             if (nx_len > 0) {
                 if (p->tcp_client_idx >= 0 &&
-                    p->tcp_client_idx < DNS_TCP_MAX_CLIENTS) {
+                    p->tcp_client_idx < ds->tcp_clients_count) {
                     dns_tcp_client_t *tc = &ds->tcp_clients[p->tcp_client_idx];
                     if (tc->active) {
                         tc->pending_idx = -1;
@@ -1141,7 +1167,7 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
 
     /* Отправить клиенту — UDP или TCP */
     if (p->tcp_client_idx >= 0 &&
-        p->tcp_client_idx < DNS_TCP_MAX_CLIENTS) {
+        p->tcp_client_idx < ds->tcp_clients_count) {
         dns_tcp_client_t *tc = &ds->tcp_clients[p->tcp_client_idx];
         if (tc->active) {
             tc->pending_idx = -1;
@@ -1190,7 +1216,7 @@ bool dns_server_is_pending_fd(const dns_server_t *ds, int fd)
     if (dns_pending_find_fd((dns_pending_queue_t *)&ds->pending, fd) != NULL)
         return true;
     /* TCP клиентские fds тоже маршрутизируются через dns_server_handle_event */
-    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+    for (int i = 0; i < ds->tcp_clients_count; i++) {
         if (ds->tcp_clients[i].active && ds->tcp_clients[i].fd == fd)
             return true;
     }
@@ -1201,7 +1227,7 @@ void dns_server_check_tcp_timeouts(dns_server_t *ds)
 {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    for (int i = 0; i < DNS_TCP_MAX_CLIENTS; i++) {
+    for (int i = 0; i < ds->tcp_clients_count; i++) {
         dns_tcp_client_t *tc = &ds->tcp_clients[i];
         if (!tc->active) continue;
         long elapsed = now.tv_sec - tc->accepted_at.tv_sec;
