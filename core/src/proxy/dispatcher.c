@@ -9,13 +9,23 @@
  */
 
 #include "proxy/dispatcher.h"
+#if CONFIG_PHOENIX_VLESS
 #include "proxy/protocols/vless.h"
 #include "proxy/protocols/vless_xhttp.h"
+#endif
+#if CONFIG_PHOENIX_TROJAN
 #include "proxy/protocols/trojan.h"
+#endif
+#if CONFIG_PHOENIX_SS
 #include "proxy/protocols/shadowsocks.h"
+#endif
+#if CONFIG_PHOENIX_AWG
 #include "proxy/protocols/awg.h"
+#endif
 #include "proxy/rules_engine.h"
+#if CONFIG_PHOENIX_SNIFFER
 #include "proxy/sniffer.h"
+#endif
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
@@ -53,7 +63,9 @@
 static dispatcher_state_t *g_dispatcher   = NULL;
 static const PhoenixConfig *g_config      = NULL;
 static rules_engine_t     *g_rules_engine = NULL;
+#if CONFIG_PHOENIX_FAKE_IP
 static fake_ip_table_t    *g_fake_ip      = NULL;
+#endif
 
 void dispatcher_set_context(dispatcher_state_t *ds,
                             const PhoenixConfig *cfg)
@@ -67,10 +79,12 @@ void dispatcher_set_rules_engine(rules_engine_t *re)
     g_rules_engine = re;
 }
 
+#if CONFIG_PHOENIX_FAKE_IP
 void dispatcher_set_fake_ip(fake_ip_table_t *t)
 {
     g_fake_ip = t;
 }
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  Форматирование адреса для логов                                    */
@@ -102,6 +116,7 @@ static const proxy_protocol_t proto_direct = {
 /*  Протокол VLESS — неблокирующий TLS + VLESS header (C-03/C-04)      */
 /* ------------------------------------------------------------------ */
 
+#if CONFIG_PHOENIX_VLESS
 static int vless_protocol_start(relay_conn_t *relay,
                                 const struct sockaddr_storage *dst,
                                 const ServerConfig *server)
@@ -127,11 +142,13 @@ static const proxy_protocol_t proto_vless = {
     .name  = "vless",
     .start = vless_protocol_start,
 };
+#endif /* CONFIG_PHOENIX_VLESS */
 
 /* ------------------------------------------------------------------ */
 /*  Протокол VLESS + XHTTP транспорт                                   */
 /* ------------------------------------------------------------------ */
 
+#if CONFIG_PHOENIX_VLESS
 static int xhttp_protocol_start(relay_conn_t *relay,
                                 const struct sockaddr_storage *dst,
                                 const ServerConfig *server)
@@ -213,11 +230,13 @@ static const proxy_protocol_t proto_xhttp = {
     .name  = "vless+xhttp",
     .start = xhttp_protocol_start,
 };
+#endif /* CONFIG_PHOENIX_VLESS */
 
 /* ------------------------------------------------------------------ */
 /*  Протокол Trojan — TLS + SHA224(password) header                    */
 /* ------------------------------------------------------------------ */
 
+#if CONFIG_PHOENIX_TROJAN
 static int trojan_protocol_start(relay_conn_t *relay,
                                  const struct sockaddr_storage *dst,
                                  const ServerConfig *server)
@@ -240,11 +259,13 @@ static const proxy_protocol_t proto_trojan = {
     .name  = "trojan",
     .start = trojan_protocol_start,
 };
+#endif /* CONFIG_PHOENIX_TROJAN */
 
 /* ------------------------------------------------------------------ */
 /*  Протокол Shadowsocks 2022 — AEAD без TLS                          */
 /* ------------------------------------------------------------------ */
 
+#if CONFIG_PHOENIX_SS
 static int ss_protocol_start(relay_conn_t *relay,
                              const struct sockaddr_storage *dst,
                              const ServerConfig *server)
@@ -268,11 +289,13 @@ static const proxy_protocol_t proto_ss = {
     .name  = "shadowsocks",
     .start = ss_protocol_start,
 };
+#endif /* CONFIG_PHOENIX_SS */
 
 /* ------------------------------------------------------------------ */
 /*  Протокол AWG — UDP, без TCP connect                                */
 /* ------------------------------------------------------------------ */
 
+#if CONFIG_PHOENIX_AWG
 static int awg_protocol_start(relay_conn_t *relay,
                               const struct sockaddr_storage *dst,
                               const ServerConfig *server)
@@ -312,6 +335,7 @@ static const proxy_protocol_t proto_awg = {
     .name  = "awg",
     .start = awg_protocol_start,
 };
+#endif /* CONFIG_PHOENIX_AWG */
 
 /* ------------------------------------------------------------------ */
 /*  Выбор протокола по имени из конфига                                 */
@@ -323,19 +347,27 @@ static const proxy_protocol_t *protocol_find_for_server(
     if (strcmp(server->protocol, "direct") == 0)
         return &proto_direct;
 
+#if CONFIG_PHOENIX_VLESS
     if (strcmp(server->protocol, "vless") == 0) {
         if (server->transport[0] &&
             strcmp(server->transport, "xhttp") == 0)
             return &proto_xhttp;
         return &proto_vless;
     }
+#endif
+#if CONFIG_PHOENIX_TROJAN
     if (strcmp(server->protocol, "trojan") == 0)
         return &proto_trojan;
+#endif
+#if CONFIG_PHOENIX_SS
     if (strcmp(server->protocol, "shadowsocks") == 0 ||
         strcmp(server->protocol, "ss") == 0)
         return &proto_ss;
+#endif
+#if CONFIG_PHOENIX_AWG
     if (strcmp(server->protocol, "awg") == 0)
         return &proto_awg;
+#endif
 
     log_msg(LOG_WARN, "relay: протокол '%s' не поддержан, используется direct",
             server->protocol);
@@ -399,6 +431,7 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->download_fd, NULL);
         close(r->download_fd);
     }
+#if CONFIG_PHOENIX_AWG
     if (r->awg) {
         if (r->awg->udp_fd >= 0)
             epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL,
@@ -407,16 +440,21 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
         free(r->awg);
         r->awg = NULL;
     }
+#endif
+#if CONFIG_PHOENIX_VLESS
     if (r->xhttp) {
         xhttp_close(r->xhttp);
         free(r->xhttp);
         r->xhttp = NULL;
     }
+#endif
+#if CONFIG_PHOENIX_SS
     if (r->ss) {
         ss_cleanup(r->ss);  /* C-08: освободить overflow буфер */
         free(r->ss);
         r->ss = NULL;
     }
+#endif
 
     if (r->state != RELAY_DONE) {
         log_msg(LOG_DEBUG, "relay: закрыт (in:%lu out:%lu)",
@@ -602,6 +640,7 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 
     ssize_t n;
 
+#if CONFIG_PHOENIX_AWG
     /* AWG: UDP шифрование */
     if (r->awg && r->awg->handshake_done) {
         if (from_client) {
@@ -613,7 +652,9 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
             return 0;
         }
     }
+#endif
 
+#if CONFIG_PHOENIX_SS
     /* SS 2022: AEAD шифрование без TLS */
     if (r->ss) {
         if (from_client) {
@@ -634,6 +675,7 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
             return w;
         }
     }
+#endif
 
     if (from_client) {
         /*
@@ -764,6 +806,7 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
         const char *domain = NULL;
 
         /* Fake-IP: если dst IP из пула → знаем домен без SNI */
+#if CONFIG_PHOENIX_FAKE_IP
         if (g_fake_ip) {
             const char *fake_domain =
                 fake_ip_lookup_by_ip(g_fake_ip, &conn->dst);
@@ -773,13 +816,16 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
                     "dispatcher: fake-ip reverse %s", fake_domain);
             }
         }
+#endif
 
+#if CONFIG_PHOENIX_SNIFFER
         if (!domain && conn->fd >= 0) {
             if (sniffer_peek_sni(conn->fd, sni, sizeof(sni)) > 0) {
                 domain = sni;
                 log_msg(LOG_DEBUG, "SNI sniffer: %s", sni);
             }
         }
+#endif
         idx = rules_engine_get_server(g_rules_engine, domain, &conn->dst);
         if (idx == -2) {
             log_msg(LOG_DEBUG, "relay: REJECT (rules engine)");
@@ -855,6 +901,7 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     r->created_at = time(NULL);
     r->server_idx = idx;
 
+#if CONFIG_PHOENIX_AWG
     /* AWG: UDP, минует TCP connect */
     if (strcmp(server->protocol, "awg") == 0) {
         if (awg_protocol_start(r, &conn->dst, server) < 0) {
@@ -876,6 +923,7 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
         }
         return;
     }
+#endif
 
     /* Неблокирующее подключение к upstream (TCP) */
     if (upstream_connect(ds, r, server) < 0) {
@@ -1309,6 +1357,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
         /* --- AWG состояния --- */
 
+#if CONFIG_PHOENIX_AWG
         case RELAY_AWG_HANDSHAKE:
             if (!ep->is_client && r->awg) {
                 int arc = awg_process_incoming(r->awg);
@@ -1375,6 +1424,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
             if (r->state == RELAY_CLOSING)
                 relay_free(ds, r);
             break;
+#endif /* CONFIG_PHOENIX_AWG */
 
         case RELAY_CLOSING:
             relay_free(ds, r);

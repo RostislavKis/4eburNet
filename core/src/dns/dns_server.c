@@ -103,11 +103,15 @@ void dns_server_cleanup(dns_server_t *ds)
         if (ds->pending.slots[i].active)
             dns_pending_complete(&ds->pending, i, ds->master_epoll_fd);
     }
+#if CONFIG_PHOENIX_DOH
     async_dns_pool_free(&ds->async_pool);
+#endif
+#if CONFIG_PHOENIX_FAKE_IP
     if (ds->fake_ip_ready) {
         fake_ip_free(&ds->fake_ip);
         ds->fake_ip_ready = false;
     }
+#endif
     if (ds->udp_fd >= 0) { close(ds->udp_fd); ds->udp_fd = -1; }
     if (ds->tcp_fd >= 0) { close(ds->tcp_fd); ds->tcp_fd = -1; }
     dns_cache_free(&ds->cache);
@@ -118,11 +122,14 @@ void dns_server_cleanup(dns_server_t *ds)
 int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
 {
     ds->master_epoll_fd = master_epoll_fd;
+#if CONFIG_PHOENIX_DOH
     /* Инициализировать async pool теперь когда известен master epoll fd */
     async_dns_pool_init(&ds->async_pool, master_epoll_fd);
+#endif
 
     /* Инициализировать fake-ip если включён */
     const DnsConfig *dcfg = &ds->cfg->dns;
+#if CONFIG_PHOENIX_FAKE_IP
     if (dcfg->fake_ip_enabled) {
         DeviceProfile profile = rm_detect_profile();
         int max_e = fake_ip_max_entries_for_profile(
@@ -139,6 +146,9 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
             log_msg(LOG_WARN, "fake-ip: init не удался, отключён");
         }
     }
+#else
+    (void)dcfg;
+#endif /* CONFIG_PHOENIX_FAKE_IP */
 
     struct epoll_event ev = { .events = EPOLLIN };
 
@@ -155,6 +165,7 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
     return 0;
 }
 
+#if CONFIG_PHOENIX_DOH
 /* ── Async DoH/DoT callback ── */
 
 /* Контекст передаётся через cb_ctx, живёт до вызова callback (malloc/free) */
@@ -219,6 +230,7 @@ static ssize_t resolve_query_sync(dns_server_t *ds, dns_action_t action,
     /* Не должно сюда попасть — обычные UDP через async */
     return -1;
 }
+#endif /* CONFIG_PHOENIX_DOH */
 
 /* Определить upstream IP и порт для action */
 static bool resolve_upstream_addr(const dns_server_t *ds, dns_action_t action,
@@ -446,6 +458,7 @@ static void handle_udp_query(dns_server_t *ds)
         goto udp_upstream;
     }
 
+#if CONFIG_PHOENIX_FAKE_IP
     /* Fake-IP: только для A-запросов PROXY доменов */
     if (ds->fake_ip_ready &&
         ds->cfg->dns.fake_ip_enabled &&
@@ -518,7 +531,9 @@ static void handle_udp_query(dns_server_t *ds)
             return;
         }
     }
+#endif /* CONFIG_PHOENIX_FAKE_IP */
 
+#if CONFIG_PHOENIX_DOH
     /* DoH/DoT — только для PROXY доменов, async через pool */
     if (action == DNS_ACTION_PROXY) {
         const DnsConfig *d = &ds->cfg->dns;
@@ -587,6 +602,7 @@ static void handle_udp_query(dns_server_t *ds)
             return;
         }
     }
+#endif /* CONFIG_PHOENIX_DOH */
 
     /* Обычный UDP upstream — неблокирующий async путь */
     udp_upstream:;
@@ -977,6 +993,7 @@ bool dns_server_is_pending_fd(const dns_server_t *ds, int fd)
         (dns_pending_queue_t *)&ds->pending, fd) != NULL;
 }
 
+#if CONFIG_PHOENIX_DOH
 bool dns_server_is_async_ptr(const dns_server_t *ds, void *ptr)
 {
     return async_dns_is_pool_ptr(&ds->async_pool, ptr);
@@ -993,3 +1010,4 @@ void dns_server_check_async_timeouts(dns_server_t *ds)
 {
     async_dns_check_timeouts(&ds->async_pool);
 }
+#endif /* CONFIG_PHOENIX_DOH */
