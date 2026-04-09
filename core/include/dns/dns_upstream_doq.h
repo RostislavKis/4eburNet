@@ -80,6 +80,7 @@ typedef struct {
     uint8_t                 hs_buf[4096];
     size_t                  hs_buf_len;
     quic_level_t            hs_level;
+    uint64_t                hs_offset[3];    /* отправленных байт CRYPTO per уровень */
 
     /* QUIC crypto keys: [0]=Initial [1]=Handshake [2]=Application */
     quic_keys_t             keys[3];
