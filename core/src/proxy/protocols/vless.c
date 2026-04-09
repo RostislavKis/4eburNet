@@ -128,6 +128,9 @@ int vless_build_request(uint8_t *buf, size_t buflen,
 /*  Используйте vless_read_response_step() из dispatcher (H-23)       */
 /* ------------------------------------------------------------------ */
 
+__attribute__((deprecated(
+    "Используйте vless_read_response_step() из dispatcher. "
+    "Эта функция блокирует event loop на 5 секунд.")))
 int vless_read_response(tls_conn_t *tls)
 {
     /* Минимум 2 байта: версия + длина аддонов */
@@ -199,6 +202,9 @@ int vless_read_response(tls_conn_t *tls)
 /*  vless_handshake                                                    */
 /* ------------------------------------------------------------------ */
 
+__attribute__((deprecated(
+    "Используйте vless_handshake_start(). "
+    "Эта функция блокирует event loop.")))
 int vless_handshake(tls_conn_t *tls,
                     const struct sockaddr_storage *dst,
                     const char *uuid_str)
