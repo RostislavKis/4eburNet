@@ -7,7 +7,6 @@
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
-#include <netdb.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,9 +36,12 @@ static int fetch_with_ip_cache(const char *url, const char *cache_path,
         if (h[0])
             net_resolve_host(h, p, resolved_ip, ip_size, resolved_family);
     }
-    if (resolved_ip[0])
-        return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
-    return net_http_fetch(url, cache_path);  /* fallback если resolve не удался */
+    if (!resolved_ip[0]) {
+        log_msg(LOG_WARN, "fetch_with_ip_cache: не удалось резолвить хост из %s",
+                url);
+        return -1;
+    }
+    return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
 }
 
 /* Создать директорию для файла (H-3: по dirname, не по самому пути) */
@@ -72,6 +74,8 @@ int rule_provider_init(rule_provider_manager_t *rpm, const PhoenixConfig *cfg)
                             sizeof(rule_provider_state_t));
     if (!rpm->providers) return -1;
     rpm->count = cfg->rule_provider_count;
+    for (int i = 0; i < rpm->count; i++)
+        rpm->providers[i].resolved_family = AF_INET;
 
     for (int i = 0; i < rpm->count; i++) {
         const RuleProviderConfig *rc = &cfg->rule_providers[i];
