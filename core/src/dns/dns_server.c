@@ -91,6 +91,26 @@ int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
     int cache_sz = cfg->dns.cache_size > 0 ? cfg->dns.cache_size : 256;
     dns_cache_init(&ds->cache, cache_sz);
 
+    /* Rate table: heap, размер по профилю (MICRO=64, NORMAL=256, FULL=512) */
+    {
+        DeviceProfile rprof = rm_detect_profile();
+        int rtsize;
+        switch (rprof) {
+        case DEVICE_MICRO:   rtsize = DNS_RATE_TABLE_MICRO;  break;
+        case DEVICE_NORMAL:  rtsize = DNS_RATE_TABLE_NORMAL; break;
+        default:             rtsize = DNS_RATE_TABLE_FULL;   break;
+        }
+        ds->rate_table = calloc((size_t)rtsize, sizeof(dns_rate_entry_t));
+        if (!ds->rate_table) {
+            log_msg(LOG_ERROR, "dns_server_init: OOM rate_table");
+            close(ds->udp_fd); ds->udp_fd = -1;
+            close(ds->tcp_fd); ds->tcp_fd = -1;
+            dns_cache_free(&ds->cache);
+            return -1;
+        }
+        ds->rate_table_size = rtsize;
+    }
+
     ds->initialized = true;
     log_msg(LOG_INFO, "DNS демон запущен на порту %u (кэш: %d)", port, cache_sz);
     return 0;
@@ -115,6 +135,9 @@ void dns_server_cleanup(dns_server_t *ds)
     if (ds->udp_fd >= 0) { close(ds->udp_fd); ds->udp_fd = -1; }
     if (ds->tcp_fd >= 0) { close(ds->tcp_fd); ds->tcp_fd = -1; }
     dns_cache_free(&ds->cache);
+    free(ds->rate_table);
+    ds->rate_table = NULL;
+    ds->rate_table_size = 0;
     ds->initialized = false;
     log_msg(LOG_INFO, "DNS демон остановлен");
 }
@@ -290,7 +313,8 @@ static void handle_udp_query(dns_server_t *ds)
         addr_hash = addr_hash * 33 + src_addr[ai];
 
     time_t now_t = time(NULL);
-    int slot = (int)(addr_hash % DNS_RATE_TABLE_SIZE);
+    if (!ds->rate_table) goto skip_rate;
+    int slot = (int)(addr_hash % (uint32_t)ds->rate_table_size);
     if (ds->rate_table[slot].addr_len == src_addr_len &&
         memcmp(ds->rate_table[slot].addr, src_addr, src_addr_len) == 0) {
         if (now_t - ds->rate_table[slot].window_start < DNS_RATE_WINDOW) {
@@ -310,6 +334,7 @@ static void handle_udp_query(dns_server_t *ds)
         ds->rate_table[slot].window_start = now_t;
     }
     /* H-11: collision — другой адрес в слоте, conservative: не сбрасываем */
+skip_rate:;
 
     dns_query_t q;
     if (dns_parse_query(pkt, n, &q) < 0) {

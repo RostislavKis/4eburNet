@@ -12,8 +12,17 @@
 #endif
 #include "config.h"
 
-/* H-10/H-11: расширенный rate table для IPv4+IPv6 */
-#define DNS_RATE_TABLE_SIZE 512
+/* Размеры rate table по профилю устройства */
+#define DNS_RATE_TABLE_MICRO   64
+#define DNS_RATE_TABLE_NORMAL  256
+#define DNS_RATE_TABLE_FULL    512
+
+typedef struct {
+    uint8_t  addr[16];    /* IPv4 (4 байта) или IPv6 (16 байт) */
+    uint8_t  addr_len;    /* 4 = IPv4, 16 = IPv6 */
+    uint32_t count;
+    time_t   window_start;
+} dns_rate_entry_t;
 
 typedef struct {
     int               udp_fd;
@@ -23,13 +32,9 @@ typedef struct {
     dns_cache_t       cache;
     dns_pending_queue_t pending;
     const PhoenixConfig *cfg;
-    /* Per-source rate limiting (H-10/H-11: IPv4+IPv6, 512 слотов) */
-    struct {
-        uint8_t  addr[16];    /* IPv4 (4 байта) или IPv6 (16 байт) */
-        uint8_t  addr_len;    /* 4 = IPv4, 16 = IPv6 */
-        uint32_t count;
-        time_t   window_start;
-    } rate_table[DNS_RATE_TABLE_SIZE];
+    /* Per-source rate limiting (heap, размер по профилю) */
+    dns_rate_entry_t *rate_table;
+    int               rate_table_size;
 #if CONFIG_PHOENIX_DOH
     /* Async DoH/DoT pool (инициализируется в dns_server_register_epoll) */
     async_dns_pool_t async_pool;

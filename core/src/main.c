@@ -302,38 +302,43 @@ int main(int argc, char *argv[])
     /* Настройка OOM */
     rm_apply_oom_settings();
 
-    /* Загрузка конфигурации
-     * TODO: перенести cfg на heap (malloc) для безопасности при рефакторинге.
-     * Сейчас cfg живёт на стеке main() до конца — работает корректно,
-     * но при будущем выносе в отдельную функцию станет use-after-free (H-12). */
-    PhoenixConfig cfg;
-    if (config_load(config_path, &cfg) < 0) {
-        log_msg(LOG_ERROR, "Не удалось загрузить конфиг, завершение");
+    /* Загрузка конфигурации на heap (S2: audit_v8) */
+    PhoenixConfig *cfg_ptr = calloc(1, sizeof(PhoenixConfig));
+    if (!cfg_ptr) {
+        log_msg(LOG_ERROR, "OOM: не удалось выделить PhoenixConfig");
         tls_global_cleanup();
         log_close();
         return 1;
     }
-    state.config = &cfg;
+    if (config_load(config_path, cfg_ptr) < 0) {
+        log_msg(LOG_ERROR, "Не удалось загрузить конфиг, завершение");
+        free(cfg_ptr);
+        tls_global_cleanup();
+        log_close();
+        return 1;
+    }
+    state.config = cfg_ptr;
 
     /* Переинициализация лога с уровнем из конфига */
     log_close();
-    log_init(PHOENIX_LOG_FILE, parse_log_level(cfg.log_level));
+    log_init(PHOENIX_LOG_FILE, parse_log_level(cfg_ptr->log_level));
 
-    config_dump(&cfg);
+    config_dump(cfg_ptr);
 
-    if (!cfg.enabled) {
+    if (!cfg_ptr->enabled) {
         log_msg(LOG_INFO, "Демон отключён в конфиге, завершение");
         tls_global_cleanup();
-        config_free(&cfg);
+        config_free(cfg_ptr);
+        free(cfg_ptr);
         log_close();
         return 0;
     }
 
     /* Проверить наличие защитного правила GEOIP,RU,DIRECT в режиме rules */
-    if (strcmp(cfg.mode, "rules") == 0) {
+    if (strcmp(cfg_ptr->mode, "rules") == 0) {
         bool has_ru_direct = false;
-        for (int i = 0; i < cfg.traffic_rule_count; i++) {
-            const TrafficRule *tr = &cfg.traffic_rules[i];
+        for (int i = 0; i < cfg_ptr->traffic_rule_count; i++) {
+            const TrafficRule *tr = &cfg_ptr->traffic_rules[i];
             if (tr->type == RULE_TYPE_GEOIP &&
                 strcasecmp(tr->value, "RU") == 0 &&
                 strcasecmp(tr->target, "DIRECT") == 0) {
@@ -358,7 +363,8 @@ int main(int argc, char *argv[])
     if (state.ipc_fd < 0) {
         log_msg(LOG_ERROR, "Не удалось создать IPC сокет");
         tls_global_cleanup();
-        config_free(&cfg);
+        config_free(cfg_ptr);
+        free(cfg_ptr);
         unlink(PHOENIX_PID_FILE);
         log_close();
         return 1;
@@ -369,9 +375,9 @@ int main(int argc, char *argv[])
         log_msg(LOG_WARN,
             "nftables недоступен, маршрутизация отключена");
     } else {
-        if (strcmp(cfg.mode, "global") == 0)
+        if (strcmp(cfg_ptr->mode, "global") == 0)
             nft_mode_set_global();
-        else if (strcmp(cfg.mode, "direct") == 0)
+        else if (strcmp(cfg_ptr->mode, "direct") == 0)
             nft_mode_set_direct();
         else
             nft_mode_set_rules();
@@ -412,22 +418,22 @@ int main(int argc, char *argv[])
     }
 
     /* DNS демон — init (register_epoll после master_epoll) */
-    if (cfg.dns.enabled) {
-        dns_rules_init(&cfg);
-        dns_server_init(&dns_state, &cfg);
+    if (cfg_ptr->dns.enabled) {
+        dns_rules_init(cfg_ptr);
+        dns_server_init(&dns_state, cfg_ptr);
     }
 
     /* Per-device routing (netdev MAC map) */
-    if (cfg.device_count > 0 && cfg.lan_interface[0]) {
-        device_policy_init(&device_state, &cfg);
-        device_policy_apply(&device_state, cfg.lan_interface);
+    if (cfg_ptr->device_count > 0 && cfg_ptr->lan_interface[0]) {
+        device_policy_init(&device_state, cfg_ptr);
+        device_policy_apply(&device_state, cfg_ptr->lan_interface);
     }
 
     /* Политика маршрутизации — ip rule и ip route */
     policy_check_conflicts();
-    if (strcmp(cfg.mode, "tun") == 0) {
+    if (strcmp(cfg_ptr->mode, "tun") == 0) {
         policy_init_tun("tun0");
-    } else if (strcmp(cfg.mode, "direct") == 0) {
+    } else if (strcmp(cfg_ptr->mode, "direct") == 0) {
         /* в direct режиме правила маршрутизации не нужны */
     } else {
         /* rules и global используют TPROXY */
@@ -446,17 +452,17 @@ int main(int argc, char *argv[])
     if (dispatcher_init(&dispatcher_state, state.profile) < 0) {
         log_msg(LOG_WARN, "Диспетчер не запущен");
     } else {
-        dispatcher_set_context(&dispatcher_state, &cfg);
+        dispatcher_set_context(&dispatcher_state, cfg_ptr);
 
         /* Proxy groups + rule providers + rules engine */
-        proxy_group_init(&pgm_state, &cfg);
-        rule_provider_init(&rpm_state, &cfg);
+        proxy_group_init(&pgm_state, cfg_ptr);
+        rule_provider_init(&rpm_state, cfg_ptr);
         rule_provider_load_all(&rpm_state);
-        if (geo_manager_init(&geo_state, &cfg) == 0)
-            geo_load_region_categories(&geo_state, &cfg);
+        if (geo_manager_init(&geo_state, cfg_ptr) == 0)
+            geo_load_region_categories(&geo_state, cfg_ptr);
         else
             log_msg(LOG_WARN, "GeoIP: не удалось инициализировать");
-        rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state,
+        rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
                           &geo_state);
         dispatcher_set_rules_engine(&re_state);
         ipc_set_3x_context(&pgm_state, &rpm_state, &re_state, &geo_state);
@@ -516,7 +522,7 @@ int main(int argc, char *argv[])
     }
 
     /* DNS fd в master epoll */
-    if (cfg.dns.enabled && dns_state.udp_fd >= 0)
+    if (cfg_ptr->dns.enabled && dns_state.udp_fd >= 0)
         dns_server_register_epoll(&dns_state, master_epoll);
 
     /* Fake-IP: передать таблицу диспетчеру для reverse lookup */
@@ -540,7 +546,7 @@ int main(int argc, char *argv[])
 
         for (int i = 0; i < n; i++) {
             /* Async DoH/DoT — epoll data.ptr, не data.fd */
-            if (cfg.dns.enabled && dns_state.initialized) {
+            if (cfg_ptr->dns.enabled && dns_state.initialized) {
                 void *ptr = events[i].data.ptr;
                 if (dns_server_is_async_ptr(&dns_state, ptr)) {
                     dns_server_handle_async_event(&dns_state, ptr,
@@ -552,7 +558,7 @@ int main(int argc, char *argv[])
             int fd = events[i].data.fd;
             if (fd == state.ipc_fd) {
                 ipc_process(state.ipc_fd, &state);
-            } else if (cfg.dns.enabled &&
+            } else if (cfg_ptr->dns.enabled &&
                        dns_server_is_pending_fd(&dns_state, fd)) {
                 /* Ответ от upstream DNS */
                 dns_server_handle_event(&dns_state, fd, master_epoll);
@@ -565,11 +571,11 @@ int main(int argc, char *argv[])
         }
 
         /* DNS pending таймауты — каждый тик (10ms), CLOCK_MONOTONIC дёшев (L-07) */
-        if (cfg.dns.enabled && dns_state.initialized)
+        if (cfg_ptr->dns.enabled && dns_state.initialized)
             dns_pending_check_timeouts(&dns_state.pending, master_epoll);
 
         /* Async DoH/DoT таймауты — каждые ~100мс (10 тиков × 10мс) */
-        if (cfg.dns.enabled && dns_state.initialized &&
+        if (cfg_ptr->dns.enabled && dns_state.initialized &&
             dispatcher_state.tick_count % 10 == 0)
             dns_server_check_async_timeouts(&dns_state);
 
@@ -596,13 +602,14 @@ int main(int argc, char *argv[])
         /* Перезагрузка конфига по сигналу или IPC команде */
         if (state.reload) {
             log_msg(LOG_INFO, "Перезагрузка конфигурации...");
-            PhoenixConfig new_cfg;
-            if (config_load(config_path, &new_cfg) == 0) {
-                config_free(&cfg);
-                cfg = new_cfg;
-                state.config = &cfg;
-                config_dump(&cfg);
-                dispatcher_set_context(&dispatcher_state, &cfg);
+            PhoenixConfig *new_cfg_ptr = calloc(1, sizeof(PhoenixConfig));
+            if (new_cfg_ptr && config_load(config_path, new_cfg_ptr) == 0) {
+                config_free(cfg_ptr);
+                free(cfg_ptr);
+                cfg_ptr = new_cfg_ptr;
+                state.config = cfg_ptr;
+                config_dump(cfg_ptr);
+                dispatcher_set_context(&dispatcher_state, cfg_ptr);
                 rules_check_update(&rules_state);
                 /* H-09: DNS реинициализация при reload */
                 if (dns_state.initialized) {
@@ -615,9 +622,9 @@ int main(int argc, char *argv[])
                     dns_server_cleanup(&dns_state);
                 }
                 dns_rules_free();
-                if (cfg.dns.enabled) {
-                    dns_rules_init(&cfg);
-                    if (dns_server_init(&dns_state, &cfg) == 0)
+                if (cfg_ptr->dns.enabled) {
+                    dns_rules_init(cfg_ptr);
+                    if (dns_server_init(&dns_state, cfg_ptr) == 0)
                         dns_server_register_epoll(&dns_state, master_epoll);
                 }
                 /* Обновить fake-ip указатель в dispatcher после reload */
@@ -625,27 +632,28 @@ int main(int argc, char *argv[])
                 dispatcher_set_fake_ip(
                     dns_state.fake_ip_ready ? &dns_state.fake_ip : NULL);
 #endif
-                if (cfg.device_count > 0 && cfg.lan_interface[0]) {
+                if (cfg_ptr->device_count > 0 && cfg_ptr->lan_interface[0]) {
                     device_policy_free(&device_state);
-                    device_policy_init(&device_state, &cfg);
-                    device_policy_apply(&device_state, cfg.lan_interface);
+                    device_policy_init(&device_state, cfg_ptr);
+                    device_policy_apply(&device_state, cfg_ptr->lan_interface);
                 }
                 rules_engine_free(&re_state);
                 geo_manager_free(&geo_state);
                 rule_provider_free(&rpm_state);
                 proxy_group_free(&pgm_state);
-                proxy_group_init(&pgm_state, &cfg);
-                rule_provider_init(&rpm_state, &cfg);
+                proxy_group_init(&pgm_state, cfg_ptr);
+                rule_provider_init(&rpm_state, cfg_ptr);
                 rule_provider_load_all(&rpm_state);
-                if (geo_manager_init(&geo_state, &cfg) == 0)
-                    geo_load_region_categories(&geo_state, &cfg);
-                rules_engine_init(&re_state, &cfg, &pgm_state, &rpm_state,
+                if (geo_manager_init(&geo_state, cfg_ptr) == 0)
+                    geo_load_region_categories(&geo_state, cfg_ptr);
+                rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
                                   &geo_state);
                 dispatcher_set_rules_engine(&re_state);
                 ipc_set_3x_context(&pgm_state, &rpm_state, &re_state,
                                    &geo_state);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
+                if (new_cfg_ptr) free(new_cfg_ptr);
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
             }
             state.reload = false;
@@ -676,7 +684,8 @@ cleanup:
     nft_cleanup();
     ipc_cleanup(state.ipc_fd);
     tls_global_cleanup();
-    config_free(&cfg);
+    config_free(cfg_ptr);
+    free(cfg_ptr);
     unlink(PHOENIX_PID_FILE);
 
     log_msg(LOG_INFO, "%s остановлен", PHOENIX_NAME);
