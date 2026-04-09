@@ -13,6 +13,10 @@ typedef struct {
     bool   loaded;
     char   resolved_ip[64];  /* кэшированный IP хоста URL (inet_pton fast path) */
     int    resolved_family;  /* AF_INET или AF_INET6 */
+    /* Async fetch state (audit_v9) */
+    int    fetch_pipe_fd;    /* read end pipe, -1 = нет активного fetch */
+    bool   fetch_registered; /* pipe fd уже в epoll */
+    time_t fetch_started;    /* для timeout */
 } rule_provider_state_t;
 
 typedef struct {
@@ -27,5 +31,10 @@ int  rule_provider_load_all(rule_provider_manager_t *rpm);
 void rule_provider_tick(rule_provider_manager_t *rpm);
 int  rule_provider_update(rule_provider_manager_t *rpm, const char *name);
 int  rule_provider_to_json(const rule_provider_manager_t *rpm, char *buf, size_t buflen);
+
+/* Обработать готовность pipe от fetch subprocess */
+void rule_provider_handle_fetch(rule_provider_manager_t *rpm,
+                                 int fd, uint32_t events);
+bool rule_provider_owns_fd(const rule_provider_manager_t *rpm, int fd);
 
 #endif

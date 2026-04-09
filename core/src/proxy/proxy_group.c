@@ -18,6 +18,7 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <sys/time.h>
+#include <limits.h>
 
 /* Найти индекс сервера по имени в cfg->servers[] */
 static int find_server_by_name(const PhoenixConfig *cfg, const char *name)
@@ -90,6 +91,10 @@ int proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg)
             tok = strtok_r(NULL, " ", &saveptr);
         }
 
+        gs->hc_pipe_fd    = -1;
+        gs->hc_server_idx = -1;
+        gs->hc_registered = false;
+
         log_msg(LOG_DEBUG, "Группа %s: тип %d, %d серверов",
                 gs->name, gs->type, gs->server_count);
         pgm->count++;
@@ -101,6 +106,12 @@ int proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg)
 
 void proxy_group_free(proxy_group_manager_t *pgm)
 {
+    for (int i = 0; i < pgm->count; i++) {
+        if (pgm->groups[i].hc_pipe_fd >= 0) {
+            close(pgm->groups[i].hc_pipe_fd);
+            pgm->groups[i].hc_pipe_fd = -1;
+        }
+    }
     free(pgm->groups);
     memset(pgm, 0, sizeof(*pgm));
 }
@@ -186,53 +197,6 @@ void proxy_group_update_result(proxy_group_manager_t *pgm,
     }
 }
 
-/* Latency test: TCP connect RTT, поддержка IPv4 + IPv6 (V6-07) */
-static uint32_t measure_latency(const char *ip, uint16_t port, int timeout_ms)
-{
-    /* Определить семейство адреса */
-    struct sockaddr_storage ss;
-    socklen_t ss_len;
-    memset(&ss, 0, sizeof(ss));
-
-    struct sockaddr_in  *s4 = (struct sockaddr_in  *)&ss;
-    struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&ss;
-
-    if (inet_pton(AF_INET, ip, &s4->sin_addr) == 1) {
-        s4->sin_family = AF_INET;
-        s4->sin_port   = htons(port);
-        ss_len = sizeof(struct sockaddr_in);
-    } else if (inet_pton(AF_INET6, ip, &s6->sin6_addr) == 1) {
-        s6->sin6_family = AF_INET6;
-        s6->sin6_port   = htons(port);
-        ss_len = sizeof(struct sockaddr_in6);
-    } else {
-        log_msg(LOG_WARN, "measure_latency: невалидный IP: %s", ip);
-        return 0;
-    }
-
-    int fd = socket(ss.ss_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0) return 0;
-
-    struct timeval tv = {
-        .tv_sec  = timeout_ms / 1000,
-        .tv_usec = (timeout_ms % 1000) * 1000,
-    };
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    struct timespec t1, t2;
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    int rc = connect(fd, (struct sockaddr *)&ss, ss_len);
-    clock_gettime(CLOCK_MONOTONIC, &t2);
-    close(fd);
-
-    if (rc < 0) return 0;
-
-    uint32_t ms = (uint32_t)(
-        (t2.tv_sec  - t1.tv_sec)  * 1000 +
-        (t2.tv_nsec - t1.tv_nsec) / 1000000);
-    return ms > 0 ? ms : 1;
-}
-
 /* H-1: неблокирующий health-check — максимум 1 группа, 1 сервер за tick.
  * При 3 группах × 3 сервера × 5с таймаут = 5с блок вместо 45с. */
 void proxy_group_tick(proxy_group_manager_t *pgm)
@@ -250,27 +214,74 @@ void proxy_group_tick(proxy_group_manager_t *pgm)
             continue;
         }
 
-        /* Проверяем один сервер (по cursor) */
+        /* Проверяем один сервер (по cursor).
+         * Если уже идёт async проверка этой группы — пропустить. */
+        if (gs->hc_pipe_fd >= 0) return;
+
         int i = gs->check_cursor % gs->server_count;
         int idx = gs->servers[i].server_idx;
         if (idx >= 0 && idx < pgm->cfg->server_count) {
             const ServerConfig *srv = &pgm->cfg->servers[idx];
-            uint32_t lat = measure_latency(srv->address, srv->port,
-                                           gs->timeout_ms);
-            gs->servers[i].available = (lat > 0);
-            gs->servers[i].latency_ms = lat;
-            gs->servers[i].last_check = now;
-            if (lat == 0) gs->servers[i].fail_count++;
-            else gs->servers[i].fail_count = 0;
+            int pfd = net_spawn_tcp_ping(srv->address, srv->port,
+                                        gs->timeout_ms);
+            if (pfd >= 0) {
+                gs->hc_pipe_fd    = pfd;
+                gs->hc_server_idx = i;
+                gs->hc_registered = false;
+                gs->servers[i].last_check = now;
+                /* pipe fd зарегистрируется в epoll из main loop */
+            }
         }
-
-        gs->check_cursor++;
-        /* Обход завершён — сбросить таймер */
-        if (gs->check_cursor % gs->server_count == 0)
-            gs->next_check = now + gs->interval;
-
+        /* cursor и таймер обновляются после получения результата */
         return;  /* только одна группа за tick */
     }
+}
+
+void proxy_group_handle_hc_event(proxy_group_state_t *gs,
+                                  int fd, uint32_t events)
+{
+    if (fd != gs->hc_pipe_fd) return;
+    (void)events;
+
+    char buf[32] = {0};
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+
+    close(gs->hc_pipe_fd);
+    gs->hc_pipe_fd    = -1;
+    gs->hc_registered = false;
+
+    int i = gs->hc_server_idx;
+    gs->hc_server_idx = -1;
+
+    if (n > 0) {
+        buf[n] = '\0';
+        if (strncmp(buf, "OK", 2) == 0) {
+            long long ms = 0;
+            sscanf(buf, "OK %lld", &ms);
+            gs->servers[i].latency_ms  = (uint32_t)ms;
+            gs->servers[i].available   = true;
+            gs->servers[i].fail_count  = 0;
+            log_msg(LOG_DEBUG, "proxy_group[%s] server[%d] latency=%lldms",
+                    gs->name, i, ms);
+        } else {
+            gs->servers[i].fail_count++;
+            if (gs->servers[i].fail_count >= 3)
+                gs->servers[i].available = false;
+            log_msg(LOG_DEBUG, "proxy_group[%s] server[%d] недоступен",
+                    gs->name, i);
+        }
+    }
+
+    /* Сдвинуть cursor и при необходимости сбросить таймер */
+    gs->check_cursor++;
+    if (gs->server_count > 0 &&
+        gs->check_cursor % gs->server_count == 0)
+        gs->next_check = time(NULL) + gs->interval;
+}
+
+bool proxy_group_owns_fd(const proxy_group_state_t *gs, int fd)
+{
+    return gs->hc_pipe_fd == fd;
 }
 
 int proxy_group_select_manual(proxy_group_manager_t *pgm,

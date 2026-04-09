@@ -74,8 +74,10 @@ int rule_provider_init(rule_provider_manager_t *rpm, const PhoenixConfig *cfg)
                             sizeof(rule_provider_state_t));
     if (!rpm->providers) return -1;
     rpm->count = cfg->rule_provider_count;
-    for (int i = 0; i < rpm->count; i++)
+    for (int i = 0; i < rpm->count; i++) {
         rpm->providers[i].resolved_family = AF_INET;
+        rpm->providers[i].fetch_pipe_fd   = -1;
+    }
 
     for (int i = 0; i < rpm->count; i++) {
         const RuleProviderConfig *rc = &cfg->rule_providers[i];
@@ -100,6 +102,12 @@ int rule_provider_init(rule_provider_manager_t *rpm, const PhoenixConfig *cfg)
 
 void rule_provider_free(rule_provider_manager_t *rpm)
 {
+    for (int i = 0; i < rpm->count; i++) {
+        if (rpm->providers[i].fetch_pipe_fd >= 0) {
+            close(rpm->providers[i].fetch_pipe_fd);
+            rpm->providers[i].fetch_pipe_fd = -1;
+        }
+    }
     free(rpm->providers);
     memset(rpm, 0, sizeof(*rpm));
 }
@@ -169,14 +177,19 @@ void rule_provider_tick(rule_provider_manager_t *rpm)
         ps->next_update = now + rc->interval;
 
         if (rc->type == RULE_PROVIDER_HTTP && rc->url[0]) {
-            if (fetch_with_ip_cache(rc->url, ps->cache_path,
-                                    ps->resolved_ip, sizeof(ps->resolved_ip),
-                                    &ps->resolved_family) == 0) {
-                ps->loaded = true;
-                ps->rule_count = count_rules(ps->cache_path);
-                ps->last_update = now;
-                log_msg(LOG_INFO, "Provider %s: обновлён (%d правил)",
-                        ps->name, ps->rule_count);
+            /* Если уже идёт fetch этого провайдера — пропустить */
+            if (ps->fetch_pipe_fd >= 0) return;
+
+            /* Запустить async fetch */
+            int pfd = net_spawn_fetch(rc->url, ps->cache_path);
+            if (pfd >= 0) {
+                ps->fetch_pipe_fd   = pfd;
+                ps->fetch_registered = false;
+                ps->fetch_started   = now;
+                /* pipe fd зарегистрируется в epoll из main loop */
+            } else {
+                log_msg(LOG_WARN, "Provider %s: spawn fetch провалился",
+                        ps->name);
             }
         }
         return;  /* только один провайдер за вызов */
@@ -231,4 +244,40 @@ int rule_provider_to_json(const rule_provider_manager_t *rpm,
     JS("]}");
 #undef JS
     return pos;
+}
+
+void rule_provider_handle_fetch(rule_provider_manager_t *rpm,
+                                 int fd, uint32_t events)
+{
+    (void)events;
+    for (int i = 0; i < rpm->count; i++) {
+        rule_provider_state_t *ps = &rpm->providers[i];
+        if (ps->fetch_pipe_fd != fd) continue;
+
+        char buf[8] = {0};
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        close(ps->fetch_pipe_fd);
+        ps->fetch_pipe_fd   = -1;
+        ps->fetch_registered = false;
+
+        if (n > 0 && strncmp(buf, "OK", 2) == 0) {
+            ps->loaded      = true;
+            ps->rule_count  = count_rules(ps->cache_path);
+            ps->last_update = time(NULL);
+            ps->next_update = ps->last_update
+                            + rpm->cfg->rule_providers[i].interval;
+            log_msg(LOG_INFO, "Provider %s: обновлён (%d правил)",
+                    ps->name, ps->rule_count);
+        } else {
+            log_msg(LOG_WARN, "Provider %s: fetch провалился", ps->name);
+        }
+        return;
+    }
+}
+
+bool rule_provider_owns_fd(const rule_provider_manager_t *rpm, int fd)
+{
+    for (int i = 0; i < rpm->count; i++)
+        if (rpm->providers[i].fetch_pipe_fd == fd) return true;
+    return false;
 }
