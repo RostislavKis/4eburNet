@@ -20,6 +20,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/routing/device_policy.c \
           $(SRCDIR)/proxy/proxy_group.c \
           $(SRCDIR)/proxy/rule_provider.c \
+          $(SRCDIR)/proxy/proxy_provider.c \
           $(SRCDIR)/proxy/rules_engine.c \
           $(SRCDIR)/proxy/sniffer.c \
           $(SRCDIR)/net_utils.c \
