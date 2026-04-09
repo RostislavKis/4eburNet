@@ -359,8 +359,10 @@ int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
     if (n == 0) return 0;
     ppm->providers = calloc((size_t)n, sizeof(proxy_provider_state_t));
     if (!ppm->providers) return -1;
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
         ppm->providers[i].resolved_family = AF_INET;
+        ppm->providers[i].fetch_pipe_fd   = -1;
+    }
     for (int i = 0; i < n; i++) {
         const ProxyProviderConfig *pc = &cfg->proxy_providers[i];
         proxy_provider_state_t *ps = &ppm->providers[i];
@@ -379,6 +381,12 @@ int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
 void proxy_provider_free(proxy_provider_manager_t *ppm)
 {
     if (!ppm) return;
+    for (int i = 0; i < ppm->count; i++) {
+        if (ppm->providers[i].fetch_pipe_fd >= 0) {
+            close(ppm->providers[i].fetch_pipe_fd);
+            ppm->providers[i].fetch_pipe_fd = -1;
+        }
+    }
     free(ppm->providers);
     memset(ppm, 0, sizeof(*ppm));
 }
@@ -530,6 +538,43 @@ int proxy_provider_load_all(proxy_provider_manager_t *ppm)
     return total;
 }
 
+void proxy_provider_handle_fetch(proxy_provider_manager_t *ppm,
+                                  int fd, uint32_t events)
+{
+    (void)events;
+    for (int i = 0; i < ppm->count; i++) {
+        proxy_provider_state_t *ps = &ppm->providers[i];
+        if (ps->fetch_pipe_fd != fd) continue;
+
+        char buf[8] = {0};
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        close(ps->fetch_pipe_fd);
+        ps->fetch_pipe_fd   = -1;
+        ps->fetch_registered = false;
+
+        if (n > 0 && strncmp(buf, "OK", 2) == 0) {
+            int cnt = provider_parse_file(ppm, i);
+            time_t now = time(NULL);
+            ps->last_update = now;
+            const ProxyProviderConfig *pc = &ppm->cfg->proxy_providers[i];
+            ps->next_update = pc->interval > 0 ? now + pc->interval : 0;
+            log_msg(LOG_INFO, "proxy_provider[%s]: обновлён (%d серверов)",
+                    ps->name, cnt);
+        } else {
+            log_msg(LOG_WARN, "proxy_provider[%s]: fetch провалился", ps->name);
+            ps->next_update = time(NULL) + 60;  /* retry через минуту */
+        }
+        return;
+    }
+}
+
+bool proxy_provider_owns_fd(const proxy_provider_manager_t *ppm, int fd)
+{
+    for (int i = 0; i < ppm->count; i++)
+        if (ppm->providers[i].fetch_pipe_fd == fd) return true;
+    return false;
+}
+
 void proxy_provider_tick(proxy_provider_manager_t *ppm)
 {
     if (!ppm || ppm->count == 0) return;
@@ -545,18 +590,22 @@ void proxy_provider_tick(proxy_provider_manager_t *ppm)
         if (ps->next_update == 0 || now < ps->next_update) continue;
 
         if (pc->type == PROXY_PROVIDER_URL && pc->url[0]) {
-            if (fetch_with_ip_cache(pc->url, ps->cache_path,
-                                    ps->resolved_ip, sizeof(ps->resolved_ip),
-                                    &ps->resolved_family) < 0) {
-                log_msg(LOG_WARN, "proxy_provider[%s]: ошибка обновления",
+            /* Если уже идёт fetch этого провайдера — пропустить */
+            if (ps->fetch_pipe_fd >= 0) break;
+
+            /* Запустить async fetch */
+            int pfd = net_spawn_fetch(pc->url, ps->cache_path);
+            if (pfd >= 0) {
+                ps->fetch_pipe_fd   = pfd;
+                ps->fetch_registered = false;
+                ps->fetch_started   = now;
+                /* pipe fd зарегистрируется в epoll из main loop */
+            } else {
+                log_msg(LOG_WARN, "proxy_provider[%s]: spawn fetch провалился",
                         ps->name);
                 ps->next_update = now + 60;  /* retry через минуту */
-                break;
             }
         }
-        provider_parse_file(ppm, i);
-        ps->last_update = now;
-        ps->next_update = now + pc->interval;
         break;  /* один провайдер за тик */
     }
 }

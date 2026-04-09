@@ -487,6 +487,13 @@ int main(int argc, char *argv[])
     sigemptyset(&sa_pipe.sa_mask);
     sigaction(SIGPIPE, &sa_pipe, NULL);
 
+    /* SIGCHLD: авто-reap zombie процессов от net_spawn_fetch/tcp_ping (audit_v9) */
+    struct sigaction sa_chld = {0};
+    sa_chld.sa_handler = SIG_DFL;
+    sa_chld.sa_flags   = SA_NOCLDWAIT;
+    sigemptyset(&sa_chld.sa_mask);
+    sigaction(SIGCHLD, &sa_chld, NULL);
+
     if (!daemon_mode) {
         /* Без демонизации: SIGHUP = завершение (SSH disconnect) */
         sigaction(SIGHUP, &sa_shutdown, NULL);
@@ -565,8 +572,24 @@ int main(int argc, char *argv[])
             } else if (dns_state.initialized &&
                        (fd == dns_state.udp_fd || fd == dns_state.tcp_fd)) {
                 dns_server_handle_event(&dns_state, fd, master_epoll);
+            } else if (rule_provider_owns_fd(&rpm_state, fd)) {
+                /* Результат async fetch правил */
+                epoll_ctl(master_epoll, EPOLL_CTL_DEL, fd, NULL);
+                rule_provider_handle_fetch(&rpm_state, fd, events[i].events);
             } else {
-                tproxy_handle_event(&tproxy_state, fd);
+                /* Проверить proxy_group health-check pipe */
+                bool hc_done = false;
+                for (int g = 0; g < pgm_state.count; g++) {
+                    if (proxy_group_owns_fd(&pgm_state.groups[g], fd)) {
+                        epoll_ctl(master_epoll, EPOLL_CTL_DEL, fd, NULL);
+                        proxy_group_handle_hc_event(&pgm_state.groups[g],
+                                                    fd, events[i].events);
+                        hc_done = true;
+                        break;
+                    }
+                }
+                if (!hc_done)
+                    tproxy_handle_event(&tproxy_state, fd);
             }
         }
 
@@ -597,6 +620,32 @@ int main(int argc, char *argv[])
             dispatcher_state.tick_count > 0) {
             proxy_group_tick(&pgm_state);
             rule_provider_tick(&rpm_state);
+
+            /* Зарегистрировать новые pipe fd в master epoll */
+            for (int gi = 0; gi < pgm_state.count; gi++) {
+                proxy_group_state_t *gs = &pgm_state.groups[gi];
+                if (gs->hc_pipe_fd >= 0 && !gs->hc_registered) {
+                    struct epoll_event pev = {
+                        .events  = EPOLLIN | EPOLLHUP,
+                        .data.fd = gs->hc_pipe_fd,
+                    };
+                    epoll_ctl(master_epoll, EPOLL_CTL_ADD,
+                              gs->hc_pipe_fd, &pev);
+                    gs->hc_registered = true;
+                }
+            }
+            for (int ri = 0; ri < rpm_state.count; ri++) {
+                rule_provider_state_t *ps = &rpm_state.providers[ri];
+                if (ps->fetch_pipe_fd >= 0 && !ps->fetch_registered) {
+                    struct epoll_event pev = {
+                        .events  = EPOLLIN | EPOLLHUP,
+                        .data.fd = ps->fetch_pipe_fd,
+                    };
+                    epoll_ctl(master_epoll, EPOLL_CTL_ADD,
+                              ps->fetch_pipe_fd, &pev);
+                    ps->fetch_registered = true;
+                }
+            }
         }
 
         /* Перезагрузка конфига по сигналу или IPC команде */

@@ -82,4 +82,22 @@ int net_http_fetch_ip(const char *url,
                       int         addr_family,
                       const char *dest_path);
 
+/*
+ * Запустить fetch в фоновом процессе (nonblocking для event loop).
+ * Создаёт дочерний процесс через fork().
+ * Возвращает read-end pipe fd (или -1 при ошибке).
+ * Дочерний процесс: net_http_fetch(url, dest_path) → пишет "OK\n"
+ * или "ERR\n" в pipe, затем завершается.
+ * Caller: зарегистрировать fd в epoll, читать при EPOLLIN.
+ */
+int net_spawn_fetch(const char *url, const char *dest_path);
+
+/*
+ * Запустить TCP ping в фоновом процессе.
+ * Дочерний: connect(ip, port) с timeout_ms → пишет
+ *   "OK <latency_ms>\n" или "ERR\n" в pipe.
+ * Возвращает read-end pipe fd или -1.
+ */
+int net_spawn_tcp_ping(const char *ip, uint16_t port, int timeout_ms);
+
 #endif /* NET_UTILS_H */

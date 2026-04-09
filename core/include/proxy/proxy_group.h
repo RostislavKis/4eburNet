@@ -3,6 +3,8 @@
 
 #include "config.h"
 #include <time.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 #define PROXY_GROUP_MAX_SERVERS 32
 
@@ -27,6 +29,10 @@ typedef struct {
     int                   timeout_ms;
     int                   tolerance_ms;
     int                   interval;
+    /* Async health-check (audit_v9) */
+    int                   hc_pipe_fd;     /* read end pipe от child, -1 = нет */
+    int                   hc_server_idx;  /* индекс сервера проверяемого сейчас */
+    bool                  hc_registered;  /* pipe fd уже в epoll */
 } proxy_group_state_t;
 
 typedef struct {
@@ -47,5 +53,11 @@ void proxy_group_tick(proxy_group_manager_t *pgm);
 int  proxy_group_to_json(const proxy_group_manager_t *pgm, char *buf, size_t buflen);
 int  proxy_group_select_manual(proxy_group_manager_t *pgm,
                                const char *group_name, int server_idx);
+
+/* Обработать результат async health-check (вызывать из epoll loop) */
+void proxy_group_handle_hc_event(proxy_group_state_t *gs,
+                                  int fd, uint32_t events);
+/* Проверить принадлежность fd к health-check группы */
+bool proxy_group_owns_fd(const proxy_group_state_t *gs, int fd);
 
 #endif
