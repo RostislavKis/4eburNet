@@ -11,6 +11,8 @@ typedef struct {
     time_t next_update;
     int    rule_count;
     bool   loaded;
+    char   resolved_ip[64];  /* кэшированный IP хоста URL (inet_pton fast path) */
+    int    resolved_family;  /* AF_INET или AF_INET6 */
 } rule_provider_state_t;
 
 typedef struct {

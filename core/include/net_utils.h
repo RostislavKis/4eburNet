@@ -53,4 +53,33 @@ int json_escape_str(const char *src, char *dst, size_t dst_size);
  */
 int net_http_fetch(const char *url, const char *dest_path);
 
+/*
+ * Разрешить hostname → IP строку.
+ * inet_pton fast path: если host уже является IP — возвращает мгновенно (0мс).
+ * Для доменных имён вызывает getaddrinfo (блокирует — только при старте).
+ * При успехе записывает IP-строку в out_ip (минимум INET6_ADDRSTRLEN байт).
+ * Возвращает 0 при успехе, -1 при ошибке.
+ */
+int net_resolve_host(const char *host, uint16_t port,
+                     char *out_ip, size_t out_ip_size,
+                     int *out_family);
+
+/*
+ * Парсить host и port из URL ("https://host:port/path" → host, port).
+ * Возвращает 0 при успехе, -1 при ошибке.
+ */
+int net_parse_url_host(const char *url,
+                       char *host, size_t host_size,
+                       uint16_t *port);
+
+/*
+ * net_http_fetch_ip — скачать файл, соединяясь по уже известному IP.
+ * url используется только для SNI (Host заголовок) и пути.
+ * Пропускает getaddrinfo — 0мс при наличии IP кэша.
+ */
+int net_http_fetch_ip(const char *url,
+                      const char *resolved_ip,
+                      int         addr_family,
+                      const char *dest_path);
+
 #endif /* NET_UTILS_H */

@@ -7,6 +7,7 @@
 #include "crypto/tls.h"
 #include "net_utils.h"
 #include "phoenix.h"
+#include <netdb.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,27 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+
+/*
+ * Разрешить хост из URL в IP (один раз), затем скачать по кэшированному IP.
+ * Если resolved_ip пустой — выполняет net_resolve_host (блокирует один раз).
+ * При последующих вызовах использует кэш → 0мс getaddrinfo.
+ */
+static int fetch_with_ip_cache(const char *url, const char *cache_path,
+                                char *resolved_ip, size_t ip_size,
+                                int *resolved_family)
+{
+    if (!resolved_ip[0]) {
+        char h[256] = {0};
+        uint16_t p = 443;
+        net_parse_url_host(url, h, sizeof(h), &p);
+        if (h[0])
+            net_resolve_host(h, p, resolved_ip, ip_size, resolved_family);
+    }
+    if (resolved_ip[0])
+        return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
+    return net_http_fetch(url, cache_path);  /* fallback если resolve не удался */
+}
 
 /* Создать директорию для файла (H-3: по dirname, не по самому пути) */
 static void ensure_dir_for_file(const char *filepath)
@@ -115,7 +137,9 @@ int rule_provider_load_all(rule_provider_manager_t *rpm)
 
         /* Нет кэша — попробовать загрузить */
         if (rc->type == RULE_PROVIDER_HTTP && rc->url[0]) {
-            if (net_http_fetch(rc->url, ps->cache_path) == 0) {
+            if (fetch_with_ip_cache(rc->url, ps->cache_path,
+                                    ps->resolved_ip, sizeof(ps->resolved_ip),
+                                    &ps->resolved_family) == 0) {
                 ps->loaded = true;
                 ps->rule_count = count_rules(ps->cache_path);
                 ps->last_update = time(NULL);
@@ -141,7 +165,9 @@ void rule_provider_tick(rule_provider_manager_t *rpm)
         ps->next_update = now + rc->interval;
 
         if (rc->type == RULE_PROVIDER_HTTP && rc->url[0]) {
-            if (net_http_fetch(rc->url, ps->cache_path) == 0) {
+            if (fetch_with_ip_cache(rc->url, ps->cache_path,
+                                    ps->resolved_ip, sizeof(ps->resolved_ip),
+                                    &ps->resolved_family) == 0) {
                 ps->loaded = true;
                 ps->rule_count = count_rules(ps->cache_path);
                 ps->last_update = now;
@@ -161,7 +187,9 @@ int rule_provider_update(rule_provider_manager_t *rpm, const char *name)
         rule_provider_state_t *ps = &rpm->providers[i];
 
         if (rc->type == RULE_PROVIDER_HTTP && rc->url[0]) {
-            if (net_http_fetch(rc->url, ps->cache_path) == 0) {
+            if (fetch_with_ip_cache(rc->url, ps->cache_path,
+                                    ps->resolved_ip, sizeof(ps->resolved_ip),
+                                    &ps->resolved_family) == 0) {
                 ps->loaded = true;
                 ps->rule_count = count_rules(ps->cache_path);
                 ps->last_update = time(NULL);

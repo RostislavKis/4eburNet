@@ -330,6 +330,23 @@ int proxy_provider_max_servers(DeviceProfile profile, int configured_max)
     }
 }
 
+/* Разрешить хост из URL → IP кэш, затем скачать без getaddrinfo */
+static int fetch_with_ip_cache(const char *url, const char *cache_path,
+                                char *resolved_ip, size_t ip_size,
+                                int *resolved_family)
+{
+    if (!resolved_ip[0]) {
+        char h[256] = {0};
+        uint16_t p = 443;
+        net_parse_url_host(url, h, sizeof(h), &p);
+        if (h[0])
+            net_resolve_host(h, p, resolved_ip, ip_size, resolved_family);
+    }
+    if (resolved_ip[0])
+        return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
+    return net_http_fetch(url, cache_path);
+}
+
 int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
 {
     if (!ppm || !cfg) return -1;
@@ -491,7 +508,9 @@ int proxy_provider_load_all(proxy_provider_manager_t *ppm)
         if (!pc->enabled) continue;
 
         if (pc->type == PROXY_PROVIDER_URL && pc->url[0]) {
-            if (net_http_fetch(pc->url, ps->cache_path) < 0)
+            if (fetch_with_ip_cache(pc->url, ps->cache_path,
+                                    ps->resolved_ip, sizeof(ps->resolved_ip),
+                                    &ps->resolved_family) < 0)
                 log_msg(LOG_WARN, "proxy_provider[%s]: не удалось скачать",
                         ps->name);
         }
@@ -522,7 +541,9 @@ void proxy_provider_tick(proxy_provider_manager_t *ppm)
         if (ps->next_update == 0 || now < ps->next_update) continue;
 
         if (pc->type == PROXY_PROVIDER_URL && pc->url[0]) {
-            if (net_http_fetch(pc->url, ps->cache_path) < 0) {
+            if (fetch_with_ip_cache(pc->url, ps->cache_path,
+                                    ps->resolved_ip, sizeof(ps->resolved_ip),
+                                    &ps->resolved_family) < 0) {
                 log_msg(LOG_WARN, "proxy_provider[%s]: ошибка обновления",
                         ps->name);
                 ps->next_update = now + 60;  /* retry через минуту */
