@@ -342,9 +342,12 @@ static int fetch_with_ip_cache(const char *url, const char *cache_path,
         if (h[0])
             net_resolve_host(h, p, resolved_ip, ip_size, resolved_family);
     }
-    if (resolved_ip[0])
-        return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
-    return net_http_fetch(url, cache_path);
+    if (!resolved_ip[0]) {
+        log_msg(LOG_WARN, "fetch_with_ip_cache: не удалось резолвить хост из %s",
+                url);
+        return -1;
+    }
+    return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
 }
 
 int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
@@ -356,6 +359,8 @@ int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
     if (n == 0) return 0;
     ppm->providers = calloc((size_t)n, sizeof(proxy_provider_state_t));
     if (!ppm->providers) return -1;
+    for (int i = 0; i < n; i++)
+        ppm->providers[i].resolved_family = AF_INET;
     for (int i = 0; i < n; i++) {
         const ProxyProviderConfig *pc = &cfg->proxy_providers[i];
         proxy_provider_state_t *ps = &ppm->providers[i];
