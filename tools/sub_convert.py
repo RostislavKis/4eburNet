@@ -545,8 +545,15 @@ def detect_format(data: str) -> str:
 # ── UCI генератор ──────────────────────────────────────────────────────
 
 def _uci_safe(s) -> str:
-    """Экранировать строку для UCI значения."""
-    return str(s).replace("'", '"').replace('\n', ' ').strip()
+    """Экранировать строку для UCI значения.
+
+    UCI синтаксис: option key 'value'
+    Фильтруем: управляющие символы (<0x20) включая null, CR, tab,
+    и одиночные кавычки (закрывают значение в UCI).
+    """
+    s = str(s)
+    s = ''.join(c for c in s if ord(c) >= 0x20 and c != "'")
+    return s.strip()
 
 
 def generate_uci(servers: list,

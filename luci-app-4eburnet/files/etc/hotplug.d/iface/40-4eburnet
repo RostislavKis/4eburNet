@@ -7,7 +7,7 @@
 
 # Только WAN интерфейсы (PPPoE, DHCP, статика)
 case "$INTERFACE" in
-    wan|wan6|pppoe-wan|pppoe*|wan_*)
+    wan|wan6|pppoe-wan|pppoe*|wan_*|*wan*)
         ;;
     *)
         exit 0
@@ -19,11 +19,14 @@ esac
 PID=$(cat /var/run/4eburnet.pid 2>/dev/null)
 [ -n "$PID" ] || exit 0
 kill -0 "$PID" 2>/dev/null || exit 0
+# Защита от PID reuse: проверить имя процесса
+[ "$(cat /proc/$PID/comm 2>/dev/null)" = "4eburnetd" ] || exit 0
 
 logger -t 4eburnet "WAN $INTERFACE поднят, проверяем routing..."
 
 # Восстановить ip rule fwmark 0x01 → table 100 (TPROXY)
-ip rule show 2>/dev/null | grep -q "fwmark 0x1" || {
+# grep -qE точное совпадение: "0x1 " или "0x00000001 " (расширенный формат ядра)
+ip rule show 2>/dev/null | grep -qE "fwmark 0x(00000001|1) " || {
     ip rule add fwmark 0x01 table 100 priority 100 2>/dev/null && \
         logger -t 4eburnet "ip rule восстановлен (fwmark 0x01 → table 100)"
 }
@@ -35,7 +38,7 @@ ip route show table 100 2>/dev/null | grep -q "local" || {
 }
 
 # IPv6: ip -6 rule fwmark 0x01 → table 100
-ip -6 rule show 2>/dev/null | grep -q "fwmark 0x1" || {
+ip -6 rule show 2>/dev/null | grep -qE "fwmark 0x(00000001|1) " || {
     ip -6 rule add fwmark 0x01 table 100 priority 100 2>/dev/null
 }
 
