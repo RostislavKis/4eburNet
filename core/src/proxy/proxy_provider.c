@@ -303,9 +303,17 @@ static void hy2_config_to_server(const hysteria2_config_t *hy2,
 {
     snprintf(s->address,  sizeof(s->address),  "%s", hy2->server_addr);
     snprintf(s->password, sizeof(s->password), "%s", hy2->password);
-    s->port = hy2->server_port;
+    s->port    = hy2->server_port;
     snprintf(s->protocol, sizeof(s->protocol), "hysteria2");
     s->enabled = true;
+    /* Hysteria2-специфичные поля */
+    s->hy2_obfs_enabled = hy2->obfs_enabled;
+    snprintf(s->hy2_obfs_password, sizeof(s->hy2_obfs_password),
+             "%s", hy2->obfs_password);
+    s->hy2_insecure  = hy2->insecure;
+    snprintf(s->hy2_sni, sizeof(s->hy2_sni), "%s", hy2->sni);
+    s->hy2_up_mbps   = hy2->up_mbps;
+    s->hy2_down_mbps = hy2->down_mbps;
 }
 #endif
 
