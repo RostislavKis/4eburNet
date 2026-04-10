@@ -155,8 +155,9 @@ int exec_cmd_safe(const char *const argv[], char *out, size_t outlen)
     posix_spawn_file_actions_addclose(&fa, pipe_fds[0]);
     posix_spawn_file_actions_addclose(&fa, pipe_fds[1]);
 
-    int rc = posix_spawn(&pid, argv[0], &fa, NULL,
-                         (char *const *)argv, environ);
+    /* posix_spawnp выполняет поиск по PATH (posix_spawn требует абсолютный путь) */
+    int rc = posix_spawnp(&pid, argv[0], &fa, NULL,
+                          (char *const *)argv, environ);
     posix_spawn_file_actions_destroy(&fa);
     close(pipe_fds[1]);
 
