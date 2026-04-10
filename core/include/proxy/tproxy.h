@@ -1,7 +1,7 @@
 #ifndef TPROXY_H
 #define TPROXY_H
 
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdint.h>
 #include <stdbool.h>

@@ -1,7 +1,7 @@
 /*
  * Управление правилами nftables через subprocess (nft)
  *
- * Создаёт таблицу inet phoenix с цепочками и наборами
+ * Создаёт таблицу inet 4eburnet с цепочками и наборами
  * для перенаправления трафика через прокси.
  *
  * DEC-010: subprocess через nft (v1), netlink (v2 позже)
@@ -10,7 +10,7 @@
 
 #include "routing/nftables.h"
 #include "net_utils.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +31,7 @@
 #define NFT_ERR_BUF     512
 
 /* Временный файл для атомарных операций (tmpfs, не Flash) */
-#define NFT_TMP_CONF    "/tmp/phoenix_nft.conf"
+#define NFT_TMP_CONF    "/tmp/4eburnet_nft.conf"
 
 /* ------------------------------------------------------------------ */
 /*  nft_exec — выполнить одиночную команду nft                        */
@@ -153,7 +153,7 @@ static nft_result_t nft_exec_atomic(const char *config)
     log_msg(LOG_DEBUG, "nft: атомарное применение (%zu байт)", strlen(config));
 
     /* mkstemp для безопасного создания tmp файла (H-28) */
-    char tmppath[] = "/tmp/phoenix_nft_XXXXXX";
+    char tmppath[] = "/tmp/4eburnet_nft_XXXXXX";
     int tmpfd = mkstemp(tmppath);
     if (tmpfd < 0) {
         log_msg(LOG_ERROR, "nft: mkstemp: %s", strerror(errno));
@@ -215,7 +215,7 @@ bool nft_table_exists(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  nft_init — создание таблицы inet phoenix атомарно                  */
+/*  nft_init — создание таблицы inet 4eburnet атомарно                  */
 /* ------------------------------------------------------------------ */
 
 nft_result_t nft_init(void)
@@ -694,7 +694,7 @@ nft_result_t nft_set_load_file(const char *set_name,
     }
 
     /* mkstemp для batch файла (H-28) */
-    char batchpath[] = "/tmp/phoenix_nft_XXXXXX";
+    char batchpath[] = "/tmp/4eburnet_nft_XXXXXX";
     int batchfd = mkstemp(batchpath);
     if (batchfd < 0) { fclose(f); return NFT_ERR_EXEC; }
     fchmod(batchfd, 0600);
@@ -726,7 +726,7 @@ nft_result_t nft_set_load_file(const char *set_name,
             if (rc != NFT_OK) total_errors += batch_count;
             else total_loaded += batch_count;
 
-            char newpath[] = "/tmp/phoenix_nft_XXXXXX";
+            char newpath[] = "/tmp/4eburnet_nft_XXXXXX";
             int newfd = mkstemp(newpath);
             if (newfd < 0) { fclose(f); break; }
             fchmod(newfd, 0600);
@@ -871,7 +871,7 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
             batch = NFT_BATCH_MAX;
 
         /* mkstemp для batch файла (H-28) */
-        char tmppath[] = "/tmp/phoenix_nft_XXXXXX";
+        char tmppath[] = "/tmp/4eburnet_nft_XXXXXX";
         int tmpfd = mkstemp(tmppath);
         if (tmpfd < 0) {
             log_msg(LOG_ERROR, "nft: mkstemp: %s", strerror(errno));
@@ -970,7 +970,7 @@ nft_result_t nft_vmap_load_file(const char *map_name,
      * При достижении NFT_BATCH_MAX — применяем и начинаем новый.
      */
     /* mkstemp для batch файла (H-28) */
-    char batchpath[] = "/tmp/phoenix_nft_XXXXXX";
+    char batchpath[] = "/tmp/4eburnet_nft_XXXXXX";
     int batchfd = mkstemp(batchpath);
     if (batchfd < 0) { fclose(f); return NFT_ERR_EXEC; }
     fchmod(batchfd, 0600);
@@ -1037,7 +1037,7 @@ nft_result_t nft_vmap_load_file(const char *map_name,
                         map_name, filepath, total_loaded);
 
             /* Начать новый batch */
-            char newpath[] = "/tmp/phoenix_nft_XXXXXX";
+            char newpath[] = "/tmp/4eburnet_nft_XXXXXX";
             int newfd = mkstemp(newpath);
             if (newfd < 0) {
                 fclose(f);

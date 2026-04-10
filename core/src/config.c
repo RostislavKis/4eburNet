@@ -19,7 +19,7 @@
 /* Тип текущей секции */
 typedef enum {
     SECTION_NONE,
-    SECTION_PHOENIX,
+    SECTION_EBURNET,
     SECTION_SERVER,
     SECTION_DNS,
     SECTION_DNS_RULE,
@@ -92,8 +92,8 @@ static char *next_token(char **cursor)
     return start;
 }
 
-/* Применение опции к секции phoenix */
-static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char *value)
+/* Применение опции к секции 4eburnet */
+static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char *value)
 {
     if (strcmp(key, "enabled") == 0) {
         cfg->enabled = (strcmp(value, "1") == 0);
@@ -113,7 +113,7 @@ static void apply_phoenix_option(PhoenixConfig *cfg, const char *key, const char
     } else if (strcmp(key, "geo_dir") == 0) {
         snprintf(cfg->geo_dir, sizeof(cfg->geo_dir), "%s", value);
     } else {
-        log_msg(LOG_WARN, "Неизвестная опция phoenix: %s", key);
+        log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
 }
 
@@ -239,7 +239,7 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     }
 }
 
-int config_load(const char *path, PhoenixConfig *cfg)
+int config_load(const char *path, EburNetConfig *cfg)
 {
     /* L-11: O_CLOEXEC через open()+fdopen() */
     int cfg_fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -317,8 +317,8 @@ int config_load(const char *path, PhoenixConfig *cfg)
             if (name)
                 strip_quotes(name);
 
-            if (strcmp(type, "phoenix") == 0) {
-                section = SECTION_PHOENIX;
+            if (strcmp(type, "4eburnet") == 0) {
+                section = SECTION_EBURNET;
             } else if (strcmp(type, "server") == 0) {
                 if (srv_count >= MAX_SERVERS) {
                     log_msg(LOG_ERROR, "Строка %d: превышен лимит серверов (%d)",
@@ -401,8 +401,8 @@ int config_load(const char *path, PhoenixConfig *cfg)
             strip_quotes(value);
 
             switch (section) {
-            case SECTION_PHOENIX:
-                apply_phoenix_option(cfg, key, value);
+            case SECTION_EBURNET:
+                apply_eburnet_option(cfg, key, value);
                 break;
             case SECTION_SERVER:
                 if (srv_count > 0)
@@ -747,7 +747,7 @@ cleanup_fail:
     return -1;
 }
 
-void config_free(PhoenixConfig *cfg)
+void config_free(EburNetConfig *cfg)
 {
     free(cfg->proxy_groups);        cfg->proxy_groups = NULL;
     free(cfg->proxy_providers);     cfg->proxy_providers = NULL;
@@ -776,7 +776,7 @@ void config_free(PhoenixConfig *cfg)
     cfg->server_count = 0;
 }
 
-void config_dump(const PhoenixConfig *cfg)
+void config_dump(const EburNetConfig *cfg)
 {
     log_msg(LOG_DEBUG, "=== Конфигурация ===");
     log_msg(LOG_DEBUG, "  enabled:   %s", cfg->enabled ? "да" : "нет");

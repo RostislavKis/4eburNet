@@ -26,11 +26,11 @@ typedef struct {
     proxy_provider_state_t *providers;
     int                     count;
     int                     round_robin;  /* индекс следующего провайдера для tick */
-    PhoenixConfig          *cfg;   /* не const — меняем provider_servers */
+    EburNetConfig          *cfg;   /* не const — меняем provider_servers */
 } proxy_provider_manager_t;
 
 int  proxy_provider_init(proxy_provider_manager_t *ppm,
-                          PhoenixConfig *cfg);
+                          EburNetConfig *cfg);
 void proxy_provider_free(proxy_provider_manager_t *ppm);
 int  proxy_provider_load_all(proxy_provider_manager_t *ppm);
 

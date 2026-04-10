@@ -3,11 +3,11 @@
 
 #include "dns/dns_cache.h"
 #include "dns/dns_resolver.h"
-#include "phoenix_config.h"
-#if CONFIG_PHOENIX_DOH
+#include "4eburnet_config.h"
+#if CONFIG_EBURNET_DOH
 #include "dns/dns_upstream_async.h"
 #endif
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
 #include "dns/fake_ip.h"
 #endif
 #include "config.h"
@@ -55,25 +55,25 @@ typedef struct {
     bool              initialized;    /* H-08: guard для epoll dispatch */
     dns_cache_t       cache;
     dns_pending_queue_t pending;
-    const PhoenixConfig *cfg;
+    const EburNetConfig *cfg;
     /* Per-source rate limiting (heap, размер по профилю) */
     dns_rate_entry_t *rate_table;
     int               rate_table_size;
     /* TCP DNS клиенты — async state machine (heap, tcp_clients_count элементов) */
     dns_tcp_client_t *tcp_clients;
     int               tcp_clients_count;
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
     /* Async DoH/DoT pool (инициализируется в dns_server_register_epoll) */
     async_dns_pool_t async_pool;
 #endif
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
     /* Fake-IP таблица (backlog_C4) */
     fake_ip_table_t  fake_ip;
     bool             fake_ip_ready;  /* инициализирована */
 #endif
 } dns_server_t;
 
-int  dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg);
+int  dns_server_init(dns_server_t *ds, const EburNetConfig *cfg);
 void dns_server_cleanup(dns_server_t *ds);
 
 /* Добавить fd в master epoll */
@@ -93,7 +93,7 @@ void dns_server_check_pending_timeouts(dns_server_t *ds);
 /* Проверить таймауты TCP DNS клиентов (~каждые 500мс) */
 void dns_server_check_tcp_timeouts(dns_server_t *ds);
 
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
 /* Проверить принадлежность ptr к async DoH/DoT pool (epoll data.ptr) */
 bool dns_server_is_async_ptr(const dns_server_t *ds, void *ptr);
 

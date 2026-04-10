@@ -1,4 +1,4 @@
-#include "phoenix.h"
+#include "4eburnet.h"
 #include "resource_manager.h"
 #include "device.h"
 #include "config.h"
@@ -35,7 +35,7 @@
 #define EPOLL_TIMEOUT_MS  10
 
 /* Глобальное состояние — доступно из обработчиков сигналов */
-static PhoenixState state;
+static EburNetState state;
 static tproxy_state_t tproxy_state;
 static dispatcher_state_t dispatcher_state;
 static rules_manager_t rules_state;
@@ -63,10 +63,10 @@ static void handle_reload(int sig)
 
 /* Загрузить гео-категории для текущего региона */
 static void geo_load_region_categories(geo_manager_t *gm,
-                                        const PhoenixConfig *cfg)
+                                        const EburNetConfig *cfg)
 {
     const char *geo_dir = (cfg->geo_dir[0])
-        ? cfg->geo_dir : "/etc/phoenix/geo";
+        ? cfg->geo_dir : "/etc/4eburnet/geo";
 
     const char *rl = NULL;
     if (cfg->geo_region[0]) {
@@ -113,13 +113,13 @@ static void print_usage(const char *prog)
         "  reload        перечитать конфиг\n"
         "  stop          остановить демон\n"
         "  stats         статистика\n",
-        prog, PHOENIX_CONFIG_PATH);
+        prog, EBURNET_CONFIG_PATH);
 }
 
 /* Проверка PID-файла — запущен ли уже демон (M-03: O_CLOEXEC) */
 static pid_t check_pid_file(void)
 {
-    int pidfd = open(PHOENIX_PID_FILE, O_RDONLY | O_CLOEXEC);
+    int pidfd = open(EBURNET_PID_FILE, O_RDONLY | O_CLOEXEC);
     FILE *f = (pidfd >= 0) ? fdopen(pidfd, "r") : NULL;
     if (!f) {
         if (pidfd >= 0) close(pidfd);
@@ -139,14 +139,14 @@ static pid_t check_pid_file(void)
 
     fclose(f);
     /* Мёртвый PID-файл — удаляем */
-    unlink(PHOENIX_PID_FILE);
+    unlink(EBURNET_PID_FILE);
     return 0;
 }
 
 /* Запись PID-файла (M-02: error handling, M-03: O_CLOEXEC) */
 static void write_pid_file(void)
 {
-    int pidfd = open(PHOENIX_PID_FILE,
+    int pidfd = open(EBURNET_PID_FILE,
                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
     FILE *f = (pidfd >= 0) ? fdopen(pidfd, "w") : NULL;
     if (f) {
@@ -235,7 +235,7 @@ static log_level_t parse_log_level(const char *s)
 
 int main(int argc, char *argv[])
 {
-    const char *config_path = PHOENIX_CONFIG_PATH;
+    const char *config_path = EBURNET_CONFIG_PATH;
     bool daemon_mode = false;
     int opt;
 
@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
             config_path = optarg;
             break;
         case 'v':
-            printf("%s %s\n", PHOENIX_NAME, PHOENIX_VERSION);
+            printf("%s %s\n", EBURNET_NAME, EBURNET_VERSION);
             return 0;
         case 'h':
         default:
@@ -276,8 +276,8 @@ int main(int argc, char *argv[])
     }
 
     /* Инициализация логирования (пока с уровнем по умолчанию) */
-    log_init(PHOENIX_LOG_FILE, LOG_INFO);
-    log_msg(LOG_INFO, "%s %s запускается", PHOENIX_NAME, PHOENIX_VERSION);
+    log_init(EBURNET_LOG_FILE, LOG_INFO);
+    log_msg(LOG_INFO, "%s %s запускается", EBURNET_NAME, EBURNET_VERSION);
 
     /* Установка времени до инициализации TLS (DEC-019) */
     if (!ntp_time_is_valid()) {
@@ -302,9 +302,9 @@ int main(int argc, char *argv[])
     rm_apply_oom_settings();
 
     /* Загрузка конфигурации на heap (S2: audit_v8) */
-    PhoenixConfig *cfg_ptr = calloc(1, sizeof(PhoenixConfig));
+    EburNetConfig *cfg_ptr = calloc(1, sizeof(EburNetConfig));
     if (!cfg_ptr) {
-        log_msg(LOG_ERROR, "OOM: не удалось выделить PhoenixConfig");
+        log_msg(LOG_ERROR, "OOM: не удалось выделить EburNetConfig");
         tls_global_cleanup();
         log_close();
         return 1;
@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
 
     /* Переинициализация лога с уровнем из конфига */
     log_close();
-    log_init(PHOENIX_LOG_FILE, parse_log_level(cfg_ptr->log_level));
+    log_init(EBURNET_LOG_FILE, parse_log_level(cfg_ptr->log_level));
 
     config_dump(cfg_ptr);
 
@@ -350,7 +350,7 @@ int main(int argc, char *argv[])
                 "SECURITY: нет правила GEOIP,RU,DIRECT. "
                 "RU трафик идёт через прокси — паттерн трафика "
                 "может раскрыть IP вашего сервера. "
-                "Добавьте правило в LuCI: Services → Phoenix Router → Rules.");
+                "Добавьте правило в LuCI: Services → 4eburNet → Rules.");
         }
     }
 
@@ -364,7 +364,7 @@ int main(int argc, char *argv[])
         tls_global_cleanup();
         config_free(cfg_ptr);
         free(cfg_ptr);
-        unlink(PHOENIX_PID_FILE);
+        unlink(EBURNET_PID_FILE);
         log_close();
         return 1;
     }
@@ -399,9 +399,9 @@ int main(int argc, char *argv[])
         log_msg(LOG_WARN, "Не удалось выделить память для путей правил");
     } else {
         int bp_n = snprintf(bypass_file, PATH_MAX,
-                            "%s/bypass.cidr", PHOENIX_RULES_DIR);
+                            "%s/bypass.cidr", EBURNET_RULES_DIR);
         int pr_n = snprintf(proxy_file, PATH_MAX,
-                            "%s/proxy.cidr", PHOENIX_RULES_DIR);
+                            "%s/proxy.cidr", EBURNET_RULES_DIR);
         if (bp_n < 0 || (size_t)bp_n >= PATH_MAX ||
             pr_n < 0 || (size_t)pr_n >= PATH_MAX)
             log_msg(LOG_WARN, "Путь правил обрезан");
@@ -534,7 +534,7 @@ int main(int argc, char *argv[])
         dns_server_register_epoll(&dns_state, master_epoll);
 
     /* Fake-IP: передать таблицу диспетчеру для reverse lookup */
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
     if (dns_state.fake_ip_ready)
         dispatcher_set_fake_ip(&dns_state.fake_ip);
 #endif
@@ -615,7 +615,7 @@ int main(int argc, char *argv[])
             dns_server_check_tcp_timeouts(&dns_state);
 
         /* Fake-IP TTL eviction — каждые ~60 сек (6000 тиков × 10мс) */
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
         if (dns_state.fake_ip_ready &&
             dispatcher_state.tick_count % 6000 == 0 &&
             dispatcher_state.tick_count > 0)
@@ -676,7 +676,7 @@ int main(int argc, char *argv[])
         /* Перезагрузка конфига по сигналу или IPC команде */
         if (state.reload) {
             log_msg(LOG_INFO, "Перезагрузка конфигурации...");
-            PhoenixConfig *new_cfg_ptr = calloc(1, sizeof(PhoenixConfig));
+            EburNetConfig *new_cfg_ptr = calloc(1, sizeof(EburNetConfig));
             if (new_cfg_ptr && config_load(config_path, new_cfg_ptr) == 0) {
                 config_free(cfg_ptr);
                 free(cfg_ptr);
@@ -702,7 +702,7 @@ int main(int argc, char *argv[])
                         dns_server_register_epoll(&dns_state, master_epoll);
                 }
                 /* Обновить fake-ip указатель в dispatcher после reload */
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
                 dispatcher_set_fake_ip(
                     dns_state.fake_ip_ready ? &dns_state.fake_ip : NULL);
 #endif
@@ -764,9 +764,9 @@ cleanup:
     tls_global_cleanup();
     config_free(cfg_ptr);
     free(cfg_ptr);
-    unlink(PHOENIX_PID_FILE);
+    unlink(EBURNET_PID_FILE);
 
-    log_msg(LOG_INFO, "%s остановлен", PHOENIX_NAME);
+    log_msg(LOG_INFO, "%s остановлен", EBURNET_NAME);
     log_close();
 
     return 0;

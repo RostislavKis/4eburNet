@@ -1,5 +1,5 @@
-msgid "Phoenix Router"
-msgstr "Phoenix Router"
+msgid "4eburNet"
+msgstr "4eburNet"
 
 msgid "Servers"
 msgstr "Серверы"

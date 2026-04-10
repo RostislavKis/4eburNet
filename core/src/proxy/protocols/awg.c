@@ -11,7 +11,7 @@
 
 #include "proxy/protocols/awg.h"
 #include "config.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>

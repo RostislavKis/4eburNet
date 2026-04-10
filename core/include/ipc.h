@@ -1,7 +1,7 @@
 #ifndef IPC_H
 #define IPC_H
 
-#include "phoenix.h"
+#include "4eburnet.h"
 #include "proxy/proxy_group.h"
 #include "proxy/rule_provider.h"
 #include "proxy/rules_engine.h"
@@ -11,7 +11,7 @@
 int  ipc_init(void);
 
 /* Обрабатывает одно входящее IPC соединение (неблокирующий) */
-void ipc_process(int server_fd, PhoenixState *state);
+void ipc_process(int server_fd, EburNetState *state);
 
 /* Закрывает сервер и удаляет socket-файл */
 void ipc_cleanup(int server_fd);

@@ -3,7 +3,7 @@
  */
 
 #include "dns/dns_cache.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
