@@ -1,4 +1,4 @@
-# phoenix-router — Контекст проекта для Claude Code
+# 4eburNet — Контекст проекта для Claude Code
 
 ## Что это
 Собственный прокси-пакет для OpenWrt.
@@ -50,7 +50,7 @@
 ## Архитектурные правила nftables
 - Verdict Maps для списков 300K+ (не обычные sets)
 - Hardware Offload bypass: bypass-трафик в forward chain исключён из offload
-- Атомарные обновления через nft -f /tmp/phoenix_rules.nft
+- Атомарные обновления через nft -f /tmp/4eburnet_rules.nft
 - MAC-based per-device routing через ether_addr sets
 
 ## DNS стек
