@@ -254,6 +254,72 @@ static int test_tcp_response_decode_error(void)
     return 0;
 }
 
+/* ── 7. Byte-level RFC 9000 §16 соответствие ────────────────────────── */
+
+static int test_varint_bytes(void)
+{
+    uint8_t buf[8];
+    int n;
+
+    /* 0x00 → [0x00] */
+    n = hy2_varint_encode(buf, 8, 0);
+    if (n != 1 || buf[0] != 0x00) {
+        printf("FAIL: 0 → len=%d buf[0]=0x%02x (ожидалось 1, 0x00)\n", n, buf[0]);
+        return 1;
+    }
+
+    /* 0x3F → [0x3F] */
+    n = hy2_varint_encode(buf, 8, 0x3F);
+    if (n != 1 || buf[0] != 0x3F) {
+        printf("FAIL: 0x3F → len=%d buf[0]=0x%02x\n", n, buf[0]);
+        return 1;
+    }
+
+    /* 0x40 → [0x40][0x40]
+     * prefix=01 | top6=0b000000=0, byte1=0b0100_0000=0x40 */
+    n = hy2_varint_encode(buf, 8, 0x40);
+    if (n != 2 || buf[0] != 0x40 || buf[1] != 0x40) {
+        printf("FAIL: 0x40 → len=%d [0x%02x 0x%02x] (ожидалось 2, [0x40 0x40])\n",
+               n, buf[0], buf[1]);
+        return 1;
+    }
+
+    /* 0x401 (TCPRequest) → [0x44][0x01] */
+    n = hy2_varint_encode(buf, 8, 0x401);
+    if (n != 2 || buf[0] != 0x44 || buf[1] != 0x01) {
+        printf("FAIL: 0x401 → len=%d [0x%02x 0x%02x] (ожидалось 2, [0x44 0x01])\n",
+               n, buf[0], buf[1]);
+        return 1;
+    }
+
+    /* 0x402 (TCPResponse) → [0x44][0x02] */
+    n = hy2_varint_encode(buf, 8, 0x402);
+    if (n != 2 || buf[0] != 0x44 || buf[1] != 0x02) {
+        printf("FAIL: 0x402 → len=%d [0x%02x 0x%02x] (ожидалось 2, [0x44 0x02])\n",
+               n, buf[0], buf[1]);
+        return 1;
+    }
+
+    /* 0x3FFF → [0x7F][0xFF] */
+    n = hy2_varint_encode(buf, 8, 0x3FFF);
+    if (n != 2 || buf[0] != 0x7F || buf[1] != 0xFF) {
+        printf("FAIL: 0x3FFF → len=%d [0x%02x 0x%02x]\n", n, buf[0], buf[1]);
+        return 1;
+    }
+
+    /* 0x4000 → [0x80][0x00][0x40][0x00] */
+    n = hy2_varint_encode(buf, 8, 0x4000);
+    if (n != 4 || buf[0] != 0x80 || buf[1] != 0x00 ||
+                  buf[2] != 0x40 || buf[3] != 0x00) {
+        printf("FAIL: 0x4000 → len=%d [0x%02x 0x%02x 0x%02x 0x%02x]\n",
+               n, buf[0], buf[1], buf[2], buf[3]);
+        return 1;
+    }
+
+    printf("PASS: varint byte-level RFC 9000 соответствие (7 значений)\n");
+    return 0;
+}
+
 /* ── main ────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -265,6 +331,7 @@ int main(void)
     failures += test_tcp_request_encode();
     failures += test_tcp_response_decode_ok();
     failures += test_tcp_response_decode_error();
+    failures += test_varint_bytes();
 
     printf("\n%s: %d тест(ов) провалено\n",
            failures == 0 ? "ALL PASS" : "FAILED", failures);
