@@ -4,7 +4,7 @@
  */
 
 #include "dns/fake_ip.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -143,7 +143,7 @@ static int parse_cidr(const char *range,
 
 /* ── fake_ip_init ── */
 
-int fake_ip_init(fake_ip_table_t *t, const PhoenixConfig *cfg,
+int fake_ip_init(fake_ip_table_t *t, const EburNetConfig *cfg,
                  const char *range, int max_entries)
 {
     memset(t, 0, sizeof(*t));

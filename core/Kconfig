@@ -1,25 +1,25 @@
-mainmenu "Phoenix Router Configuration"
+mainmenu "4eburNet Configuration"
 
 menu "Protocols"
-config PHOENIX_VLESS
+config EBURNET_VLESS
     bool "VLESS + Reality"
     default y
     help
       VLESS protocol with XTLS-Vision and Reality transport.
       Disable to save ~3KB text.
 
-config PHOENIX_TROJAN
+config EBURNET_TROJAN
     bool "Trojan"
     default y
 
-config PHOENIX_SS
+config EBURNET_SS
     bool "Shadowsocks 2022"
     default y
     help
       Shadowsocks with AEAD-2022 ciphers.
       Disable to save ~4KB text.
 
-config PHOENIX_AWG
+config EBURNET_AWG
     bool "AmneziaWG"
     default y
     help
@@ -28,19 +28,19 @@ config PHOENIX_AWG
 endmenu
 
 menu "DNS"
-config PHOENIX_FAKE_IP
+config EBURNET_FAKE_IP
     bool "Fake-IP DNS mode"
     default y
 
-config PHOENIX_DOH
+config EBURNET_DOH
     bool "DNS over HTTPS / DNS over TLS"
     default y
 endmenu
 
-config PHOENIX_PROXY_PROVIDERS
+config EBURNET_PROXY_PROVIDERS
     bool "Proxy providers (subscription URLs)"
     default y
 
-config PHOENIX_SNIFFER
+config EBURNET_SNIFFER
     bool "TLS SNI sniffer"
     default y

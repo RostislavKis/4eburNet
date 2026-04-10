@@ -1,14 +1,14 @@
-#ifndef PHOENIX_H
-#define PHOENIX_H
+#ifndef EBURNET_H
+#define EBURNET_H
 
-#include "phoenix_config.h"
+#include "4eburnet_config.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <signal.h>
 #include <time.h>
 
-#define PHOENIX_VERSION "0.1.0"
-#define PHOENIX_NAME    "phoenixd"
+#define EBURNET_VERSION "0.1.0"
+#define EBURNET_NAME    "4eburnetd"
 
 /* Профили устройств — выбираются автоматически по объёму RAM */
 typedef enum {
@@ -34,15 +34,15 @@ typedef enum {
 #define FULL_DNS_CACHE_SIZE     32768
 
 /* Пути по умолчанию */
-#define PHOENIX_CONFIG_PATH     "/etc/config/phoenix"
-#define PHOENIX_PID_FILE        "/var/run/phoenix.pid"
-#define PHOENIX_LOG_FILE        "/tmp/phoenix.log"
-#define PHOENIX_LOG_MAX_BYTES   (512 * 1024)  /* 512KB — защита tmpfs (1.5% от 32MB tmpfs на 64MB RAM) */
-#define PHOENIX_RULES_DIR       "/etc/phoenix/rules/"
+#define EBURNET_CONFIG_PATH     "/etc/config/4eburnet"
+#define EBURNET_PID_FILE        "/var/run/4eburnet.pid"
+#define EBURNET_LOG_FILE        "/tmp/4eburnet.log"
+#define EBURNET_LOG_MAX_BYTES   (512 * 1024)  /* 512KB — защита tmpfs (1.5% от 32MB tmpfs на 64MB RAM) */
+#define EBURNET_RULES_DIR       "/etc/4eburnet/rules/"
 
-/* Версия протокола IPC между phoenixd и LuCI */
-#define PHOENIX_IPC_VERSION     1
-#define PHOENIX_IPC_SOCKET      "/var/run/phoenix.sock"
+/*/* Версия протокола IPC между 4eburnetd и LuCI */
+#define EBURNET_IPC_VERSION     1
+#define EBURNET_IPC_SOCKET      "/var/run/4eburnet.sock"
 
 /* Коды команд IPC */
 typedef enum {
@@ -69,7 +69,7 @@ typedef enum {
 
 /* Заголовок IPC сообщения (фиксированный размер) */
 typedef struct {
-    uint8_t  version;     /* PHOENIX_IPC_VERSION */
+    uint8_t  version;     /* EBURNET_IPC_VERSION */
     uint8_t  command;     /* ipc_command_t */
     uint16_t length;      /* длина payload после заголовка */
     uint32_t request_id;  /* для сопоставления ответов */
@@ -84,18 +84,18 @@ typedef enum {
 } log_level_t;
 
 /* Предварительные объявления */
-struct PhoenixConfig;
+struct EburNetConfig;
 
 /* Глобальное состояние демона */
 typedef struct {
     DeviceProfile        profile;
-    struct PhoenixConfig *config;
+    struct EburNetConfig *config;
     volatile sig_atomic_t running;      /* флаг главного цикла */
     volatile sig_atomic_t reload;      /* флаг перечитки конфига */
     int                  ipc_fd;
     time_t               start_time;
     uint64_t             connections_total;
-} PhoenixState;
+} EburNetState;
 
 /* Логирование */
 void log_init(const char *path, log_level_t min_level);
@@ -105,4 +105,4 @@ void log_flush(void);
 void log_close(void);
 void log_set_daemon_mode(bool daemon);
 
-#endif /* PHOENIX_H */
+#endif /* EBURNET_H */

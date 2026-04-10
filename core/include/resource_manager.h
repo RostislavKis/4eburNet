@@ -1,7 +1,7 @@
 #ifndef RESOURCE_MANAGER_H
 #define RESOURCE_MANAGER_H
 
-#include "phoenix.h"
+#include "4eburnet.h"
 
 /* Определяет профиль устройства по объёму оперативной памяти */
 DeviceProfile rm_detect_profile(void);

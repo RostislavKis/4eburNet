@@ -3,8 +3,8 @@
 
 #include "proxy/tproxy.h"
 #include "crypto/tls.h"
-#include "phoenix_config.h"
-#if CONFIG_PHOENIX_FAKE_IP
+#include "4eburnet_config.h"
+#if CONFIG_EBURNET_FAKE_IP
 #include "dns/fake_ip.h"
 #endif
 #include "config.h"
@@ -30,7 +30,7 @@ typedef enum {
     RELAY_XHTTP_UP_REQ  = 10,   /* XHTTP: POST headers + VLESS */
     RELAY_XHTTP_DN_REQ  = 11,   /* XHTTP: GET + parse 200 OK */
     RELAY_XHTTP_ACTIVE  = 12,   /* XHTTP: chunked relay активен */
-#if CONFIG_PHOENIX_AWG
+#if CONFIG_EBURNET_AWG
     RELAY_AWG_HANDSHAKE = 14,  /* AWG UDP handshake */
     RELAY_AWG_ACTIVE    = 15,  /* AWG туннель активен */
 #endif
@@ -124,7 +124,7 @@ typedef struct {
 
 int  dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile);
 void dispatcher_set_context(dispatcher_state_t *ds,
-                            const PhoenixConfig *cfg);
+                            const EburNetConfig *cfg);
 void dispatcher_set_rules_engine(struct rules_engine *re);
 void dispatcher_tick(dispatcher_state_t *ds);
 void dispatcher_cleanup(dispatcher_state_t *ds);
@@ -135,14 +135,14 @@ void dispatcher_stats(const dispatcher_state_t *ds,
 
 /* Выбрать лучший доступный сервер (индекс в cfg->servers[]) */
 int  dispatcher_select_server(dispatcher_state_t *ds,
-                              const PhoenixConfig *cfg);
+                              const EburNetConfig *cfg);
 
 /* Обновить статус сервера после попытки подключения */
 void dispatcher_server_result(dispatcher_state_t *ds,
                               int server_idx, bool success);
 
 /* Установить глобальную fake-ip таблицу для reverse lookup */
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
 void dispatcher_set_fake_ip(fake_ip_table_t *t);
 #else
 static inline void dispatcher_set_fake_ip(void *t) { (void)t; }

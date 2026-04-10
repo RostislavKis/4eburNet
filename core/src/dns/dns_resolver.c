@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 700
 #include "dns/dns_resolver.h"
 #include "net_utils.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>

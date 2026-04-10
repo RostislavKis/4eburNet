@@ -5,7 +5,7 @@
 
 #include "proxy/proxy_group.h"
 #include "net_utils.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include "resource_manager.h"
 
 #include <stdio.h>
@@ -21,7 +21,7 @@
 #include <limits.h>
 
 /* Найти индекс сервера по имени в cfg->servers[] */
-static int find_server_by_name(const PhoenixConfig *cfg, const char *name)
+static int find_server_by_name(const EburNetConfig *cfg, const char *name)
 {
     for (int i = 0; i < cfg->server_count; i++)
         if (strcmp(cfg->servers[i].name, name) == 0)
@@ -29,7 +29,7 @@ static int find_server_by_name(const PhoenixConfig *cfg, const char *name)
     return -1;
 }
 
-int proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg)
+int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
 {
     memset(pgm, 0, sizeof(*pgm));
     pgm->cfg = cfg;

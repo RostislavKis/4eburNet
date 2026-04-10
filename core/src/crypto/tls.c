@@ -12,7 +12,7 @@
 #include <wolfssl/error-ssl.h>
 
 #include "crypto/tls.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdlib.h>
 #include <string.h>

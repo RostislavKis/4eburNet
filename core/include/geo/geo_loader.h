@@ -17,7 +17,7 @@
 #include <sys/socket.h>
 
 /* Прямой инклюд config.h нежелателен в заголовке — используем forward decl */
-struct PhoenixConfig;
+struct EburNetConfig;
 
 /* ── Регионы ─────────────────────────────────────────────────────────────── */
 
@@ -86,7 +86,7 @@ typedef struct {
     int                      count;
     int                      capacity;
     geo_region_t             current_region; /* регион текущего устройства */
-    const struct PhoenixConfig *cfg;
+    const struct EburNetConfig *cfg;
 } geo_manager_t;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
@@ -97,7 +97,7 @@ typedef struct {
  * C-4: ошибки загрузки отдельных категорий не фатальны,
  *      провалившиеся категории помечаются loaded=false.
  */
-int  geo_manager_init(geo_manager_t *gm, const struct PhoenixConfig *cfg);
+int  geo_manager_init(geo_manager_t *gm, const struct EburNetConfig *cfg);
 
 /* geo_manager_free — освободить все ресурсы */
 void geo_manager_free(geo_manager_t *gm);

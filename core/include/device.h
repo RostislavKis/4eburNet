@@ -1,14 +1,14 @@
 /*
  * device.h — профили устройств и лимиты ресурсов (DEC-013)
  *
- * DeviceProfile определён в phoenix.h — здесь только расширение:
+ * DeviceProfile определён в 4eburnet.h — здесь только расширение:
  * константы relay_buf / max_conns / dns_pending по профилю.
  */
 
 #ifndef DEVICE_H
 #define DEVICE_H
 
-#include "phoenix.h"   /* DeviceProfile, DEVICE_MICRO/NORMAL/FULL */
+#include "4eburnet.h"   /* DeviceProfile, DEVICE_MICRO/NORMAL/FULL */
 #include <stddef.h>
 
 /* ── Буфер relay ──────────────────────────────────────────────────────────── */

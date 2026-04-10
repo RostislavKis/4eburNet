@@ -4,9 +4,9 @@ START=95
 STOP=10
 USE_PROCD=1
 
-PROG=/usr/sbin/phoenixd
-CONF=/etc/config/phoenix
-PIDFILE=/var/run/phoenixd.pid
+PROG=/usr/sbin/4eburnetd
+CONF=/etc/config/4eburnet
+PIDFILE=/var/run/4eburnetd.pid
 
 start_service() {
     [ -f "$CONF" ] || return 1
@@ -30,5 +30,5 @@ reload_service() {
 }
 
 service_triggers() {
-    procd_add_reload_trigger "phoenix"
+    procd_add_reload_trigger "4eburnet"
 }

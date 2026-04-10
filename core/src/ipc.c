@@ -44,7 +44,7 @@ static void ipc_respond(int client_fd, const char *json)
         resp_len = UINT16_MAX;
     }
     ipc_header_t resp = {
-        .version    = PHOENIX_IPC_VERSION,
+        .version    = EBURNET_IPC_VERSION,
         .command    = 0,
         .length     = (uint16_t)resp_len,
         .request_id = 0,
@@ -60,7 +60,7 @@ static void ipc_respond(int client_fd, const char *json)
 int ipc_init(void)
 {
     /* Удаляем старый сокет, если остался */
-    unlink(PHOENIX_IPC_SOCKET);
+    unlink(EBURNET_IPC_SOCKET);
 
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
@@ -71,7 +71,7 @@ int ipc_init(void)
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, PHOENIX_IPC_SOCKET, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, EBURNET_IPC_SOCKET, sizeof(addr.sun_path) - 1);
 
     /* M-11: umask вместо chmod — избежать TOCTOU */
     mode_t old_umask = umask(0177);
@@ -79,19 +79,19 @@ int ipc_init(void)
     umask(old_umask);
 
     if (bind_rc < 0) {
-        log_msg(LOG_ERROR, "Не удалось привязать сокет: %s", PHOENIX_IPC_SOCKET);
+        log_msg(LOG_ERROR, "Не удалось привязать сокет: %s", EBURNET_IPC_SOCKET);
         close(fd);
         return -1;
     }
 
     /* Defense-in-depth: явный chmod 600 после bind */
-    if (chmod(PHOENIX_IPC_SOCKET, 0600) < 0)
+    if (chmod(EBURNET_IPC_SOCKET, 0600) < 0)
         log_msg(LOG_WARN, "IPC: chmod 600 не удался: %s", strerror(errno));
 
     if (listen(fd, IPC_LISTEN_BACKLOG) < 0) {
         log_msg(LOG_ERROR, "listen() не удался");
         close(fd);
-        unlink(PHOENIX_IPC_SOCKET);
+        unlink(EBURNET_IPC_SOCKET);
         return -1;
     }
 
@@ -100,11 +100,11 @@ int ipc_init(void)
     if (flags >= 0)
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
-    log_msg(LOG_INFO, "IPC сокет создан: %s", PHOENIX_IPC_SOCKET);
+    log_msg(LOG_INFO, "IPC сокет создан: %s", EBURNET_IPC_SOCKET);
     return fd;
 }
 
-void ipc_process(int server_fd, PhoenixState *state)
+void ipc_process(int server_fd, EburNetState *state)
 {
     /* Неблокирующий accept + client_fd (H-02) */
     int client_fd = accept4(server_fd, NULL, NULL,
@@ -153,7 +153,7 @@ void ipc_process(int server_fd, PhoenixState *state)
     }
 
     /* Проверка версии протокола */
-    if (hdr.version != PHOENIX_IPC_VERSION) {
+    if (hdr.version != EBURNET_IPC_VERSION) {
         log_msg(LOG_WARN, "IPC: неизвестная версия протокола %u", hdr.version);
         ipc_respond(client_fd, "{\"error\":\"version mismatch\"}");
         close(client_fd);
@@ -380,7 +380,7 @@ void ipc_cleanup(int server_fd)
 {
     if (server_fd >= 0) {
         close(server_fd);
-        unlink(PHOENIX_IPC_SOCKET);
+        unlink(EBURNET_IPC_SOCKET);
         log_msg(LOG_INFO, "IPC сокет закрыт");
     }
 }
@@ -394,7 +394,7 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, PHOENIX_IPC_SOCKET, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, EBURNET_IPC_SOCKET, sizeof(addr.sun_path) - 1);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(fd);
@@ -403,7 +403,7 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
 
     /* Отправляем запрос */
     ipc_header_t hdr = {
-        .version    = PHOENIX_IPC_VERSION,
+        .version    = EBURNET_IPC_VERSION,
         .command    = (uint8_t)cmd,
         .length     = 0,
         .request_id = 1,

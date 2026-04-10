@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include "phoenix.h"
+#include "4eburnet.h"
 #include <stddef.h>
 
 /* Описание прокси-сервера из UCI конфига */
@@ -195,8 +195,8 @@ typedef struct {
     int         priority;
 } TrafficRule;
 
-/* Основная конфигурация phoenixd */
-typedef struct PhoenixConfig {
+/*/* Основная конфигурация 4eburnetd */
+typedef struct EburNetConfig {
     bool           enabled;
     char           log_level[16];
     char           mode[16];        /* rules / global / direct */
@@ -223,17 +223,17 @@ typedef struct PhoenixConfig {
     TrafficRule          *traffic_rules;
     int                   traffic_rule_count;
     char                  geo_region[8];   /* "ru","cn","us","" — явный конфиг региона */
-    char                  geo_dir[256];    /* директория с geo-файлами, "" = /etc/phoenix/geo */
+    char                  geo_dir[256];    /* директория с geo-файлами, "" = /etc/4eburnet/geo */
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
-} PhoenixConfig;
+} EburNetConfig;
 
 /* Загрузка конфига из UCI-файла, возвращает 0 при успехе */
-int  config_load(const char *path, PhoenixConfig *cfg);
+int  config_load(const char *path, EburNetConfig *cfg);
 
 /* Освобождение памяти конфига */
-void config_free(PhoenixConfig *cfg);
+void config_free(EburNetConfig *cfg);
 
 /* Вывод конфига в лог для отладки */
-void config_dump(const PhoenixConfig *cfg);
+void config_dump(const EburNetConfig *cfg);
 
 #endif /* CONFIG_H */

@@ -7,7 +7,7 @@
  */
 
 #include "proxy/rules_engine.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,7 +155,7 @@ static provider_cache_t *cache_load(const char *provider_name,
     return pc;
 }
 
-int rules_engine_init(rules_engine_t *re, const PhoenixConfig *cfg,
+int rules_engine_init(rules_engine_t *re, const EburNetConfig *cfg,
                       proxy_group_manager_t *pgm,
                       rule_provider_manager_t *rpm,
                       geo_manager_t *gm)

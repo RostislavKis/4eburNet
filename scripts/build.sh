@@ -1,5 +1,5 @@
 #!/bin/sh
-# Сборка phoenix-router через OpenWrt SDK
+# Сборка 4eburnet через OpenWrt SDK
 # Использование: ./scripts/build.sh {mipsel|aarch64|clean}
 
 set -e
@@ -18,12 +18,12 @@ msg_fail() { printf "${RED}[ОШИБКА]${NC} %s\n" "$*"; }
 msg_warn() { printf "${YELLOW}[!]${NC} %s\n" "$*"; }
 
 # Пути к SDK
-SDK_MIPSEL="$HOME/phoenix-router-dev/sdk/mipsel-mt7621/sdk-mipsel-mt7621"
-SDK_AARCH64="$HOME/phoenix-router-dev/sdk/aarch64/sdk-aarch64"
+SDK_MIPSEL="$HOME/4eburnet-dev/sdk/mipsel-mt7621/sdk-mipsel-mt7621"
+SDK_AARCH64="$HOME/4eburnet-dev/sdk/aarch64/sdk-aarch64"
 
 setup_symlink() {
     local sdk="$1"
-    local pkg_dir="$sdk/package/phoenix-core"
+    local pkg_dir="$sdk/package/4eburnet-core"
 
     if [ ! -d "$sdk" ]; then
         msg_fail "SDK не найден: $sdk"
@@ -58,7 +58,7 @@ build_target() {
             ;;
     esac
 
-    echo "=== Сборка phoenix-core для $arch ==="
+    echo "=== Сборка 4eburnet-core для $arch ==="
 
     # Симлинк пакета в SDK
     setup_symlink "$sdk"
@@ -66,22 +66,22 @@ build_target() {
     # Сборка
     printf "Компиляция..."
     cd "$sdk"
-    make package/phoenix-core/compile V=s 2>&1 | tee /tmp/phoenix-build-$arch.log
+    make package/4eburnet-core/compile V=s 2>&1 | tee /tmp/4eburnet-build-$arch.log
 
     if [ $? -eq 0 ]; then
         msg_ok "сборка завершена"
     else
         msg_fail "ошибка сборки"
-        printf "    Лог: /tmp/phoenix-build-$arch.log\n"
+        printf "    Лог: /tmp/4eburnet-build-$arch.log\n"
         exit 1
     fi
 
     # Копируем ipk в build/
     mkdir -p "$BUILD_DIR/$arch"
-    IPK=$(find "$sdk/bin/packages/" -name "phoenix-core*.ipk" -type f 2>/dev/null | head -1)
+    IPK=$(find "$sdk/bin/packages/" -name "4eburnet-core*.ipk" -type f 2>/dev/null | head -1)
 
     if [ -z "$IPK" ]; then
-        IPK=$(find "$sdk/bin/" -name "phoenix-core*.ipk" -type f 2>/dev/null | head -1)
+        IPK=$(find "$sdk/bin/" -name "4eburnet-core*.ipk" -type f 2>/dev/null | head -1)
     fi
 
     if [ -n "$IPK" ]; then
@@ -96,7 +96,7 @@ build_target() {
         fi
     else
         msg_warn "ipk не найден в bin/"
-        printf "    Проверь вывод сборки: /tmp/phoenix-build-$arch.log\n"
+        printf "    Проверь вывод сборки: /tmp/4eburnet-build-$arch.log\n"
     fi
 
     echo ""
@@ -112,14 +112,14 @@ do_clean() {
     for sdk in "$SDK_MIPSEL" "$SDK_AARCH64"; do
         if [ -d "$sdk" ]; then
             cd "$sdk"
-            make package/phoenix-core/clean 2>/dev/null || true
+            make package/4eburnet-core/clean 2>/dev/null || true
         fi
     done
     msg_ok "SDK очищен"
 }
 
 usage() {
-    echo "Phoenix Router — сборка пакетов"
+    echo "4eburNet — сборка пакетов"
     echo ""
     echo "Использование: $0 <команда>"
     echo ""

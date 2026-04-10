@@ -6,7 +6,7 @@
 #include "proxy/proxy_provider.h"
 #include "net_utils.h"
 #include "resource_manager.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -350,7 +350,7 @@ static int fetch_with_ip_cache(const char *url, const char *cache_path,
     return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
 }
 
-int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
+int proxy_provider_init(proxy_provider_manager_t *ppm, EburNetConfig *cfg)
 {
     if (!ppm || !cfg) return -1;
     memset(ppm, 0, sizeof(*ppm));
@@ -371,7 +371,7 @@ int proxy_provider_init(proxy_provider_manager_t *ppm, PhoenixConfig *cfg)
             snprintf(ps->cache_path, sizeof(ps->cache_path), "%s", pc->path);
         } else {
             snprintf(ps->cache_path, sizeof(ps->cache_path),
-                     "/etc/phoenix/providers/%s.txt", pc->name);
+                     "/etc/4eburnet/providers/%s.txt", pc->name);
         }
     }
     ppm->count = n;
@@ -480,7 +480,7 @@ static int provider_parse_file(proxy_provider_manager_t *ppm, int idx)
        вставить новые в конец. Поскольку архитектура однопоточная (epoll),
        realloc безопасен — dispatcher читает g_config->provider_servers
        только из того же потока. */
-    PhoenixConfig *cfg = ppm->cfg;
+    EburNetConfig *cfg = ppm->cfg;
 
     /* Удалить записи с source_provider == ps->name */
     int new_total = 0;

@@ -8,7 +8,7 @@
 
 #include "proxy/sniffer.h"
 
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdint.h>
 #include <string.h>

@@ -5,7 +5,7 @@
 
 #include "geo/geo_loader.h"
 #include "config.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -281,13 +281,13 @@ geo_region_t device_detect_region(geo_manager_t *gm,
     /* Шаг 3: fallback */
     log_msg(LOG_WARN,
         "Регион не определён — установите option region 'ru' "
-        "в /etc/config/phoenix");
+        "в /etc/config/4eburnet");
     return GEO_REGION_UNKNOWN;
 }
 
 /* ── Init / Free ────────────────────────────────────────────────────────── */
 
-int geo_manager_init(geo_manager_t *gm, const struct PhoenixConfig *cfg)
+int geo_manager_init(geo_manager_t *gm, const struct EburNetConfig *cfg)
 {
     memset(gm, 0, sizeof(*gm));
     gm->cfg = cfg;

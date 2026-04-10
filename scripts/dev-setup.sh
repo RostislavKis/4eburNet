@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Настройка окружения разработки phoenix-router
+# Настройка окружения разработки 4eburnet
 #
 # Проверяет зависимости, собирает wolfSSL с musl-gcc,
-# запускает верификационную сборку phoenixd.
+# запускает верификационную сборку 4eburnetd.
 #
 # Использование:
 #   ./scripts/dev-setup.sh               # полная настройка
@@ -128,11 +128,11 @@ if $FLAG_CHECK; then
 
     # Проверить сборку
     msg_head "Проверка сборки"
-    if [ -f "$PROJECT_DIR/../build/phoenixd" ]; then
-        local size=$(ls -lh "$PROJECT_DIR/../build/phoenixd" | awk '{print $5}')
-        msg_ok "phoenixd существует ($size)"
+    if [ -f "$PROJECT_DIR/../build/4eburnetd" ]; then
+        local size=$(ls -lh "$PROJECT_DIR/../build/4eburnetd" | awk '{print $5}')
+        msg_ok "4eburnetd существует ($size)"
     else
-        msg_warn "phoenixd не собран"
+        msg_warn "4eburnetd не собран"
     fi
 
     echo ""
@@ -222,13 +222,13 @@ fi
 
 msg_head "OpenWrt SDK"
 
-SDK_BASE="$HOME/phoenix-router-dev/sdk"
+SDK_BASE="$HOME/4eburnet-dev/sdk"
 SDK_FOUND=false
 
 for arch in aarch64 mipsel; do
     SDK_DIR="$SDK_BASE/$arch/sdk-$arch"
     if [ -d "$SDK_DIR" ]; then
-        PKG_DIR="$SDK_DIR/package/phoenix-core"
+        PKG_DIR="$SDK_DIR/package/4eburnet-core"
         mkdir -p "$SDK_DIR/package"
         if [ ! -L "$PKG_DIR" ] || \
            [ "$(readlink -f "$PKG_DIR")" != "$(readlink -f "$CORE_DIR")" ]; then
@@ -254,13 +254,13 @@ msg_head "Верификационная сборка"
 cd "$CORE_DIR"
 make -f Makefile.dev clean >/dev/null 2>&1 || true
 
-echo "Компиляция phoenixd..."
+echo "Компиляция 4eburnetd..."
 if make -f Makefile.dev 2>&1 | tail -3; then
-    BINARY="$PROJECT_DIR/../build/phoenixd"
+    BINARY="$PROJECT_DIR/../build/4eburnetd"
     if [ -f "$BINARY" ]; then
         BIN_SIZE=$(ls -lh "$BINARY" | awk '{print $5}')
         BIN_BYTES=$(stat -c%s "$BINARY")
-        msg_ok "phoenixd ($BIN_SIZE)"
+        msg_ok "4eburnetd ($BIN_SIZE)"
 
         if [ "$BIN_BYTES" -gt 4194304 ]; then
             msg_warn "Размер >4 МБ — превышает лимит для роутеров!"

@@ -7,7 +7,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "config.h"
-#include "phoenix.h"   /* DeviceProfile */
+#include "4eburnet.h"   /* DeviceProfile */
 
 /* Запись в fake-ip таблице */
 typedef struct fake_ip_entry {
@@ -54,7 +54,7 @@ typedef struct {
     fake_ip_entry_t *lru_tail;
 
     /* Конфиг (не владеет памятью) */
-    const PhoenixConfig *cfg;
+    const EburNetConfig *cfg;
 } fake_ip_table_t;
 
 /* ── API ── */
@@ -65,7 +65,7 @@ typedef struct {
  * max_entries: максимум записей (адаптируется под профиль).
  * Возвращает 0 при успехе, -1 при ошибке.
  */
-int  fake_ip_init(fake_ip_table_t *t, const PhoenixConfig *cfg,
+int  fake_ip_init(fake_ip_table_t *t, const EburNetConfig *cfg,
                   const char *range, int max_entries);
 
 /* fake_ip_free — освободить все ресурсы */

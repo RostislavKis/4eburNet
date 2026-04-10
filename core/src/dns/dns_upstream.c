@@ -4,7 +4,7 @@
 
 #include "dns/dns_upstream.h"
 #include "crypto/tls.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>

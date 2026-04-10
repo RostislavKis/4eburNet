@@ -10,13 +10,13 @@
  *   - HKDF вывод ключей (wolfSSL_quic_hkdf_extract/expand)
  *   - регистрация колбэков TLS handshake (WOLFSSL_QUIC_METHOD)
  *
- * Компилируется только при CONFIG_PHOENIX_DOQ=1.
+ * Компилируется только при CONFIG_EBURNET_DOQ=1.
  */
 
-#ifndef PHOENIX_CRYPTO_QUIC_H
-#define PHOENIX_CRYPTO_QUIC_H
+#ifndef EBURNET_CRYPTO_QUIC_H
+#define EBURNET_CRYPTO_QUIC_H
 
-#ifdef CONFIG_PHOENIX_DOQ
+#ifdef CONFIG_EBURNET_DOQ
 
 #include <stdint.h>
 #include <stddef.h>
@@ -129,5 +129,5 @@ void quic_hp_remove(quic_hp_ctx_t *ctx,
                     uint8_t *hdr, size_t hdr_len,
                     const uint8_t *sample);
 
-#endif /* CONFIG_PHOENIX_DOQ */
-#endif /* PHOENIX_CRYPTO_QUIC_H */
+#endif /* CONFIG_EBURNET_DOQ */
+#endif /* EBURNET_CRYPTO_QUIC_H */

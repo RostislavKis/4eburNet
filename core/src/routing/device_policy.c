@@ -7,7 +7,7 @@
 
 #include "routing/device_policy.h"
 #include "net_utils.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +22,7 @@
 /*  device_policy_init / free                                          */
 /* ------------------------------------------------------------------ */
 
-int device_policy_init(device_manager_t *dm, const PhoenixConfig *cfg)
+int device_policy_init(device_manager_t *dm, const EburNetConfig *cfg)
 {
     memset(dm, 0, sizeof(*dm));
     if (cfg->device_count == 0)
@@ -121,7 +121,7 @@ static int write_device_nft(device_manager_t *dm,
     FILE *f = fopen(path, "w");
     if (!f) return -1;
 
-    fprintf(f, "table netdev phoenix_dev {\n");
+    fprintf(f, "table netdev 4eburnet_dev {\n");
 
     fprintf(f, "    chain dev_proxy {\n");
     fprintf(f, "        meta mark set 0x%08x;\n", FWMARK_DEVICE_PROXY);
@@ -196,11 +196,11 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
     }
 
     /* M-14: exec_cmd_safe вместо shell */
-    const char *const del_argv[] = {"nft", "delete", "table", "netdev", "phoenix_dev", NULL};
+    const char *const del_argv[] = {"nft", "delete", "table", "netdev", "4eburnet_dev", NULL};
     exec_cmd_safe(del_argv, NULL, 0);
 
     /* H-13: mkstemp для безопасного создания tmp файла (TOCTOU fix) */
-    char tmppath[] = "/tmp/phoenix_dev_XXXXXX";
+    char tmppath[] = "/tmp/4eburnet_dev_XXXXXX";
     int tmpfd = mkstemp(tmppath);
     if (tmpfd < 0) return -1;
     fchmod(tmpfd, 0600);
@@ -236,7 +236,7 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
 
 void device_policy_cleanup_nft(void)
 {
-    const char *const cleanup_argv[] = {"nft", "delete", "table", "netdev", "phoenix_dev", NULL};
+    const char *const cleanup_argv[] = {"nft", "delete", "table", "netdev", "4eburnet_dev", NULL};
     exec_cmd_safe(cleanup_argv, NULL, 0);
     log_msg(LOG_DEBUG, "Device policy: netdev таблица удалена");
 }

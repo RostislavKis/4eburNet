@@ -9,7 +9,7 @@
 #include <wolfssl/error-ssl.h>
 
 #include "dns/dns_upstream_async.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>

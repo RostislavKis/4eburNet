@@ -1,15 +1,15 @@
 #!/bin/sh
-# postinstall.sh — первичная настройка phoenix-router после opkg install
-# Запускается: /etc/uci-defaults/99-phoenix-router (один раз при boot)
-# или вручную: sh /usr/share/phoenix-router/postinstall.sh
+# postinstall.sh — первичная настройка 4eburnet после opkg install
+# Запускается: /etc/uci-defaults/99-4eburnet (один раз при boot)
+# или вручную: sh /usr/share/4eburnet/postinstall.sh
 
 set -e
 
-PHOENIX_CONF="/etc/config/phoenix"
-GEO_DIR="/etc/phoenix/geo"
-PHOENIX_BIN="/usr/sbin/phoenixd"
-GEO_CONVERT="/usr/share/phoenix-router/geo_convert.py"
-LOG_TAG="phoenix-postinstall"
+EBURNET_CONF="/etc/config/4eburnet"
+GEO_DIR="/etc/4eburnet/geo"
+EBURNET_BIN="/usr/sbin/4eburnetd"
+GEO_CONVERT="/usr/share/4eburnet/geo_convert.py"
+LOG_TAG="4eburnet-postinstall"
 
 log() { logger -t "$LOG_TAG" "$1"; echo "[$LOG_TAG] $1"; }
 warn() { logger -t "$LOG_TAG" "WARN: $1"; echo "[$LOG_TAG] WARN: $1" >&2; }
@@ -18,8 +18,8 @@ warn() { logger -t "$LOG_TAG" "WARN: $1"; echo "[$LOG_TAG] WARN: $1" >&2; }
 
 detect_region() {
     # Приоритет 1: уже задан в конфиге
-    if [ -f "$PHOENIX_CONF" ]; then
-        R=$(uci -q get phoenix.@phoenix[0].region 2>/dev/null || true)
+    if [ -f "$EBURNET_CONF" ]; then
+        R=$(uci -q get 4eburnet.@4eburnet[0].region 2>/dev/null || true)
         if [ -n "$R" ]; then
             echo "$R"; return
         fi
@@ -70,30 +70,30 @@ create_default_config() {
     log "Создание базового конфига для региона: $REGION"
 
     # Не перезаписывать существующий конфиг
-    if [ -f "$PHOENIX_CONF" ]; then
+    if [ -f "$EBURNET_CONF" ]; then
         log "Конфиг уже существует, пропуск"
         return
     fi
 
-    cat > "$PHOENIX_CONF" << EOF
-# phoenix-router configuration
-# Управление через LuCI: Services → Phoenix Router
+    cat > "$EBURNET_CONF" << EOF
+# 4eburnet configuration
+# Управление через LuCI: Services → 4eburNet
 
-config phoenix 'main'
+config 4eburnet 'main'
     option enabled '1'
     option region '$REGION'
     option geo_dir '$GEO_DIR'
     option log_level 'info'
-    option log_file '/tmp/phoenix.log'
+    option log_file '/tmp/4eburnet.log'
     option dns_port '53'
     option tproxy_port '7893'
-    option api_socket '/var/run/phoenix.sock'
+    option api_socket '/var/run/4eburnet.sock'
     option tai_utc_offset '37'
 
 EOF
 
     # Добавить rule_provider для антирекламы (для всех регионов)
-    cat >> "$PHOENIX_CONF" << EOF
+    cat >> "$EBURNET_CONF" << EOF
 config rule_provider 'geosite_ads'
     option name 'geosite-ads'
     option type 'http'
@@ -111,7 +111,7 @@ EOF
             # ВАЖНО: заблокируйте на VPN сервере доступ обратно в geoip:ru
             # Это предотвращает идентификацию вашего IP через паттерн трафика
             # xray/3x-ui routing rule: geoip:ru → block (или direct через WARP)
-            cat >> "$PHOENIX_CONF" << EOF
+            cat >> "$EBURNET_CONF" << EOF
 config rule_provider 'geoip_ru'
     option name 'geoip-ru'
     option type 'http'
@@ -179,7 +179,7 @@ config traffic_rule 'rule_match'
 EOF
             ;;
         cn)
-            cat >> "$PHOENIX_CONF" << EOF
+            cat >> "$EBURNET_CONF" << EOF
 config rule_provider 'geoip_cn'
     option name 'geoip-cn'
     option type 'http'
@@ -206,7 +206,7 @@ config traffic_rule 'rule_match'
 EOF
             ;;
         *)
-            cat >> "$PHOENIX_CONF" << EOF
+            cat >> "$EBURNET_CONF" << EOF
 config traffic_rule 'rule_match'
     option type 'MATCH'
     option target 'proxy'
@@ -217,7 +217,7 @@ EOF
             ;;
     esac
 
-    log "Конфиг создан: $PHOENIX_CONF"
+    log "Конфиг создан: $EBURNET_CONF"
 }
 
 # ── Шаг 3: скачать начальные geo файлы ───────────────────────────────────
@@ -277,17 +277,17 @@ download_geo_files() {
 # ── Шаг 4: включить и запустить службу ───────────────────────────────────
 
 enable_service() {
-    if [ -f /etc/init.d/phoenix-router ]; then
-        /etc/init.d/phoenix-router enable 2>/dev/null || true
-        log "Служба phoenix-router включена в автозагрузку"
+    if [ -f /etc/init.d/4eburnet ]; then
+        /etc/init.d/4eburnet enable 2>/dev/null || true
+        log "Служба 4eburnet включена в автозагрузку"
     fi
 }
 
 # ── Главная логика ────────────────────────────────────────────────────────
 
 main() {
-    log "=== phoenix-router postinstall ==="
-    log "Версия: $(${PHOENIX_BIN} --version 2>/dev/null || echo 'unknown')"
+    log "=== 4eburnet postinstall ==="
+    log "Версия: $(${EBURNET_BIN} --version 2>/dev/null || echo 'unknown')"
 
     REGION=$(detect_region)
     log "Регион: $REGION"
@@ -297,7 +297,7 @@ main() {
     enable_service
 
     log "=== Настройка завершена ==="
-    log "Откройте LuCI: Services → Phoenix Router для настройки серверов"
+    log "Откройте LuCI: Services → 4eburNet для настройки серверов"
 }
 
 main "$@"

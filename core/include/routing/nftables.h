@@ -6,7 +6,7 @@
 #include <stddef.h>
 
 /* Имена таблицы и цепочек */
-#define NFT_TABLE_NAME      "phoenix"
+#define NFT_TABLE_NAME      "4eburnet"
 #define NFT_CHAIN_PRE       "prerouting"
 #define NFT_CHAIN_FWD       "forward"
 #define NFT_CHAIN_OUT       "output"
@@ -76,10 +76,10 @@ typedef enum {
 
 /* --- Жизненный цикл --- */
 
-/* Создаёт таблицу inet phoenix с цепочками и наборами */
+/* Создаёт таблицу inet 4eburnet с цепочками и наборами */
 nft_result_t nft_init(void);
 
-/* Удаляет таблицу inet phoenix (при остановке демона) */
+/* Удаляет таблицу inet 4eburnet (при остановке демона) */
 void nft_cleanup(void);
 
 /* Проверяет, существует ли наша таблица */
@@ -112,7 +112,7 @@ nft_result_t nft_tproxy_disable(void);
 
 /* --- Verdict Maps (DEC-017) --- */
 
-/* Создать все verdict maps в таблице phoenix */
+/* Создать все verdict maps в таблице 4eburnet */
 nft_result_t nft_vmap_create(void);
 
 /* Очистить все verdict maps */

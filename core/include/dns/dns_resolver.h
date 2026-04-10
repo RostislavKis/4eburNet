@@ -1,5 +1,5 @@
-#ifndef PHOENIX_DNS_RESOLVER_H
-#define PHOENIX_DNS_RESOLVER_H
+#ifndef EBURNET_DNS_RESOLVER_H
+#define EBURNET_DNS_RESOLVER_H
 
 #include <stdbool.h>
 #include <stdint.h>

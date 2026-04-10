@@ -19,7 +19,7 @@ typedef struct {
 } rule_match_result_t;
 
 typedef struct rules_engine {
-    const PhoenixConfig      *cfg;
+    const EburNetConfig      *cfg;
     proxy_group_manager_t    *pgm;
     rule_provider_manager_t  *rpm;
     geo_manager_t            *gm;   /* NULL если geo не инициализирован */
@@ -28,7 +28,7 @@ typedef struct rules_engine {
     int                       rule_count;
 } rules_engine_t;
 
-int  rules_engine_init(rules_engine_t *re, const PhoenixConfig *cfg,
+int  rules_engine_init(rules_engine_t *re, const EburNetConfig *cfg,
                        proxy_group_manager_t *pgm,
                        rule_provider_manager_t *rpm,
                        geo_manager_t *gm);

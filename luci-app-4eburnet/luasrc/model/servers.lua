@@ -1,9 +1,9 @@
 -- Модель: servers
 -- TODO: описание UCI-секций для формы настроек
 
-module("luci.model.cbi.phoenix.servers", package.seeall)
+module("luci.model.cbi.4eburnet.servers", package.seeall)
 
-local m = Map("phoenix", translate("Phoenix — servers"))
+local m = Map("4eburnet", translate("4eburNet — servers"))
 
 -- TODO: секции и поля формы
 

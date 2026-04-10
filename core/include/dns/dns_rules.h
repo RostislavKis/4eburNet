@@ -10,7 +10,7 @@ typedef enum {
     DNS_ACTION_DEFAULT = 3,
 } dns_action_t;
 
-int  dns_rules_init(const PhoenixConfig *cfg);
+int  dns_rules_init(const EburNetConfig *cfg);
 void dns_rules_free(void);
 
 /* Определить действие для домена */

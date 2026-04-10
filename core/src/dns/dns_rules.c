@@ -3,7 +3,7 @@
  */
 
 #include "dns/dns_rules.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -93,7 +93,7 @@ void dns_rules_rebuild_index(void)
     g_idx.ready = true;
 }
 
-int dns_rules_init(const PhoenixConfig *cfg)
+int dns_rules_init(const EburNetConfig *cfg)
 {
     dns_rules_free();
     if (cfg->dns_rule_count == 0)
