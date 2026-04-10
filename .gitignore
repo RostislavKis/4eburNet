@@ -23,6 +23,17 @@ tmp/
 # Системные
 .DS_Store
 Thumbs.db
+nul
+
+# Windows Zone.Identifier (метки безопасности браузера)
+*Zone.Identifier
+
+# Claude Code — локальный контекст
+.claude/
+
+# Локальные файлы, не для репозитория
+4eburNet_original.png
+docs/audit_v8.md
 
 # Локальный конфиг деплоя (содержит IP/пароли)
 scripts/deploy.conf
