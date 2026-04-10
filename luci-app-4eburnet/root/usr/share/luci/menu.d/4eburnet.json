@@ -1,0 +1,82 @@
+{
+  "admin/services/4eburnet": {
+    "title": "4eburNet",
+    "order": 55,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/overview"
+    }
+  },
+  "admin/services/4eburnet/overview": {
+    "title": "Обзор",
+    "order": 1,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/overview"
+    }
+  },
+  "admin/services/4eburnet/groups": {
+    "title": "Группы",
+    "order": 10,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/groups"
+    }
+  },
+  "admin/services/4eburnet/servers": {
+    "title": "Серверы",
+    "order": 11,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/servers"
+    }
+  },
+  "admin/services/4eburnet/rules": {
+    "title": "Правила",
+    "order": 20,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/rules"
+    }
+  },
+  "admin/services/4eburnet/dns": {
+    "title": "DNS",
+    "order": 21,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/dns"
+    }
+  },
+  "admin/services/4eburnet/devices": {
+    "title": "Устройства",
+    "order": 22,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/devices"
+    }
+  },
+  "admin/services/4eburnet/adblock": {
+    "title": "Блокировка рекламы",
+    "order": 23,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/adblock"
+    }
+  },
+  "admin/services/4eburnet/logs": {
+    "title": "Логи",
+    "order": 30,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/logs"
+    }
+  },
+  "admin/services/4eburnet/settings": {
+    "title": "Настройки",
+    "order": 40,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/settings"
+    }
+  }
+}

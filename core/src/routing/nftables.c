@@ -871,6 +871,7 @@ nft_result_t nft_vmap_flush_all(void)
 /* ------------------------------------------------------------------ */
 
 nft_result_t nft_vmap_load_batch(const char *map_name,
+                                 const char *verdict,
                                  const char **cidrs, size_t count,
                                  nft_load_result_t *result)
 {
@@ -887,15 +888,6 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
 
     if (count == 0)
         return NFT_OK;
-
-    /*
-     * Определяем вердикт по имени map:
-     * block_map/block_map6 → drop
-     * bypass_map/bypass_map6 → accept
-     */
-    const char *verdict = "accept";
-    if (strstr(map_name, "block"))
-        verdict = "drop";
 
     /* Загружаем порциями по NFT_BATCH_MAX */
     size_t offset = 0;
@@ -975,6 +967,7 @@ nft_result_t nft_vmap_load_batch(const char *map_name,
 /* ------------------------------------------------------------------ */
 
 nft_result_t nft_vmap_load_file(const char *map_name,
+                                const char *verdict,
                                 const char *filepath,
                                 nft_load_result_t *result)
 {
@@ -994,10 +987,6 @@ nft_result_t nft_vmap_load_file(const char *map_name,
         log_msg(LOG_WARN, "nft: файл не найден: %s", filepath);
         return NFT_ERR_NOTFOUND;
     }
-
-    const char *verdict = "accept";
-    if (strstr(map_name, "block"))
-        verdict = "drop";
 
     /*
      * Читаем построчно, накапливаем batch в tmp файл.

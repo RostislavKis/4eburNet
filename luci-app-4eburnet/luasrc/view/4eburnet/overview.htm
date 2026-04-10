@@ -1,0 +1,81 @@
+<%
+page_id = "overview"
+local static = "/luci-static/4eburnet/"
+content_body = [[
+<!-- Hero -->
+<div class="eb-card" style="background:linear-gradient(135deg,#0d1117,#161b22);border-color:rgba(232,103,60,.25);padding:0;overflow:hidden;margin-bottom:14px">
+  <div style="display:flex;align-items:center;gap:16px;padding:16px 18px">
+    <img src="]] .. static .. [[logo.png" style="width:72px;height:72px;border-radius:10px;object-fit:cover;box-shadow:0 4px 20px rgba(0,0,0,.5);flex-shrink:0" alt="4eburNet">
+    <div>
+      <div style="font-size:22px;font-weight:700;letter-spacing:.3px">4eburNet</div>
+      <div style="font-size:11px;color:#8d96a0;margin-top:3px">Универсальный прокси-маршрутизатор · OpenWrt</div>
+      <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap" id="hero-tags">
+        <span class="eb-badge eb-bnt" id="hero-ver">v0.1.0</span>
+        <span class="eb-badge eb-bok" id="hero-status">● Активен</span>
+        <span class="eb-badge eb-bin" id="hero-mode">rules</span>
+        <span class="eb-badge eb-bpu">VLESS · AWG · DoQ</span>
+      </div>
+    </div>
+    <div style="margin-left:auto;text-align:right">
+      <div class="eb-mono eb-xs" id="hero-uptime">—</div>
+      <div class="eb-mono" style="font-size:9px;color:#545d68;margin-top:3px" id="hero-commit">c0e4115</div>
+    </div>
+  </div>
+</div>
+
+<!-- Stats row -->
+<div class="eb-stats" id="stats-row">
+  <div class="eb-stat ok"><div class="eb-stat-l">Статус</div><div class="eb-stat-v" id="s-status">—</div><div class="eb-stat-s" id="s-uptime">—</div></div>
+  <div class="eb-stat ac"><div class="eb-stat-l">Режим</div><div class="eb-stat-v" id="s-mode">—</div><div class="eb-stat-s">маршрутизация</div></div>
+  <div class="eb-stat in"><div class="eb-stat-l">Соединения</div><div class="eb-stat-v" id="s-conns">—</div><div class="eb-stat-s" id="s-conns-total">—</div></div>
+  <div class="eb-stat"><div class="eb-stat-l">DNS запросов</div><div class="eb-stat-v" id="s-dns">—</div><div class="eb-stat-s" id="s-dns-cache">—</div></div>
+  <div class="eb-stat ok"><div class="eb-stat-l">Группы</div><div class="eb-stat-v" id="s-groups">—</div><div class="eb-stat-s">активны</div></div>
+  <div class="eb-stat ok"><div class="eb-stat-l">Заблок. реклама</div><div class="eb-stat-v" id="s-adblock">—</div><div class="eb-stat-s">сегодня</div></div>
+</div>
+
+<div class="eb-g2">
+  <!-- WAN IP + VLESS QR -->
+  <div class="eb-card">
+    <div class="eb-card-h">
+      <div class="eb-card-t">📡 Внешний доступ / VLESS QR</div>
+      <button class="eb-btn eb-btn-g" onclick="ebRefreshWan()">⟳ IP</button>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div id="qr-box" style="background:#fff;padding:8px;border-radius:5px;flex-shrink:0;width:90px;height:90px;display:flex;align-items:center;justify-content:center">
+        <div class="eb-xs">QR…</div>
+      </div>
+      <div style="flex:1;min-width:150px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:#ff8c5a" id="wan-ip-disp">—</div>
+        <div class="eb-xs">WAN IP</div>
+        <div id="vless-url-disp" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#545d68;word-break:break-all;background:#21262d;padding:6px;border-radius:4px;margin:7px 0;max-height:50px;overflow-y:auto">—</div>
+        <div style="display:flex;gap:7px">
+          <button class="eb-btn eb-btn-g" onclick="ebCopyUrl()">📋 Копировать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Proxy groups mini -->
+  <div class="eb-card">
+    <div class="eb-card-h">
+      <div class="eb-card-t">👥 Proxy группы</div>
+      <a href="groups" class="eb-btn eb-btn-g">Все →</a>
+    </div>
+    <div id="groups-mini"></div>
+  </div>
+</div>
+
+<!-- Предупреждение: нет GEOIP,RU,DIRECT -->
+<div id="warn-ru" class="eb-card" style="display:none;border-color:rgba(240,180,41,.3);background:rgba(240,180,41,.04)">
+  <div class="eb-flex eb-g8">
+    <span>⚠️</span>
+    <div>
+      <div style="font-weight:600;color:#f0b429;font-size:12px">SECURITY: нет правила GEOIP,RU,DIRECT</div>
+      <div class="eb-xs eb-mt8">RU трафик идёт через прокси — может раскрыть IP сервера.</div>
+    </div>
+    <a href="rules" class="eb-btn eb-btn-g eb-ml">Исправить →</a>
+  </div>
+</div>
+]]
+%>
+<%include("4eburnet/base")%>
