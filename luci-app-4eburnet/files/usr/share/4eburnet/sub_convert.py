@@ -168,7 +168,8 @@ def parse_uri(uri: str) -> dict | None:
 
 # ── Форматы входа ──────────────────────────────────────────────────────
 
-def parse_base64_subscription(data: str) -> list:
+def parse_base64_subscription(data: str,
+                               max_servers: int = 500) -> list:
     """base64 строка содержащая список URI (один на строку)."""
     servers = []
     # Попробовать декодировать base64
@@ -182,6 +183,10 @@ def parse_base64_subscription(data: str) -> list:
         decoded = data
 
     for line in decoded.splitlines():
+        if len(servers) >= max_servers:
+            print(f'  [truncate] серверов > {max_servers}, усечено',
+                  file=sys.stderr)
+            break
         line = line.strip()
         if not line or line.startswith('#'):
             continue
@@ -194,7 +199,7 @@ def parse_base64_subscription(data: str) -> list:
     return servers
 
 
-def parse_clash_yaml(data: str) -> tuple:
+def parse_clash_yaml(data: str, max_servers: int = 500) -> tuple:
     """Парсить Clash/Mihomo YAML.
     Возвращает (servers, groups, rules).
     Не использует PyYAML — простой построчный парсер достаточен
@@ -250,6 +255,12 @@ def parse_clash_yaml(data: str) -> tuple:
             if stripped.startswith('- name:'):
                 if current:
                     _clash_proxy_to_server(current, servers)
+                # Early stop при достижении лимита
+                if len(servers) >= max_servers:
+                    print(f'  [truncate] серверов > {max_servers}, усечено',
+                          file=sys.stderr)
+                    current = None
+                    break
                 current = {'name': stripped[7:].strip().strip('"').strip("'")}
             elif stripped.startswith('- {'):
                 if current:
@@ -426,7 +437,7 @@ def _parse_clash_rule(rule_str: str) -> dict | None:
     }
 
 
-def parse_singbox_json(data: str) -> tuple:
+def parse_singbox_json(data: str, max_servers: int = 500) -> tuple:
     """Парсить sing-box JSON. Возвращает (servers, rules)."""
     servers = []
     rules   = []
@@ -438,6 +449,10 @@ def parse_singbox_json(data: str) -> tuple:
         return servers, rules
 
     for ob in cfg.get('outbounds', []):
+        if len(servers) >= max_servers:
+            print(f'  [truncate] серверов > {max_servers}, усечено',
+                  file=sys.stderr)
+            break
         ob_type = ob.get('type', '')
         if ob_type in ('direct', 'block', 'dns', 'selector',
                        'urltest', 'fallback', 'loadbalance'):
@@ -529,15 +544,19 @@ def detect_format(data: str) -> str:
     if re.search(r'^proxies\s*:', stripped, re.MULTILINE):
         return 'clash'
 
-    try:
-        clean = stripped.replace('\n', '').replace(' ', '')
-        padded = clean + '=' * (-len(clean) % 4)
-        decoded = base64.b64decode(padded).decode('utf-8')
-        if any(decoded.strip().startswith(p) for p in
-               ('vless://', 'ss://', 'trojan://', 'hysteria2://')):
-            return 'base64'
-    except Exception:
-        pass
+    # Попробовать base64 только для разумного размера
+    # Подписки > 2 МБ base64 не бывают — избегаем лишних копий в RAM
+    MAX_BASE64_DETECT = 2 * 1024 * 1024
+    if len(stripped) <= MAX_BASE64_DETECT:
+        try:
+            clean = stripped.replace('\n', '').replace(' ', '')
+            padded = clean + '=' * (-len(clean) % 4)
+            decoded = base64.b64decode(padded).decode('utf-8')
+            if any(decoded.strip().startswith(p) for p in
+                   ('vless://', 'ss://', 'trojan://', 'hysteria2://')):
+                return 'base64'
+        except Exception:
+            pass
 
     return 'urilist'
 
@@ -703,6 +722,8 @@ def main():
                         help='Не импортировать proxy-groups')
     parser.add_argument('--max-rules', type=int, default=512,
                         help='Максимум правил (default: 512)')
+    parser.add_argument('--max-servers', type=int, default=500,
+                        help='Максимум серверов (default: 500)')
     parser.add_argument('--append',   action='store_true',
                         help='Добавить к существующему конфигу')
     args = parser.parse_args()
@@ -724,12 +745,14 @@ def main():
     groups  = []
     rules   = []
 
+    max_srv = args.max_servers
+
     if fmt == 'clash':
-        servers, groups, rules = parse_clash_yaml(data)
+        servers, groups, rules = parse_clash_yaml(data, max_srv)
     elif fmt in ('base64', 'urilist'):
-        servers = parse_base64_subscription(data)
+        servers = parse_base64_subscription(data, max_srv)
     elif fmt == 'singbox':
-        servers, rules = parse_singbox_json(data)
+        servers, rules = parse_singbox_json(data, max_srv)
 
     # Применить ограничения
     if args.no_groups:
