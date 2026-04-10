@@ -82,6 +82,18 @@ define Package/luci-app-4eburnet/install
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/4eburnet
 	$(INSTALL_DATA) ./htdocs/luci-static/resources/4eburnet/logo.png \
 	  $(1)/www/luci-static/resources/4eburnet/
+
+	$(INSTALL_DIR) $(1)/etc/4eburnet/dpi
+	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/tls_clienthello_www_google_com.bin \
+	  $(1)/etc/4eburnet/dpi/
+	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/quic_initial_www_google_com.bin \
+	  $(1)/etc/4eburnet/dpi/
+	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/ipset.txt \
+	  $(1)/etc/4eburnet/dpi/
+	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/whitelist.txt \
+	  $(1)/etc/4eburnet/dpi/
+	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/autohosts.txt \
+	  $(1)/etc/4eburnet/dpi/
 endef
 
 $(eval $(call BuildPackage,luci-app-4eburnet))
