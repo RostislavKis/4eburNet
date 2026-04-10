@@ -193,5 +193,13 @@ int hy2_tcp_response_decode(const uint8_t *buf, size_t buf_size,
                             uint8_t *status,
                             char *msg_out, size_t msg_max);
 
+/*
+ * Разобрать hysteria2:// или hy2:// URI → cfg.
+ * Поддерживаемые параметры: obfs=salamander, obfs-password,
+ * sni, insecure=1, up=N, down=N. #fragment игнорируется.
+ * Возвращает 0 при успехе, -1 при ошибке.
+ */
+int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg);
+
 #endif /* CONFIG_EBURNET_QUIC */
 #endif /* EBURNET_HYSTERIA2_H */

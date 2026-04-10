@@ -521,4 +521,133 @@ void hysteria2_stream_close(hysteria2_conn_t *conn,
     stream->state = HY2_STREAM_CLOSED;
 }
 
+/* ── percent_decode ─────────────────────────────────────────────── */
+
+/*
+ * Декодирует %XX → символ. '+' НЕ декодируется в пробел (RFC 3986,
+ * не form-encoding — в URI паролях '+' является литеральным символом).
+ * Возвращает длину результата (без NUL) или -1 при переполнении dst_max.
+ */
+static int percent_decode(const char *src, size_t src_len,
+                           char *dst, size_t dst_max)
+{
+    size_t j = 0;
+    for (size_t i = 0; i < src_len; ) {
+        if (dst_max == 0 || j >= dst_max - 1) return -1;
+        if (src[i] == '%' && i + 2 < src_len
+            && isxdigit((unsigned char)src[i+1])
+            && isxdigit((unsigned char)src[i+2])) {
+            char hex[3] = { src[i+1], src[i+2], '\0' };
+            dst[j++] = (char)(unsigned char)strtol(hex, NULL, 16);
+            i += 3;
+        } else {
+            dst[j++] = src[i++];
+        }
+    }
+    dst[j] = '\0';
+    return (int)j;
+}
+
+/* ── hy2_parse_uri ──────────────────────────────────────────────── */
+
+int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
+{
+    if (!uri || !cfg) return -1;
+
+    /* 1. Проверить схему */
+    const char *p;
+    if (strncmp(uri, "hysteria2://", 12) == 0)      p = uri + 12;
+    else if (strncmp(uri, "hy2://", 6) == 0)        p = uri + 6;
+    else return -1;
+
+    /* 2. Сбросить cfg */
+    memset(cfg, 0, sizeof(*cfg));
+
+    /* 3. Найти конец userinfo: последний '@' до '?' и '#' */
+    const char *at = NULL;
+    for (const char *c = p; *c && *c != '?' && *c != '#'; c++)
+        if (*c == '@') at = c;
+    if (!at) return -1;   /* нет пароля */
+
+    /* 4. percent_decode пароля */
+    if (percent_decode(p, (size_t)(at - p),
+                       cfg->password, sizeof(cfg->password)) < 0)
+        return -1;
+    if (cfg->password[0] == '\0') return -1;
+
+    /* 5. host:port — от '@' до '?' или '#' */
+    p = at + 1;
+    const char *qmark = strchr(p, '?');
+    const char *hash  = strchr(p, '#');
+    const char *hp_end = qmark ? qmark
+                       : hash  ? hash
+                       : p + strlen(p);
+
+    /* Найти последнее ':' в диапазоне p..hp_end */
+    const char *colon = NULL;
+    for (const char *c = hp_end - 1; c >= p; c--)
+        if (*c == ':') { colon = c; break; }
+    if (!colon || colon == p) return -1;  /* нет порта */
+
+    size_t hlen = (size_t)(colon - p);
+    if (hlen == 0 || hlen >= sizeof(cfg->server_addr)) return -1;
+    memcpy(cfg->server_addr, p, hlen);
+    cfg->server_addr[hlen] = '\0';
+
+    char port_buf[8] = {0};
+    size_t plen = (size_t)(hp_end - colon - 1);
+    if (plen == 0 || plen >= sizeof(port_buf)) return -1;
+    memcpy(port_buf, colon + 1, plen);
+    long port = strtol(port_buf, NULL, 10);
+    if (port <= 0 || port > 65535) return -1;
+    cfg->server_port = (uint16_t)port;
+
+    /* 6. Query string */
+    if (!qmark) return 0;  /* нет параметров — успех */
+    p = qmark + 1;
+    while (*p && *p != '#') {
+        const char *eq  = strchr(p, '=');
+        if (!eq) break;
+        const char *amp = strchr(eq + 1, '&');
+        const char *seg_end = amp  ? amp
+                            : hash ? hash
+                            : p + strlen(p);
+        char key[64]  = {0};
+        char val[512] = {0};
+        size_t klen = (size_t)(eq - p);
+        size_t vlen = (size_t)(seg_end - eq - 1);
+        if (klen < sizeof(key)) {
+            memcpy(key, p, klen);
+            key[klen] = '\0';
+        }
+        if (vlen > 0) {
+            char raw_val[512] = {0};
+            if (vlen < sizeof(raw_val)) {
+                memcpy(raw_val, eq + 1, vlen);
+                percent_decode(raw_val, vlen, val, sizeof(val));
+            }
+        }
+        if (strcmp(key, "obfs") == 0) {
+            if (strcmp(val, "salamander") == 0) cfg->obfs_enabled = true;
+        } else if (strcmp(key, "obfs-password") == 0) {
+            snprintf(cfg->obfs_password, sizeof(cfg->obfs_password),
+                     "%s", val);
+        } else if (strcmp(key, "sni") == 0) {
+            snprintf(cfg->sni, sizeof(cfg->sni), "%s", val);
+        } else if (strcmp(key, "insecure") == 0) {
+            cfg->insecure = (val[0] == '1');
+        } else if (strcmp(key, "up") == 0) {
+            long v = strtol(val, NULL, 10);
+            if (v > 0 && v <= 10000) cfg->up_mbps = (uint32_t)v;
+        } else if (strcmp(key, "down") == 0) {
+            long v = strtol(val, NULL, 10);
+            if (v > 0 && v <= 10000) cfg->down_mbps = (uint32_t)v;
+        }
+        /* Неизвестные ключи игнорировать */
+        p = amp ? amp + 1 : seg_end;
+    }
+    /* 7. Fragment — игнорировать */
+    return 0;
+}
+
 #endif /* CONFIG_EBURNET_QUIC */
