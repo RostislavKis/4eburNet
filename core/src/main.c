@@ -374,6 +374,17 @@ int main(int argc, char *argv[])
         log_msg(LOG_WARN,
             "nftables недоступен, маршрутизация отключена");
     } else {
+        /* Проверить наличие kmod-nft-tproxy */
+        FILE *_tproxy_check = fopen("/sys/module/nft_tproxy/refcnt", "r");
+        if (!_tproxy_check) {
+            log_msg(LOG_WARN,
+                "TPROXY: kmod-nft-tproxy не загружен. "
+                "Перехват трафика будет недоступен. "
+                "opkg install kmod-nft-tproxy");
+        } else {
+            fclose(_tproxy_check);
+        }
+
         if (strcmp(cfg_ptr->mode, "global") == 0)
             nft_mode_set_global();
         else if (strcmp(cfg_ptr->mode, "direct") == 0)
