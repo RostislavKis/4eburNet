@@ -4,7 +4,7 @@
  * Протокол (https://v2.hysteria.network/docs/developers/Protocol/):
  *   Для каждого UDP датаграмма:
  *     1. Прочитать pkt[0..7] как salt (8 случайных байт, открытые)
- *     2. key = BLAKE2b-256(salt[8] || psk)  → 32 байта
+ *     2. key = BLAKE2b-256(salt[0..7] || psk)  → 32 байта (8 bytes salt + psk)
  *     3. pkt[8]  ^= key[0]              -- заголовочный байт QUIC
  *     4. pkt[9+i] ^= key[i % 32]        -- payload, cyclic с key[0]
  *
