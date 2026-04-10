@@ -308,6 +308,10 @@ return view.extend({
                                 showStatus('✕ ' + _('Имя, адрес и порт обязательны'), false);
                                 return;
                             }
+                            if (proto === 'hysteria2' && !gv('add-hy2-password')) {
+                                showStatus('✕ ' + _('Для Hysteria2 обязателен пароль'), false);
+                                return;
+                            }
 
                             var uuid     = gv('add-uuid');
                             var password = gv('add-password');
@@ -324,15 +328,16 @@ return view.extend({
                             var hy2Up    = gv('add-hy2-up') || '0';
                             var hy2Down  = gv('add-hy2-down') || '0';
 
-                            /* Для hysteria2 auth-пароль передаётся в uuid-слоте */
-                            var authCred = (proto === 'hysteria2')
-                                ? hy2Pass : (uuid || password);
+                            /* Hysteria2: auth пароль идёт в 'password' слот,
+                             * uuid оставляем пустым */
+                            var authUuid = (proto === 'hysteria2') ? '' : (uuid || password);
+                            var authPwd  = (proto === 'hysteria2') ? hy2Pass : password;
 
                             showStatus(_('Добавление…'), true);
 
                             callServerAdd(
                                 name, proto, addr, port,
-                                transport, authCred, password,
+                                transport, authUuid, authPwd,
                                 pbk, sid,
                                 hy2Obfs, hy2Sni, hy2Insec, hy2Up, hy2Down
                             ).then(function(r) {
