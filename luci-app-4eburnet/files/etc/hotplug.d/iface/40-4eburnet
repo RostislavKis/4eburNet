@@ -1,0 +1,51 @@
+#!/bin/sh
+# 4eburNet — восстановление TPROXY routing при реконнекте WAN
+# Запускается procd при каждом ifup/ifdown событии
+
+# Только при поднятии интерфейса
+[ "$ACTION" = "ifup" ] || exit 0
+
+# Только WAN интерфейсы (PPPoE, DHCP, статика)
+case "$INTERFACE" in
+    wan|wan6|pppoe-wan|pppoe*|wan_*)
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+# 4eburNet запущен?
+[ -f /var/run/4eburnet.pid ] || exit 0
+PID=$(cat /var/run/4eburnet.pid 2>/dev/null)
+[ -n "$PID" ] || exit 0
+kill -0 "$PID" 2>/dev/null || exit 0
+
+logger -t 4eburnet "WAN $INTERFACE поднят, проверяем routing..."
+
+# Восстановить ip rule fwmark 0x01 → table 100 (TPROXY)
+ip rule show 2>/dev/null | grep -q "fwmark 0x1" || {
+    ip rule add fwmark 0x01 table 100 priority 100 2>/dev/null && \
+        logger -t 4eburnet "ip rule восстановлен (fwmark 0x01 → table 100)"
+}
+
+# Восстановить ip route local 0.0.0.0/0 dev lo table 100
+ip route show table 100 2>/dev/null | grep -q "local" || {
+    ip route add local 0.0.0.0/0 dev lo table 100 2>/dev/null && \
+        logger -t 4eburnet "ip route восстановлен (local → table 100)"
+}
+
+# IPv6: ip -6 rule fwmark 0x01 → table 100
+ip -6 rule show 2>/dev/null | grep -q "fwmark 0x1" || {
+    ip -6 rule add fwmark 0x01 table 100 priority 100 2>/dev/null
+}
+
+# IPv6: ip -6 route local ::/0 dev lo table 100
+ip -6 route show table 100 2>/dev/null | grep -q "local" || {
+    ip -6 route add local ::/0 dev lo table 100 2>/dev/null
+}
+
+# Обновить провайдеров (новый WAN IP → новые подписки)
+/usr/sbin/4eburnetd reload 2>/dev/null && \
+    logger -t 4eburnet "конфиг перечитан после WAN $INTERFACE"
+
+exit 0
