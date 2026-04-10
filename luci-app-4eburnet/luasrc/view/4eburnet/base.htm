@@ -1,0 +1,110 @@
+<%
+-- Подключить CSS и определить вспомогательные переменные
+local api_base = luci.dispatcher.build_url("admin","services","4eburnet","api")
+local static   = "/luci-static/4eburnet/"
+local page_id  = page_id or "overview"
+%>
+<%+header%>
+
+<link rel="stylesheet" href="<%=static%>style.css">
+<script>
+/* Пробросить API base в JS */
+window.EB_API    = '<%=api_base%>';
+window.EB_STATIC = '<%=static%>';
+window.EB_PAGE   = '<%=page_id%>';
+</script>
+
+<div id="eb-tt"></div>
+<div id="eb-notif" class="eb-notif"></div>
+
+<!-- Добавить класс к maincontent для тёмной темы -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var mc = document.getElementById('maincontent');
+  if (mc) mc.classList.add('eb-page');
+});
+</script>
+
+<div class="eb-wrap">
+  <!-- Левый сайдбар -->
+  <aside class="eb-sidebar">
+    <div class="eb-logo-row">
+      <img src="<%=static%>logo.png" alt="4eburNet">
+      <div>
+        <div class="eb-logo-nm">4eburNet</div>
+        <div class="eb-logo-v">v0.1.0</div>
+      </div>
+    </div>
+
+    <div id="eb-daemon" class="eb-daemon on"
+         onclick="ebPost('/daemon/toggle').then(ebPollStatus)">
+      <div class="eb-pulse" id="eb-pulse"></div>
+      <span id="eb-dtxt">Загрузка…</span>
+    </div>
+
+    <nav>
+      <div class="eb-nav-s">Мониторинг</div>
+      <a class="eb-nav-i <%=page_id=='overview' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet')%>">
+        <span class="ebi">📊</span>Обзор
+      </a>
+      <a class="eb-nav-i <%=page_id=='logs' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','logs')%>">
+        <span class="ebi">📄</span>Логи
+      </a>
+
+      <div class="eb-nav-s">Прокси</div>
+      <a class="eb-nav-i <%=page_id=='servers' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','servers')%>">
+        <span class="ebi">🖥</span>Серверы
+      </a>
+      <a class="eb-nav-i <%=page_id=='groups' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','groups')%>">
+        <span class="ebi">👥</span>Группы
+      </a>
+      <a class="eb-nav-i <%=page_id=='subscriptions' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','subscriptions')%>">
+        <span class="ebi">📦</span>Подписки
+      </a>
+
+      <div class="eb-nav-s">Маршрутизация</div>
+      <a class="eb-nav-i <%=page_id=='rules' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','rules')%>">
+        <span class="ebi">📋</span>Правила
+      </a>
+      <a class="eb-nav-i <%=page_id=='devices' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','devices')%>">
+        <span class="ebi">📱</span>Устройства
+      </a>
+      <a class="eb-nav-i <%=page_id=='dns' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','dns')%>">
+        <span class="ebi">🌐</span>DNS
+      </a>
+      <a class="eb-nav-i <%=page_id=='adblock' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','adblock')%>">
+        <span class="ebi">🛡</span>Блокировка
+      </a>
+
+      <div class="eb-nav-s">Система</div>
+      <a class="eb-nav-i <%=page_id=='settings' and 'active' or ''%>"
+         href="<%=luci.dispatcher.build_url('admin','services','4eburnet','settings')%>">
+        <span class="ebi">⚙</span>Настройки
+      </a>
+    </nav>
+  </aside>
+
+  <!-- Основной контент -->
+  <div class="eb-content" id="eb-content">
+    <%- content_body %>
+  </div>
+</div>
+
+<!-- Общий JS: API клиент + polling + утилиты -->
+<script src="<%=static%>app.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  ebInitPage('<%=page_id%>');
+});
+</script>
+
+<%+footer%>
