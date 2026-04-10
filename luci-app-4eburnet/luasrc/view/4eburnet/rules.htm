@@ -1,0 +1,26 @@
+<%
+page_id = "rules"
+content_body = [[
+<div class="eb-card-h eb-mb8">
+  <div>
+    <div style="font-size:15px;font-weight:600">Правила маршрутизации</div>
+    <div class="eb-xs">Порядок важен — первое совпавшее правило применяется.</div>
+  </div>
+  <div class="eb-flex eb-g8">
+    <button class="eb-btn eb-btn-p">+ Правило</button>
+    <button class="eb-btn eb-btn-g">⟳ Обновить списки</button>
+  </div>
+</div>
+<div class="eb-card" style="padding:0">
+  <table class="eb-table">
+    <thead><tr>
+      <th>#</th><th>Тип</th><th>Значение</th><th>Действие</th><th>Группа</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr><td colspan="6" class="eb-xs" style="padding:14px;text-align:center">Загрузка…</td></tr>
+    </tbody>
+  </table>
+</div>
+]]
+%>
+<%include("4eburnet/base")%>
