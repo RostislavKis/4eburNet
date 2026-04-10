@@ -774,15 +774,32 @@ const methods = {
                 f.close();
             }
 
-            let input_arg = url ? ('--url ' + url) : ('-i ' + tmp_in);
-            let cmd = 'python3 ' + sub_py + ' '
-                    + input_arg   + ' '
-                    + '--format '    + fmt       + ' '
-                    + '--output '    + tmp_out   + ' '
-                    + '--max-rules ' + max_rules + ' '
-                    + no_rules  + ' '
-                    + no_groups
-                    + ' 2>' + tmp_err;
+            /* Валидация fmt по allowlist — подстановка в shell без кавычек */
+            let allowed_fmts = ['auto', 'clash', 'base64', 'urilist', 'singbox'];
+            let safe_fmt = 'auto';
+            for (let i = 0; i < length(allowed_fmts); i++) {
+                if (fmt === allowed_fmts[i]) { safe_fmt = fmt; break; }
+            }
+
+            /* Экранирование строки для shell single-quote: ' → '\'' */
+            function sh_quote(s) {
+                let parts = split('' + s, "'");
+                return "'" + join("'\\''", parts) + "'";
+            }
+
+            let input_arg = url
+                ? ('--url '  + sh_quote(url))
+                : ('-i '     + sh_quote(tmp_in));
+
+            /* safe_fmt из allowlist — безопасен без кавычек */
+            let cmd = 'python3 ' + sh_quote(sub_py) + ' '
+                    + input_arg                      + ' '
+                    + '--format '    + safe_fmt       + ' '
+                    + '--output '    + sh_quote(tmp_out) + ' '
+                    + '--max-rules ' + int(max_rules) + ' '
+                    + (no_rules  ? '--no-rules '  : '')
+                    + (no_groups ? '--no-groups ' : '')
+                    + '2>' + sh_quote(tmp_err);
 
             let rc = system(cmd);
             if (content) fs.unlink(tmp_in);
@@ -798,8 +815,8 @@ const methods = {
             }
 
             /* Применить UCI (merge — не перезаписываем существующий конфиг) */
-            rc = system('uci import -m 4eburnet < ' + tmp_out
-                        + ' && uci commit 4eburnet 2>>' + tmp_err);
+            rc = system('uci import -m 4eburnet < ' + sh_quote(tmp_out)
+                        + ' && uci commit 4eburnet 2>>' + sh_quote(tmp_err));
             fs.unlink(tmp_out);
 
             /* Извлечь статистику из лога конвертера */
