@@ -18,6 +18,7 @@
 import sys
 import os
 import re
+import ssl
 import base64
 import json
 import argparse
@@ -598,12 +599,74 @@ def generate_uci(servers: list,
 # ── Загрузка из URL ────────────────────────────────────────────────────
 
 def fetch_url(url: str, timeout: int = 15) -> str:
-    """Скачать подписку по URL."""
+    """Скачать подписку по URL с защитой от SSRF."""
+    # Валидация схемы — только http/https
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        print(f'Ошибка: недопустимая схема {parsed.scheme!r}. '
+              f'Разрешены только http:// и https://', file=sys.stderr)
+        sys.exit(1)
+
+    # Валидация хоста — отклонить внутренние адреса
+    host = parsed.hostname or ''
+    if not host:
+        print('Ошибка: URL не содержит хост', file=sys.stderr)
+        sys.exit(1)
+    if (host in ('localhost', '127.0.0.1', '::1')
+            or host.startswith('169.254.')
+            or host.startswith('192.168.')
+            or host.startswith('10.')
+            or host.endswith('.local')):
+        print(f'Ошибка: недопустимый хост {host!r} (внутренний адрес)',
+              file=sys.stderr)
+        sys.exit(1)
+
+    # SSL контекст с явной верификацией
+    ssl_ctx = ssl.create_default_context()
+    ca_paths = [
+        '/etc/ssl/certs/ca-certificates.crt',
+        '/etc/ssl/certs',
+        '/usr/share/ca-certificates',
+    ]
+    if not any(os.path.exists(p) for p in ca_paths):
+        print('ПРЕДУПРЕЖДЕНИЕ: CA-сертификаты не найдены. '
+              'SSL верификация отключена. '
+              'Установите: opkg install ca-bundle', file=sys.stderr)
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    # Ограничить количество редиректов и проверять их схему
+    class LimitedRedirectHandler(urllib.request.HTTPRedirectHandler):
+        redirect_count = 0
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            new_parsed = urllib.parse.urlparse(newurl)
+            if new_parsed.scheme not in ('http', 'https'):
+                raise URLError(
+                    f'Редирект на недопустимую схему: {new_parsed.scheme}')
+            self.redirect_count += 1
+            if self.redirect_count > 3:
+                raise URLError('Превышен лимит редиректов (3)')
+            return super().redirect_request(
+                req, fp, code, msg, headers, newurl)
+
+    opener = urllib.request.build_opener(
+        LimitedRedirectHandler(),
+        urllib.request.HTTPSHandler(context=ssl_ctx))
+
     headers = {'User-Agent': 'ClashforWindows/0.19.0'}
     req = urllib.request.Request(url, headers=headers)
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode('utf-8', errors='replace')
+        with opener.open(req, timeout=timeout) as resp:
+            # Ограничить размер ответа — 5 МБ достаточно для любой подписки
+            MAX_SIZE = 5 * 1024 * 1024
+            data = resp.read(MAX_SIZE + 1)
+            if len(data) > MAX_SIZE:
+                print(f'Ошибка: ответ превышает лимит '
+                      f'{MAX_SIZE // 1024 // 1024} МБ', file=sys.stderr)
+                sys.exit(1)
+            return data.decode('utf-8', errors='replace')
     except HTTPError as e:
         print(f'HTTP ошибка {e.code}: {url}', file=sys.stderr)
         sys.exit(1)
