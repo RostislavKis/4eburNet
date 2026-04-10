@@ -1,8 +1,8 @@
-# 4eburNet UCI конфиг
-# Конвертировано из Clash config (Flint-2)
+# 4eburNet — конфиг по умолчанию
+# Настройка через LuCI: Services → 4eburNet
 
 config 4eburnet 'main'
-	option enabled '1'
+	option enabled '0'
 	option mode 'rules'
 	option log_level 'info'
 	option lan_interface 'br-lan'
@@ -12,141 +12,31 @@ config 4eburnet 'main'
 config dns 'dns'
 	option enabled '1'
 	option listen_port '53'
-	option upstream_bypass '1.1.1.1'
+	option upstream_bypass '77.88.8.8'
 	option upstream_proxy '8.8.8.8'
-	option upstream_default '9.9.9.9'
+	option upstream_default '1.1.1.1'
+	option upstream_fallback '9.9.9.9'
 	option upstream_port '53'
-	option cache_size '512'
-	option doh_enabled '1'
+	option cache_size '256'
+	option parallel_query '1'
+	option fake_ip_enabled '0'
+	option fake_ip_range '198.18.0.0/16'
+	option fake_ip_ttl '60'
+	option doh_enabled '0'
 	option doh_url 'https://dns.google/dns-query'
 	option doh_ip '8.8.8.8'
 	option doh_sni 'dns.google'
-	option fake_ip_enabled '1'
-	option fake_ip_range '198.18.0.0/16'
-	option fake_ip_ttl '60'
-	option parallel_query '1'
 
-# fake-ip фильтр (RU домены — не fake-ip)
-config dns_rule
-	option type 'bypass'
-	option pattern '*.ru'
-
-config dns_rule
-	option type 'bypass'
-	option pattern '*.рф'
-
-config dns_rule
-	option type 'bypass'
-	option pattern '*.su'
-
-config dns_rule
-	option type 'proxy'
-	option pattern '*.openai.com'
-
-config dns_rule
-	option type 'proxy'
-	option pattern '*.discord.com'
-
-config dns_rule
-	option type 'proxy'
-	option pattern '*.telegram.org'
-
-# Прокси группы (из Clash proxy-groups)
-config proxy_group
-	option name 'MAIN-PROXY'
-	option type 'url_test'
-	option url 'https://www.gstatic.com/generate_204'
-	option interval '60'
-	option timeout_ms '3000'
-	option enabled '1'
-
-config proxy_group
-	option name 'TELEGRAM'
-	option type 'fallback'
-	option url 'https://www.gstatic.com/generate_204'
-	option interval '30'
-	option timeout_ms '2000'
-	option enabled '1'
-
-config proxy_group
-	option name 'DISCORD'
-	option type 'url_test'
-	option url 'https://www.gstatic.com/generate_204'
-	option interval '60'
-	option timeout_ms '3000'
-	option enabled '1'
-
-config proxy_group
-	option name 'GEMINI'
-	option type 'url_test'
-	option url 'https://www.gstatic.com/generate_204'
-	option interval '60'
-	option timeout_ms '3000'
-	option enabled '1'
-
-# Traffic rules (из Clash rules — основные)
+# Базовое правило: RU-трафик напрямую
 config traffic_rule
 	option type 'geoip'
 	option value 'RU'
 	option target 'DIRECT'
 	option priority '100'
 
-config traffic_rule
-	option type 'geosite'
-	option value 'ru'
-	option target 'DIRECT'
-	option priority '110'
-
-config traffic_rule
-	option type 'domain_suffix'
-	option value 'telegram.org'
-	option target 'TELEGRAM'
-	option priority '200'
-
-config traffic_rule
-	option type 'domain_suffix'
-	option value 't.me'
-	option target 'TELEGRAM'
-	option priority '201'
-
-config traffic_rule
-	option type 'domain_suffix'
-	option value 'discord.com'
-	option target 'DISCORD'
-	option priority '210'
-
-config traffic_rule
-	option type 'domain_suffix'
-	option value 'google.com'
-	option target 'GEMINI'
-	option priority '220'
-
-config traffic_rule
-	option type 'domain_suffix'
-	option value 'openai.com'
-	option target 'MAIN-PROXY'
-	option priority '300'
-
-config traffic_rule
-	option type 'domain_suffix'
-	option value 'github.com'
-	option target 'MAIN-PROXY'
-	option priority '301'
-
-config traffic_rule
-	option type 'ip_cidr'
-	option value '127.0.0.0/8'
-	option target 'DIRECT'
-	option priority '900'
-
-config traffic_rule
-	option type 'ip_cidr'
-	option value '192.168.0.0/16'
-	option target 'DIRECT'
-	option priority '901'
-
-config traffic_rule
-	option type 'match'
-	option value ''
-	option target 'MAIN-PROXY'
-	option priority '9999'
+# Финальное правило: раскомментировать после добавления серверов
+# config traffic_rule
+#	option type 'match'
+#	option value ''
+#	option target 'MAIN-PROXY'
+#	option priority '9999'

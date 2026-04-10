@@ -159,17 +159,30 @@ nft_result_t nft_exec(const char *cmd)
         return NFT_ERR_EXEC;
     }
 
-    char full_cmd[NFT_CMD_MAX];
-    int n = snprintf(full_cmd, sizeof(full_cmd), "nft %s 2>&1", cmd);
-    if (n < 0 || (size_t)n >= sizeof(full_cmd)) {
+    /* Копия для strtok (разрушает строку) */
+    char cmd_copy[NFT_CMD_MAX];
+    int n = snprintf(cmd_copy, sizeof(cmd_copy), "%s", cmd);
+    if (n < 0 || (size_t)n >= sizeof(cmd_copy)) {
         log_msg(LOG_ERROR, "nft: команда слишком длинная (%d байт)", n);
         return NFT_ERR_EXEC;
     }
 
+    /* Разбить на argv токены (нет shell — N1) */
+#define NFT_MAX_ARGV 34
+    const char *argv[NFT_MAX_ARGV];
+    argv[0] = "nft";
+    int argc = 1;
+    char *tok = strtok(cmd_copy, " ");
+    while (tok && argc < NFT_MAX_ARGV - 1) {
+        argv[argc++] = tok;
+        tok = strtok(NULL, " ");
+    }
+    argv[argc] = NULL;
+
     log_msg(LOG_DEBUG, "nft: %s", cmd);
 
     char err_buf[NFT_ERR_BUF] = {0};
-    int status = exec_cmd_capture(full_cmd, err_buf, sizeof(err_buf));
+    int status = exec_cmd_safe(argv, err_buf, sizeof(err_buf));
     if (status != 0) {
         size_t len = strlen(err_buf);
         if (len > 0 && err_buf[len - 1] == '\n')
@@ -1171,19 +1184,25 @@ nft_result_t nft_vmap_load_file(const char *map_name,
 /*  nft_vmap_stats — вывод количества записей в лог                    */
 /* ------------------------------------------------------------------ */
 
+/* Контекст для подсчёта ':' в выводе nft list map */
+struct vmap_count_ctx { long count; };
+static void vmap_count_cb(const char *line, void *ctx)
+{
+    struct vmap_count_ctx *c = ctx;
+    for (const char *p = line; *p; p++)
+        if (*p == ':') c->count++;
+}
+
 static void vmap_count(const char *map_name)
 {
+    /* N2: подсчёт в C без shell pipe к grep */
     char cmd[256];
     snprintf(cmd, sizeof(cmd),
-             "nft list map inet " NFT_TABLE_NAME " %s 2>/dev/null"
-             " | grep -c ':'", map_name);
-
-    char out[32] = {0};
-    exec_cmd_capture(cmd, out, sizeof(out));
-    char *endptr;
-    long count = strtol(out, &endptr, 10);
-    if (endptr == out) count = 0;
-    log_msg(LOG_INFO, "  %s: %ld записей", map_name, count);
+             "nft list map inet " NFT_TABLE_NAME " %s 2>/dev/null",
+             map_name);
+    struct vmap_count_ctx ctx = {0};
+    exec_cmd_lines(cmd, vmap_count_cb, &ctx);
+    log_msg(LOG_INFO, "  %s: %ld записей", map_name, ctx.count);
 }
 
 void nft_vmap_stats(void)
