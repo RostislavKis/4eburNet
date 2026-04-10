@@ -512,8 +512,9 @@ const methods = {
                           '' + a.hy2_obfs_password);
                 if (a.hy2_sni)
                     c.set('4eburnet', sec, 'hy2_sni', '' + a.hy2_sni);
-                c.set('4eburnet', sec, 'hy2_insecure',
-                      a.hy2_insecure ? '1' : '0');
+                /* Сохранять только если включён — отсутствие опции = false */
+                if (a.hy2_insecure)
+                    c.set('4eburnet', sec, 'hy2_insecure', '1');
                 let up = int(a.hy2_up_mbps);
                 if (up > 0)
                     c.set('4eburnet', sec, 'hy2_up_mbps', '' + up);

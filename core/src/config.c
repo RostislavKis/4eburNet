@@ -269,10 +269,12 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "hy2_insecure") == 0) {
         srv->hy2_insecure = (strcmp(value, "1") == 0);
     } else if (strcmp(key, "hy2_up_mbps") == 0) {
-        long v = strtol(value, NULL, 10);
+        char *endp; long v = strtol(value, &endp, 10);
+        if (endp == value || *endp != '\0') v = 0;  /* нечисловой ввод */
         srv->hy2_up_mbps = (v > 0 && v <= 100000) ? (uint32_t)v : 0;
     } else if (strcmp(key, "hy2_down_mbps") == 0) {
-        long v = strtol(value, NULL, 10);
+        char *endp; long v = strtol(value, &endp, 10);
+        if (endp == value || *endp != '\0') v = 0;  /* нечисловой ввод */
         srv->hy2_down_mbps = (v > 0 && v <= 100000) ? (uint32_t)v : 0;
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
