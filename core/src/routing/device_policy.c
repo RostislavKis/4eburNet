@@ -121,7 +121,7 @@ static int write_device_nft(device_manager_t *dm,
     FILE *f = fopen(path, "w");
     if (!f) return -1;
 
-    fprintf(f, "table netdev 4eburnet_dev {\n");
+    fprintf(f, "table netdev eburnet_dev {\n");
 
     fprintf(f, "    chain dev_proxy {\n");
     fprintf(f, "        meta mark set 0x%08x;\n", FWMARK_DEVICE_PROXY);
@@ -196,7 +196,7 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
     }
 
     /* M-14: exec_cmd_safe вместо shell */
-    const char *const del_argv[] = {"nft", "delete", "table", "netdev", "4eburnet_dev", NULL};
+    const char *const del_argv[] = {"nft", "delete", "table", "netdev", "eburnet_dev", NULL};
     exec_cmd_safe(del_argv, NULL, 0);
 
     /* H-13: mkstemp для безопасного создания tmp файла (TOCTOU fix) */
@@ -236,7 +236,7 @@ int device_policy_apply(device_manager_t *dm, const char *lan_iface)
 
 void device_policy_cleanup_nft(void)
 {
-    const char *const cleanup_argv[] = {"nft", "delete", "table", "netdev", "4eburnet_dev", NULL};
+    const char *const cleanup_argv[] = {"nft", "delete", "table", "netdev", "eburnet_dev", NULL};
     exec_cmd_safe(cleanup_argv, NULL, 0);
     log_msg(LOG_DEBUG, "Device policy: netdev таблица удалена");
 }

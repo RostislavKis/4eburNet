@@ -6,7 +6,7 @@
 #include <stddef.h>
 
 /* Имена таблицы и цепочек */
-#define NFT_TABLE_NAME      "4eburnet"
+#define NFT_TABLE_NAME      "eburnet"
 #define NFT_CHAIN_PRE       "prerouting"
 #define NFT_CHAIN_FWD       "forward"
 #define NFT_CHAIN_OUT       "output"
