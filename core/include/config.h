@@ -29,6 +29,13 @@ typedef struct {
     /* Reality параметры (DEC-025) */
     char     reality_short_id[17]; /* hex-строка до 16 символов + '\0' */
     char     reality_pbk[64];      /* Reality public key (x25519, base64url) */
+    /* Hysteria2-специфичные поля (только при protocol="hysteria2") */
+    bool     hy2_obfs_enabled;
+    char     hy2_obfs_password[512];
+    bool     hy2_insecure;
+    char     hy2_sni[256];
+    uint32_t hy2_up_mbps;
+    uint32_t hy2_down_mbps;
     /* Источник сервера: "" = основной конфиг, иначе имя провайдера */
     char     source_provider[64];
 } ServerConfig;

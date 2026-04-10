@@ -60,8 +60,8 @@ typedef struct {
     char     obfs_password[512];
 
     /* Bandwidth hints для Brutal CC */
-    uint32_t up_mbps;    /* 0 = не задано */
-    uint32_t down_mbps;  /* 0 = не задано */
+    uint32_t up_mbps;    /* 0 = не задано; максимум 100 000 Мбит/с */
+    uint32_t down_mbps;  /* 0 = не задано; максимум 100 000 Мбит/с */
 } hysteria2_config_t;
 
 /* ── Состояние соединения ─────────────────────────────────────────────── */

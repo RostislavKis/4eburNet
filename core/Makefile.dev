@@ -101,4 +101,37 @@ install-vm: $(TARGET)
 	cat ../../qemu/test-config/4eburnet | $(SSH) "cat > /etc/config/4eburnet"
 	@echo "Деплой завершён. Запусти: ssh -p 2222 root@localhost \"4eburnetd -d\""
 
-.PHONY: all clean run install-vm
+WOLFSSL_INCLUDES = -I$(WOLFSSL_PREFIX)/include
+WOLFSSL_LIBS     = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
+TEST_CC  = musl-gcc
+TEST_FLAGS = -std=c11 -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1
+
+test-uri:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  src/crypto/blake2b.c \
+	  src/crypto/quic_salamander.c \
+	  src/proxy/protocols/hysteria2.c \
+	  tests/test_hysteria2_uri.c \
+	  -o /tmp/test_hysteria2_uri $(WOLFSSL_LIBS)
+	/tmp/test_hysteria2_uri
+
+test-udp:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  src/crypto/blake2b.c \
+	  src/crypto/quic_salamander.c \
+	  src/proxy/protocols/hysteria2.c \
+	  src/proxy/protocols/hysteria2_udp.c \
+	  tests/test_hysteria2_udp.c \
+	  -o /tmp/test_hysteria2_udp $(WOLFSSL_LIBS)
+	/tmp/test_hysteria2_udp
+
+test-cc:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  src/proxy/protocols/hysteria2_cc.c \
+	  tests/test_hysteria2_cc.c \
+	  -o /tmp/test_hysteria2_cc
+	/tmp/test_hysteria2_cc
+
+test: test-uri test-udp test-cc
+
+.PHONY: all clean run install-vm test test-uri test-udp test-cc
