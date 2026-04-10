@@ -13,6 +13,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 /* ── Вспомогательные read/write big-endian ───────────────────────────── */
 
@@ -48,7 +49,8 @@ int hy2_udp_msg_encode(uint8_t *buf, size_t buf_size,
 {
     if (!buf) return -1;
     if (!data && data_len > 0) return -1;
-    if (frag_count == 0) return -1;  /* frag_count всегда >= 1 */
+    if (frag_count == 0) return -1;           /* frag_count всегда >= 1 */
+    if (frag_id >= frag_count) return -1;     /* frag_id < frag_count (spec) */
 
     uint8_t *p   = buf;
     uint8_t *end = buf + buf_size;
@@ -200,13 +202,16 @@ int hy2_udp_session_add(hy2_udp_session_mgr_t *mgr,
 {
     if (!mgr || !host) return -1;
 
+    uint32_t now = (uint32_t)time(NULL);
+
     /* Найти существующий слот → обновить */
     for (int i = 0; i < HY2_UDP_MAX_SESSIONS; i++) {
         if (mgr->sessions[i].active &&
             mgr->sessions[i].session_id == session_id) {
             snprintf(mgr->sessions[i].host,
                      sizeof(mgr->sessions[i].host), "%s", host);
-            mgr->sessions[i].port = port;
+            mgr->sessions[i].port      = port;
+            mgr->sessions[i].last_seen = now;
             return 0;
         }
     }
@@ -217,16 +222,32 @@ int hy2_udp_session_add(hy2_udp_session_mgr_t *mgr,
             mgr->sessions[i].session_id = session_id;
             snprintf(mgr->sessions[i].host,
                      sizeof(mgr->sessions[i].host), "%s", host);
-            mgr->sessions[i].port   = port;
-            mgr->sessions[i].active = true;
+            mgr->sessions[i].port      = port;
+            mgr->sessions[i].active    = true;
+            mgr->sessions[i].last_seen = now;
             return 0;
         }
     }
 
-    log_msg(LOG_WARN,
-            "hy2_udp_session_add: таблица заполнена (%d слотов)",
-            HY2_UDP_MAX_SESSIONS);
-    return -1;
+    /* Таблица полна — вытеснить сессию с наименьшим last_seen (LRU) */
+    int      lru_idx = 0;
+    uint32_t lru_ts  = mgr->sessions[0].last_seen;
+    for (int j = 1; j < HY2_UDP_MAX_SESSIONS; j++) {
+        if (mgr->sessions[j].last_seen < lru_ts) {
+            lru_ts  = mgr->sessions[j].last_seen;
+            lru_idx = j;
+        }
+    }
+    log_msg(LOG_DEBUG,
+            "hy2_udp_session: LRU evict session_id=0x%08x",
+            mgr->sessions[lru_idx].session_id);
+    mgr->sessions[lru_idx].session_id = session_id;
+    snprintf(mgr->sessions[lru_idx].host,
+             sizeof(mgr->sessions[lru_idx].host), "%s", host);
+    mgr->sessions[lru_idx].port      = port;
+    mgr->sessions[lru_idx].active    = true;
+    mgr->sessions[lru_idx].last_seen = now;
+    return 0;
 }
 
 hy2_udp_session_t *hy2_udp_session_find(hy2_udp_session_mgr_t *mgr,

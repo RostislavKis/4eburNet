@@ -47,6 +47,8 @@ static void test_udp_msg_roundtrip(void)
     CHECK(msg.frag_id    == 0,          "frag_id=0");
     CHECK(msg.frag_count == 1,          "frag_count=1");
     CHECK(msg.data_len   == sizeof(data), "data_len верный");
+    CHECK(strcmp(msg.host, "8.8.8.8") == 0, "host верный после decode");
+    CHECK(msg.port == 53,                   "port верный после decode");
 }
 
 /* ── 2. Фрагментация — frag_id=2, frag_count=3 ───────────────────────── */
@@ -100,6 +102,16 @@ static void test_udp_fragment_split(void)
     /* Буфер каждого фрагмента не пуст */
     for (int i = 0; i < count; i++)
         CHECK(frags[i].buf_len > 0, "фрагмент не пустой");
+
+    /* Декодировать первый фрагмент и проверить содержимое данных */
+    hy2_udp_msg_t first_msg;
+    int dc = hy2_udp_msg_decode(frags[0].buf, frags[0].buf_len,
+                                 &first_msg, NULL, 0);
+    CHECK(dc > 0, "decode первого фрагмента OK");
+    CHECK(first_msg.data_len == HY2_UDP_FRAG_PAYLOAD,
+          "первый фрагмент содержит HY2_UDP_FRAG_PAYLOAD байт");
+    if (first_msg.data_len > 0)
+        CHECK(first_msg.data[0] == 0xCC, "данные первого фрагмента = 0xCC");
 }
 
 /* ── 4. Decode с обрезанным буфером → -1 ────────────────────────────── */
