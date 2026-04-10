@@ -55,6 +55,10 @@ define Package/luci-app-4eburnet/install
 	$(INSTALL_BIN) ./files/4eburnet.init \
 	  $(1)/etc/init.d/4eburnet
 
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/40-4eburnet \
+	  $(1)/etc/hotplug.d/iface/
+
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/4eburnet \
 	  $(1)/usr/libexec/rpcd/
