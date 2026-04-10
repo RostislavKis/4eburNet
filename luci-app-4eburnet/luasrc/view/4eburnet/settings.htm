@@ -1,0 +1,33 @@
+<%
+page_id = "settings"
+content_body = [[
+<div style="font-size:15px;font-weight:600;margin-bottom:14px">Настройки</div>
+<div class="eb-card">
+  <div class="eb-card-t">Основные</div>
+  <div class="eb-mt8">
+    <div class="eb-fg">
+      <label class="eb-label">Режим маршрутизации</label>
+      <select class="eb-select">
+        <option value="rules">rules — по спискам</option>
+        <option value="global">global — весь трафик через прокси</option>
+        <option value="direct">direct — прямое подключение</option>
+      </select>
+    </div>
+    <div class="eb-fg">
+      <label class="eb-label">LAN интерфейс</label>
+      <input class="eb-input eb-mono" type="text" value="br-lan">
+    </div>
+    <div class="eb-fg">
+      <label class="eb-label">Уровень логирования</label>
+      <select class="eb-select">
+        <option value="info">INFO</option>
+        <option value="debug">DEBUG</option>
+        <option value="warn">WARN</option>
+      </select>
+    </div>
+    <button class="eb-btn eb-btn-p" onclick="ebNotify('Сохранено','ok')">💾 Сохранить</button>
+  </div>
+</div>
+]]
+%>
+<%include("4eburnet/base")%>
