@@ -1,0 +1,47 @@
+# Артефакты сборки
+build/
+*.o
+*.a
+*.so
+*.ipk
+
+# OpenWrt SDK
+staging_dir/
+dl/
+feeds/
+tmp/
+.config
+.config.old
+
+# Редакторы
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Системные
+.DS_Store
+Thumbs.db
+nul
+
+# Windows Zone.Identifier (метки безопасности браузера)
+*Zone.Identifier
+
+# Claude Code — локальный контекст
+.claude/
+
+# Локальные файлы, не для репозитория
+4eburNet_original.png
+docs/audit_v8.md
+
+# Локальный конфиг деплоя (содержит IP/пароли)
+scripts/deploy.conf
+
+# VM — образы и состояние (только скрипты версионируются)
+dev/openwrt-dev.qcow2
+dev/images/
+dev/vm.pid
+
+# Исходный архив zapret (не публикуем, assets уже в tools/ и files/)
+zapret-linux.zip
