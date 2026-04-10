@@ -33,8 +33,10 @@
 
 /* Максимальный payload одного фрагмента (QUIC datagram ~1350 − overhead) */
 #define HY2_UDP_FRAG_PAYLOAD  1200
-/* Размер буфера для одного закодированного фрейма */
-#define HY2_UDP_FRAG_SIZE     1300
+/* Размер буфера для одного закодированного фрейма.
+ * Максимум первого фрагмента: 8 (header) + 2+253+2 (max addr) + 1200 (payload) = 1465.
+ * Округляем до 1470 с запасом. */
+#define HY2_UDP_FRAG_SIZE     1470
 /* Максимум фрагментов: ceil(65535 / 1200) = 55, с запасом */
 #define HY2_UDP_MAX_FRAGS       64
 /* Таблица сессий */
@@ -52,7 +54,9 @@ typedef struct {
     /* Адрес назначения — заполнено только если frag_id == 0 */
     char            host[256];
     uint16_t        port;
-    /* Данные — zero-copy указатель в исходный буфер */
+    /* Данные — zero-copy указатель в исходный буфер.
+     * ВНИМАНИЕ: buf, переданный в hy2_udp_msg_decode(), должен жить
+     * не меньше чем используется это поле. */
     const uint8_t  *data;
     size_t          data_len;
 } hy2_udp_msg_t;
@@ -73,8 +77,12 @@ typedef struct {
     char     host[256];
     uint16_t port;
     bool     active;
+    uint32_t last_seen;   /* unix timestamp последнего использования (time(NULL)) */
 } hy2_udp_session_t;
 
+/* ~66 KB (256 слотов × ~268 байт).
+ * Размещать только в heap (malloc/calloc) или как глобальный объект.
+ * НЕ размещать на стеке — переполнение стека на OpenWrt. */
 typedef struct {
     hy2_udp_session_t sessions[HY2_UDP_MAX_SESSIONS];
 } hy2_udp_session_mgr_t;
