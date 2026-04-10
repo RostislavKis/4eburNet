@@ -59,6 +59,10 @@ define Package/luci-app-4eburnet/install
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/40-4eburnet \
 	  $(1)/etc/hotplug.d/iface/
 
+	$(INSTALL_DIR) $(1)/usr/share/4eburnet
+	$(INSTALL_BIN) ./files/usr/share/4eburnet/sub_convert.py \
+	  $(1)/usr/share/4eburnet/
+
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/4eburnet \
 	  $(1)/usr/libexec/rpcd/

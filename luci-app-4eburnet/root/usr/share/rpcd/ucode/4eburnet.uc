@@ -742,6 +742,92 @@ const methods = {
             let ok = ret == 0;
             return { ok, message: ok ? 'restored' : 'failed' };
         }
+    },
+
+    subscription_import: {
+        args: { url: '', content: '', format: 'auto',
+                no_rules: false, no_groups: false, max_rules: 256 },
+        call: function(req) {
+            let url       = req.args?.url       ?? '';
+            let content   = req.args?.content   ?? '';
+            let fmt       = req.args?.format    ?? 'auto';
+            let no_rules  = req.args?.no_rules  ? '--no-rules'  : '';
+            let no_groups = req.args?.no_groups ? '--no-groups' : '';
+            let max_rules = int(req.args?.max_rules ?? 256);
+
+            if (!url && !content)
+                return { ok: false, error: 'url or content required' };
+
+            let sub_py = '/usr/share/4eburnet/sub_convert.py';
+            if (!fs.access(sub_py, 'r'))
+                return { ok: false, error: 'sub_convert.py not found' };
+
+            let tmp_in  = '/tmp/4eburnet-sub-input.tmp';
+            let tmp_out = '/tmp/4eburnet-sub-output.uci';
+            let tmp_err = '/tmp/4eburnet-sub-err.log';
+
+            /* Записать content во временный файл если передан напрямую */
+            if (content) {
+                let f = fs.open(tmp_in, 'w');
+                if (!f) return { ok: false, error: 'cannot write tmp file' };
+                f.write(content);
+                f.close();
+            }
+
+            let input_arg = url ? ('--url ' + url) : ('-i ' + tmp_in);
+            let cmd = 'python3 ' + sub_py + ' '
+                    + input_arg   + ' '
+                    + '--format '    + fmt       + ' '
+                    + '--output '    + tmp_out   + ' '
+                    + '--max-rules ' + max_rules + ' '
+                    + no_rules  + ' '
+                    + no_groups
+                    + ' 2>' + tmp_err;
+
+            let rc = system(cmd);
+            if (content) fs.unlink(tmp_in);
+
+            /* Прочитать лог для статистики и диагностики */
+            let log = '';
+            let ef = fs.open(tmp_err, 'r');
+            if (ef) { log = ef.read('all'); ef.close(); }
+
+            if (rc !== 0) {
+                fs.unlink(tmp_err);
+                return { ok: false, error: trim(log) || 'convert failed' };
+            }
+
+            /* Применить UCI (merge — не перезаписываем существующий конфиг) */
+            rc = system('uci import -m 4eburnet < ' + tmp_out
+                        + ' && uci commit 4eburnet 2>>' + tmp_err);
+            fs.unlink(tmp_out);
+
+            /* Извлечь статистику из лога конвертера */
+            let m = match(log, /Серверов:\s+(\d+)/);
+            let servers = m ? int(m[1]) : 0;
+            m = match(log, /Групп:\s+(\d+)/);
+            let grps = m ? int(m[1]) : 0;
+            m = match(log, /Правил:\s+(\d+)/);
+            let rules = m ? int(m[1]) : 0;
+
+            fs.unlink(tmp_err);
+
+            if (rc !== 0)
+                return { ok: false, error: 'uci import failed' };
+
+            /* Reload демона если запущен */
+            if (is_running())
+                ipc_call(IPC_CMD_RELOAD);
+
+            return {
+                ok:      true,
+                servers: servers,
+                groups:  grps,
+                rules:   rules,
+                message: 'импортировано: ' + servers + ' серверов, '
+                         + grps + ' групп, ' + rules + ' правил'
+            };
+        }
     }
 };
 
