@@ -15,6 +15,9 @@
 #include <time.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#if CONFIG_EBURNET_QUIC
+#include "proxy/hysteria2.h"
+#endif
 
 /* ── RFC 4648 base64 decode (standard + URL-safe alphabet) ── */
 
@@ -291,6 +294,22 @@ static int parse_trojan_uri(const char *uri, ServerConfig *s)
 }
 
 /*
+ * Конвертировать hysteria2_config_t → ServerConfig.
+ * Используется при разборе hysteria2:// из подписок.
+ */
+#if CONFIG_EBURNET_QUIC
+static void hy2_config_to_server(const hysteria2_config_t *hy2,
+                                  ServerConfig *s)
+{
+    snprintf(s->address,  sizeof(s->address),  "%s", hy2->server_addr);
+    snprintf(s->password, sizeof(s->password), "%s", hy2->password);
+    s->port = hy2->server_port;
+    snprintf(s->protocol, sizeof(s->protocol), "hysteria2");
+    s->enabled = true;
+}
+#endif
+
+/*
  * Диспетчер: URI → ServerConfig.
  * CRLF injection check (M-22), max URI length 2048.
  * Возвращает 0 при успехе, -1 если URI неизвестен или битый.
@@ -315,6 +334,16 @@ static int parse_server_uri(const char *uri, ServerConfig *s,
         return parse_ss_uri(uri, s);
     if (strncmp(uri, "trojan://", 9) == 0)
         return parse_trojan_uri(uri, s);
+#if CONFIG_EBURNET_QUIC
+    if (strncmp(uri, "hysteria2://", 12) == 0 ||
+        strncmp(uri, "hy2://",        6) == 0) {
+        hysteria2_config_t hy2cfg;
+        if (hy2_parse_uri(uri, &hy2cfg) != 0) return -1;
+        hy2_config_to_server(&hy2cfg, s);
+        explicit_bzero(&hy2cfg, sizeof(hy2cfg));
+        return 0;
+    }
+#endif
 
     return -1;  /* неизвестный протокол */
 }
@@ -429,9 +458,11 @@ static int provider_parse_file(proxy_provider_manager_t *ppm, int idx)
             while (*first == ' ' || *first == '\t' ||
                    *first == '\n' || *first == '\r') first++;
 
-            bool is_plain = (strncmp(first, "vless://", 8) == 0 ||
-                             strncmp(first, "ss://",    5) == 0 ||
-                             strncmp(first, "trojan://",9) == 0 ||
+            bool is_plain = (strncmp(first, "vless://",    8)  == 0 ||
+                             strncmp(first, "ss://",        5)  == 0 ||
+                             strncmp(first, "trojan://",    9)  == 0 ||
+                             strncmp(first, "hysteria2://", 12) == 0 ||
+                             strncmp(first, "hy2://",       6)  == 0 ||
                              first[0] == '#');
 
             if (!is_plain) {
