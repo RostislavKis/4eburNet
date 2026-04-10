@@ -6,7 +6,7 @@
 #include "proxy/rule_provider.h"
 #include "crypto/tls.h"
 #include "net_utils.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,7 +64,7 @@ static void ensure_dir_for_file(const char *filepath)
     mkdir(dir, 0755);
 }
 
-int rule_provider_init(rule_provider_manager_t *rpm, const PhoenixConfig *cfg)
+int rule_provider_init(rule_provider_manager_t *rpm, const EburNetConfig *cfg)
 {
     memset(rpm, 0, sizeof(*rpm));
     rpm->cfg = cfg;
@@ -89,7 +89,7 @@ int rule_provider_init(rule_provider_manager_t *rpm, const PhoenixConfig *cfg)
             snprintf(ps->cache_path, sizeof(ps->cache_path), "%s", rc->path);
         } else {
             snprintf(ps->cache_path, sizeof(ps->cache_path),
-                     "/etc/phoenix/rules/%s.list", rc->name);
+                     "/etc/4eburnet/rules/%s.list", rc->name);
         }
         ensure_dir_for_file(ps->cache_path);
 

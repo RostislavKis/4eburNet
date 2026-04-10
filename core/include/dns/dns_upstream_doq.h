@@ -1,15 +1,15 @@
 /* dns_upstream_doq.h — DoQ (DNS-over-QUIC, RFC 9250) клиент
  *
- * Компилируется только при CONFIG_PHOENIX_DOQ=1.
+ * Компилируется только при CONFIG_EBURNET_DOQ=1.
  * Не поддерживается на DEVICE_MICRO (нет QUIC).
  */
 
 #ifndef DNS_UPSTREAM_DOQ_H
 #define DNS_UPSTREAM_DOQ_H
 
-#include "phoenix_config.h"
+#include "4eburnet_config.h"
 
-#if CONFIG_PHOENIX_DOQ
+#if CONFIG_EBURNET_DOQ
 
 #include <stdint.h>
 #include <stddef.h>
@@ -136,5 +136,5 @@ void doq_check_timeouts(doq_pool_t *pool);
 /* Проверить принадлежность fd к пулу */
 bool doq_pool_owns_fd(const doq_pool_t *pool, int fd);
 
-#endif /* CONFIG_PHOENIX_DOQ */
+#endif /* CONFIG_EBURNET_DOQ */
 #endif /* DNS_UPSTREAM_DOQ_H */

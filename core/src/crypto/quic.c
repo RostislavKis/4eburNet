@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 700
 #include "crypto/quic.h"
 
-#ifdef CONFIG_PHOENIX_DOQ
+#ifdef CONFIG_EBURNET_DOQ
 
 #include <string.h>
 #include <wolfssl/options.h>
@@ -9,7 +9,7 @@
 #include <wolfssl/quic.h>
 #include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/openssl/evp.h>   /* wolfSSL_EVP_CIPHER_CTX_free, wolfSSL_EVP_Cipher_key_length */
-#include "phoenix.h"               /* log_msg */
+#include "4eburnet.h"               /* log_msg */
 
 /* ── инициализация ───────────────────────────────────────────── */
 
@@ -280,7 +280,7 @@ void quic_hp_remove(quic_hp_ctx_t *ctx,
         hdr[pn_off + i] ^= mask[1 + i];
 }
 
-#endif /* CONFIG_PHOENIX_DOQ */
+#endif /* CONFIG_EBURNET_DOQ */
 
 /* заглушка: подавить предупреждение "empty translation unit" */
 typedef int quic_c_module_t;

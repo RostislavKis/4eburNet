@@ -1,4 +1,4 @@
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -29,12 +29,12 @@ static void log_check_size(void)
 
     struct stat st;
     int fd = fileno(log_file);
-    if (fstat(fd, &st) == 0 && st.st_size > PHOENIX_LOG_MAX_BYTES) {
+    if (fstat(fd, &st) == 0 && st.st_size > EBURNET_LOG_MAX_BYTES) {
         /* Обрезаем файл до нуля */
         if (ftruncate(fd, 0) < 0) return;
         rewind(log_file);
         fprintf(log_file, "[TRUNCATED] Лог превысил %d байт, очищен\n",
-                PHOENIX_LOG_MAX_BYTES);
+                EBURNET_LOG_MAX_BYTES);
         fflush(log_file);
     }
 }

@@ -12,7 +12,7 @@
  */
 
 #include "ntp_bootstrap.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>

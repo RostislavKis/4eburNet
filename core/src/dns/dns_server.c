@@ -10,7 +10,7 @@
 #include "dns/dns_upstream.h"
 #include "dns/dns_resolver.h"
 #include "net_utils.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 #include "resource_manager.h"
 #include "device.h"
 
@@ -25,7 +25,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-int dns_server_init(dns_server_t *ds, const PhoenixConfig *cfg)
+int dns_server_init(dns_server_t *ds, const EburNetConfig *cfg)
 {
     memset(ds, 0, sizeof(*ds));
     ds->udp_fd = -1;
@@ -169,10 +169,10 @@ void dns_server_cleanup(dns_server_t *ds)
             dns_pending_complete(&ds->pending, i, ds->master_epoll_fd);
     }
     dns_pending_free(&ds->pending);
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
     async_dns_pool_free(&ds->async_pool);
 #endif
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
     if (ds->fake_ip_ready) {
         fake_ip_free(&ds->fake_ip);
         ds->fake_ip_ready = false;
@@ -191,14 +191,14 @@ void dns_server_cleanup(dns_server_t *ds)
 int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
 {
     ds->master_epoll_fd = master_epoll_fd;
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
     /* Инициализировать async pool теперь когда известен master epoll fd */
     async_dns_pool_init(&ds->async_pool, master_epoll_fd);
 #endif
 
     /* Инициализировать fake-ip если включён */
     const DnsConfig *dcfg = &ds->cfg->dns;
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
     if (dcfg->fake_ip_enabled) {
         DeviceProfile profile = rm_detect_profile();
         int max_e = fake_ip_max_entries_for_profile(
@@ -217,7 +217,7 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
     }
 #else
     (void)dcfg;
-#endif /* CONFIG_PHOENIX_FAKE_IP */
+#endif /* CONFIG_EBURNET_FAKE_IP */
 
     struct epoll_event ev = { .events = EPOLLIN };
 
@@ -234,7 +234,7 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
     return 0;
 }
 
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
 /* ── Async DoH/DoT callback ── */
 
 /* Контекст передаётся через cb_ctx, живёт до вызова callback (malloc/free) */
@@ -278,7 +278,7 @@ static void async_doh_dot_cb(void *ctx, const uint8_t *resp,
     free(c);
 }
 
-#endif /* CONFIG_PHOENIX_DOH */
+#endif /* CONFIG_EBURNET_DOH */
 
 /* Определить upstream IP и порт для action */
 static bool resolve_upstream_addr(const dns_server_t *ds, dns_action_t action,
@@ -508,7 +508,7 @@ skip_rate:;
         goto udp_upstream;
     }
 
-#if CONFIG_PHOENIX_FAKE_IP
+#if CONFIG_EBURNET_FAKE_IP
     /* Fake-IP: только для A-запросов PROXY доменов */
     if (ds->fake_ip_ready &&
         ds->cfg->dns.fake_ip_enabled &&
@@ -581,9 +581,9 @@ skip_rate:;
             return;
         }
     }
-#endif /* CONFIG_PHOENIX_FAKE_IP */
+#endif /* CONFIG_EBURNET_FAKE_IP */
 
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
     /* DoH/DoT — только для PROXY доменов, async через pool */
     if (action == DNS_ACTION_PROXY) {
         const DnsConfig *d = &ds->cfg->dns;
@@ -629,7 +629,7 @@ skip_rate:;
             return;
         }
     }
-#endif /* CONFIG_PHOENIX_DOH */
+#endif /* CONFIG_EBURNET_DOH */
 
     /* Обычный UDP upstream — неблокирующий async путь */
     udp_upstream:;
@@ -1282,7 +1282,7 @@ void dns_server_check_tcp_timeouts(dns_server_t *ds)
     }
 }
 
-#if CONFIG_PHOENIX_DOH
+#if CONFIG_EBURNET_DOH
 bool dns_server_is_async_ptr(const dns_server_t *ds, void *ptr)
 {
     return async_dns_is_pool_ptr(&ds->async_pool, ptr);
@@ -1299,4 +1299,4 @@ void dns_server_check_async_timeouts(dns_server_t *ds)
 {
     async_dns_check_timeouts(&ds->async_pool);
 }
-#endif /* CONFIG_PHOENIX_DOH */
+#endif /* CONFIG_EBURNET_DOH */

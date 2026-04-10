@@ -1,14 +1,14 @@
 /*
  * Загрузчик правил маршрутизации из файлов
  *
- * Читает списки CIDR из файлов в /etc/phoenix/rules/
+ * Читает списки CIDR из файлов в /etc/4eburnet/rules/
  * и загружает в nftables verdict maps (bypass/proxy/block).
  * Поддерживает горячую перезагрузку при изменении файлов.
  */
 
 #include "routing/rules_loader.h"
 #include "routing/nftables.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -63,9 +63,9 @@ static void ensure_dir(const char *path)
 int rules_init(rules_manager_t *rm)
 {
     memset(rm, 0, sizeof(*rm));
-    ensure_dir(PHOENIX_RULES_DIR);
+    ensure_dir(EBURNET_RULES_DIR);
     log_msg(LOG_DEBUG, "Менеджер правил инициализирован (%s)",
-            PHOENIX_RULES_DIR);
+            EBURNET_RULES_DIR);
     return 0;
 }
 
@@ -229,7 +229,7 @@ int rules_create_test_file(const char *path, rules_type_t type)
     if (file_mtime(path) > 0)
         return 0;
 
-    ensure_dir(PHOENIX_RULES_DIR);
+    ensure_dir(EBURNET_RULES_DIR);
 
     FILE *f = fopen(path, "w");
     if (!f) {

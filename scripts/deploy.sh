@@ -1,5 +1,5 @@
 #!/bin/sh
-# Деплой phoenix-router на тестовый роутер EC330
+# Деплой 4eburnet на тестовый роутер EC330
 # Использование: ./scripts/deploy.sh {check|build|push|install|restart|logs|full|shell}
 
 set -e
@@ -7,7 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONF="$SCRIPT_DIR/deploy.conf"
-LOG="/tmp/phoenix-deploy.log"
+LOG="/tmp/4eburnet-deploy.log"
 
 # Цвета
 RED='\033[0;31m'
@@ -78,7 +78,7 @@ check_router() {
 
 # Сборка
 do_build() {
-    msg_info "Сборка phoenix-core для $ROUTER_ARCH..."
+    msg_info "Сборка 4eburnet-core для $ROUTER_ARCH..."
     "$SCRIPT_DIR/build.sh" mipsel
 }
 
@@ -86,7 +86,7 @@ do_build() {
 do_push() {
     check_router || exit 1
 
-    IPK=$(find "$BUILD_DIR/mipsel/" -name "phoenix-core*.ipk" -type f 2>/dev/null | sort -t_ -k2 -V | tail -1)
+    IPK=$(find "$BUILD_DIR/mipsel/" -name "4eburnet-core*.ipk" -type f 2>/dev/null | sort -t_ -k2 -V | tail -1)
     if [ -z "$IPK" ]; then
         msg_fail "ipk не найден в $BUILD_DIR/mipsel/"
         msg_info "Сначала собери: ./scripts/deploy.sh build"
@@ -105,7 +105,7 @@ do_push() {
 do_install() {
     do_push || exit 1
 
-    IPK_NAME=$(basename "$(find "$BUILD_DIR/mipsel/" -name "phoenix-core*.ipk" -type f | sort -t_ -k2 -V | tail -1)")
+    IPK_NAME=$(basename "$(find "$BUILD_DIR/mipsel/" -name "4eburnet-core*.ipk" -type f | sort -t_ -k2 -V | tail -1)")
     printf "Установка пакета..."
     $SSH_CMD "opkg install /tmp/$IPK_NAME --force-reinstall" 2>/dev/null
     msg_ok "$IPK_NAME установлен"
@@ -114,16 +114,16 @@ do_install() {
 # Перезапуск
 do_restart() {
     check_router || exit 1
-    printf "Перезапуск phoenix..."
-    $SSH_CMD "/etc/init.d/phoenix restart" 2>/dev/null && msg_ok "перезапущен" || msg_warn "init.d скрипт не найден (ещё не создан?)"
+    printf "Перезапуск 4eburnet..."
+    $SSH_CMD "/etc/init.d/4eburnet restart" 2>/dev/null && msg_ok "перезапущен" || msg_warn "init.d скрипт не найден (ещё не создан?)"
 }
 
 # Логи
 do_logs() {
     check_router || exit 1
-    msg_info "Логи phoenix на EC330:"
+    msg_info "Логи 4eburnet на EC330:"
     echo "---"
-    $SSH_CMD "logread | grep -i phoenix | tail -30" 2>/dev/null || msg_warn "записей не найдено"
+    $SSH_CMD "logread | grep -i 4eburnet | tail -30" 2>/dev/null || msg_warn "записей не найдено"
     echo "---"
 }
 
@@ -145,7 +145,7 @@ do_shell() {
 
 # Справка
 usage() {
-    echo "Phoenix Router — деплой на EC330"
+    echo "4eburNet — деплой на EC330"
     echo ""
     echo "Использование: $0 <команда>"
     echo ""
@@ -154,8 +154,8 @@ usage() {
     echo "  build     сборка ipk для mipsel"
     echo "  push      отправка ipk на роутер в /tmp/"
     echo "  install   push + opkg install"
-    echo "  restart   /etc/init.d/phoenix restart"
-    echo "  logs      logread | grep phoenix"
+    echo "  restart   /etc/init.d/4eburnet restart"
+    echo "  logs      logread | grep 4eburnet"
     echo "  full      build + install + restart + logs"
     echo "  shell     открыть SSH-сессию на EC330"
     echo ""

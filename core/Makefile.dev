@@ -5,24 +5,24 @@ PROFILE ?= full
 
 ifeq ($(PROFILE),micro)
   KCONFIG_CFLAGS := \
-    -DCONFIG_PHOENIX_VLESS=1    \
-    -DCONFIG_PHOENIX_TROJAN=1   \
-    -DCONFIG_PHOENIX_SS=0       \
-    -DCONFIG_PHOENIX_AWG=0      \
-    -DCONFIG_PHOENIX_FAKE_IP=0  \
-    -DCONFIG_PHOENIX_DOH=1      \
-    -DCONFIG_PHOENIX_PROXY_PROVIDERS=0 \
-    -DCONFIG_PHOENIX_SNIFFER=1
+    -DCONFIG_EBURNET_VLESS=1    \
+    -DCONFIG_EBURNET_TROJAN=1   \
+    -DCONFIG_EBURNET_SS=0       \
+    -DCONFIG_EBURNET_AWG=0      \
+    -DCONFIG_EBURNET_FAKE_IP=0  \
+    -DCONFIG_EBURNET_DOH=1      \
+    -DCONFIG_EBURNET_PROXY_PROVIDERS=0 \
+    -DCONFIG_EBURNET_SNIFFER=1
 else ifeq ($(PROFILE),normal)
   KCONFIG_CFLAGS := \
-    -DCONFIG_PHOENIX_VLESS=1    \
-    -DCONFIG_PHOENIX_TROJAN=1   \
-    -DCONFIG_PHOENIX_SS=1       \
-    -DCONFIG_PHOENIX_AWG=0      \
-    -DCONFIG_PHOENIX_FAKE_IP=1  \
-    -DCONFIG_PHOENIX_DOH=1      \
-    -DCONFIG_PHOENIX_PROXY_PROVIDERS=1 \
-    -DCONFIG_PHOENIX_SNIFFER=1
+    -DCONFIG_EBURNET_VLESS=1    \
+    -DCONFIG_EBURNET_TROJAN=1   \
+    -DCONFIG_EBURNET_SS=1       \
+    -DCONFIG_EBURNET_AWG=0      \
+    -DCONFIG_EBURNET_FAKE_IP=1  \
+    -DCONFIG_EBURNET_DOH=1      \
+    -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
+    -DCONFIG_EBURNET_SNIFFER=1
 else
   KCONFIG_CFLAGS :=
 endif
@@ -62,7 +62,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dns/dns_upstream_doq.c \
           $(SRCDIR)/crypto/quic.c \
           $(SRCDIR)/geo/geo_loader.c
-TARGET = $(BUILDDIR)/phoenixd
+TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
@@ -78,11 +78,11 @@ clean:
 	rm -f $(TARGET)
 
 run: $(TARGET)
-	$(TARGET) -c ../../qemu/test-config/phoenix
+	$(TARGET) -c ../../qemu/test-config/4eburnet
 
 install-vm: $(TARGET)
-	cat $(TARGET) | $(SSH) "cat > /usr/sbin/phoenixd && chmod +x /usr/sbin/phoenixd"
-	cat ../../qemu/test-config/phoenix | $(SSH) "cat > /etc/config/phoenix"
-	@echo "Деплой завершён. Запусти: ssh -p 2222 root@localhost \"phoenixd -d\""
+	cat $(TARGET) | $(SSH) "cat > /usr/sbin/4eburnetd && chmod +x /usr/sbin/4eburnetd"
+	cat ../../qemu/test-config/4eburnet | $(SSH) "cat > /etc/config/4eburnet"
+	@echo "Деплой завершён. Запусти: ssh -p 2222 root@localhost \"4eburnetd -d\""
 
 .PHONY: all clean run install-vm

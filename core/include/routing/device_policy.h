@@ -16,7 +16,7 @@ typedef struct {
 } device_manager_t;
 
 int  device_policy_init(device_manager_t *dm,
-                        const PhoenixConfig *cfg);
+                        const EburNetConfig *cfg);
 void device_policy_free(device_manager_t *dm);
 
 /* CRUD */

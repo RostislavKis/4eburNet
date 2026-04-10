@@ -38,10 +38,10 @@ typedef struct {
 typedef struct {
     proxy_group_state_t *groups;
     int                  count;
-    const PhoenixConfig *cfg;
+    const EburNetConfig *cfg;
 } proxy_group_manager_t;
 
-int  proxy_group_init(proxy_group_manager_t *pgm, const PhoenixConfig *cfg);
+int  proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg);
 void proxy_group_free(proxy_group_manager_t *pgm);
 
 proxy_group_state_t *proxy_group_find(proxy_group_manager_t *pgm, const char *name);

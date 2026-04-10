@@ -12,7 +12,7 @@
 
 #include "crypto/noise.h"
 #include "crypto/blake2s.h"
-#include "phoenix.h"
+#include "4eburnet.h"
 
 #include <string.h>
 #include <strings.h>  /* explicit_bzero */

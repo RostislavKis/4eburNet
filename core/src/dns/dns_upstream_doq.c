@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 700
 #include "dns/dns_upstream_doq.h"
 
-#if CONFIG_PHOENIX_DOQ
+#if CONFIG_EBURNET_DOQ
 
 #include <string.h>
 #include <stdlib.h>
@@ -18,7 +18,7 @@
 #include <wolfssl/wolfcrypt/hmac.h>   /* wc_HKDF_Extract, wc_HKDF_Expand */
 #include <wolfssl/openssl/evp.h>      /* wolfSSL_EVP_aes_128_gcm */
 
-#include "phoenix.h"
+#include "4eburnet.h"
 #include "net_utils.h"          /* net_random_bytes */
 #include "resource_manager.h"   /* rm_detect_profile */
 
@@ -1028,4 +1028,4 @@ void doq_check_timeouts(doq_pool_t *pool)
     }
 }
 
-#endif /* CONFIG_PHOENIX_DOQ */
+#endif /* CONFIG_EBURNET_DOQ */

@@ -22,10 +22,10 @@ typedef struct {
 typedef struct {
     rule_provider_state_t *providers;
     int                    count;
-    const PhoenixConfig   *cfg;
+    const EburNetConfig   *cfg;
 } rule_provider_manager_t;
 
-int  rule_provider_init(rule_provider_manager_t *rpm, const PhoenixConfig *cfg);
+int  rule_provider_init(rule_provider_manager_t *rpm, const EburNetConfig *cfg);
 void rule_provider_free(rule_provider_manager_t *rpm);
 int  rule_provider_load_all(rule_provider_manager_t *rpm);
 void rule_provider_tick(rule_provider_manager_t *rpm);
