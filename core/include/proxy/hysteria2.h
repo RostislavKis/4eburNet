@@ -43,6 +43,9 @@
 /* Максимальный адрес host:port */
 #define HY2_MAX_ADDR    272  /* 253 (FQDN) + ':' + 5 (port) + NUL */
 
+/* Overhead TCPRequest = varint(FrameType 8b) + varint(AddrLen 2b) + uint16(PadLen) */
+#define HY2_TCP_REQ_OVERHEAD  (8 + 2 + 2)
+
 /* ── Конфигурация соединения ─────────────────────────────────────────── */
 
 typedef struct {

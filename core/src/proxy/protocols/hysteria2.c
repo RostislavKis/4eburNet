@@ -165,14 +165,18 @@ int hy2_tcp_request_encode(uint8_t *buf, size_t buf_size,
 
     /* Случайный padding если не задан */
     if (padding_len == 0) {
-        uint8_t rnd[2];
-        int fd = open("/dev/urandom", O_RDONLY);
+        uint8_t rnd[2] = { 0xAB, 0xCD };  /* fallback */
+        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
         if (fd >= 0) {
-            ssize_t nr = read(fd, rnd, 2);
-            (void)nr;
+            ssize_t nr = 0;
+            while (nr < 2) {
+                ssize_t r = read(fd, rnd + nr, (size_t)(2 - nr));
+                if (r > 0)          { nr += r; continue; }
+                if (errno == EINTR) { continue; }
+                break;  /* реальная ошибка */
+            }
+            if (nr < 2) { rnd[0] = 0xAB; rnd[1] = 0xCD; }  /* fallback */
             close(fd);
-        } else {
-            rnd[0] = 0xAB; rnd[1] = 0xCD;
         }
         uint16_t rng = (uint16_t)((rnd[0] << 8) | rnd[1]);
         padding_len = HY2_MIN_PADDING
@@ -297,7 +301,7 @@ void hysteria2_conn_free(hysteria2_conn_t *conn)
     if (conn->ssl)     { wolfSSL_shutdown(conn->ssl); wolfSSL_free(conn->ssl); }
     if (conn->ssl_ctx) { wolfSSL_CTX_free(conn->ssl_ctx); }
     if (conn->udp_fd >= 0) { close(conn->udp_fd); }
-    memset(conn, 0, sizeof(*conn));
+    explicit_bzero(conn, sizeof(*conn));  /* не оптимизируется: пароли в cfg */
     free(conn);
 }
 
@@ -373,10 +377,14 @@ int hysteria2_connect(hysteria2_conn_t *conn)
 
     /* TODO: B.3.3 — HTTP/3 POST "/" с Hysteria-Auth + Hysteria-CC-RX */
 
-    conn->state = HY2_STATE_CONNECTED;
-    log_msg(LOG_INFO, "hysteria2: соединение к %s:%u установлено",
-            conn->cfg.server_addr, conn->cfg.server_port);
-    return 0;
+    /* B.3.1-B.3.3 не реализованы — явно блокировать, чтобы не потерять трафик */
+    close(conn->udp_fd);
+    conn->udp_fd = -1;
+    conn->state = HY2_STATE_ERROR;
+    snprintf(conn->error_msg, sizeof(conn->error_msg),
+             "hysteria2: wolfSSL QUIC handshake не реализован (TODO B.3.1-B.3.3)");
+    log_msg(LOG_WARN, "%s", conn->error_msg);
+    return -1;
 }
 
 /* ── TCP стримы ──────────────────────────────────────────────────────── */
@@ -391,7 +399,14 @@ int hysteria2_tcp_open(hysteria2_conn_t *conn,
     memset(stream, 0, sizeof(*stream));
     stream->state = HY2_STREAM_REQUESTING;
 
-    /* Выделить QUIC stream ID (client-initiated bidi: кратно 4) */
+    /* Выделить QUIC stream ID (client-initiated bidi: 0, 4, 8, ...) */
+    /* RFC 9000: максимальный stream ID = 2^62 - 1; client bidi кратно 4 */
+    if (conn->next_stream_id > UINT64_C(0x3FFFFFFFFFFFFFFC)) {
+        stream->state = HY2_STREAM_ERROR;
+        snprintf(stream->error_msg, sizeof(stream->error_msg),
+                 "QUIC stream IDs исчерпаны (> 2^62)");
+        return -1;
+    }
     stream->stream_id = conn->next_stream_id;
     conn->next_stream_id += 4;
 
@@ -399,7 +414,7 @@ int hysteria2_tcp_open(hysteria2_conn_t *conn,
              "%s:%u", host, (unsigned)port);
 
     /* Сериализовать TCPRequest */
-    uint8_t req_buf[HY2_MAX_ADDR + HY2_MAX_PADDING + 32];
+    uint8_t req_buf[HY2_MAX_ADDR + HY2_MAX_PADDING + HY2_TCP_REQ_OVERHEAD + 8];
     int req_len = hy2_tcp_request_encode(req_buf, sizeof(req_buf),
                                          host, port, 0 /* случайный padding */);
     if (req_len < 0) {
