@@ -160,7 +160,14 @@ return view.extend({
 
         /* Hysteria2-специфичные поля */
         var rowHy2Auth = E('div', {id: 'row-hy2-auth', style: 'display:none'}, [
-            mkInp('add-hy2-password', 'Пароль авторизации', true)
+            E('input', {
+                id: 'add-hy2-password', type: 'password',
+                placeholder: 'Пароль авторизации',
+                style: 'width:100%;padding:5px 8px;background:#21262d;'
+                     + 'border:1px solid #30363d;border-radius:4px;color:#e6edf3;'
+                     + 'font-size:11px;outline:none;box-sizing:border-box;'
+                     + 'font-family:monospace'
+            })
         ]);
         var rowHy2Obfs = E('div', {id: 'row-hy2-obfs', style: 'display:none'}, [
             mkInp('add-hy2-obfs-password',
@@ -354,6 +361,10 @@ return view.extend({
                                     });
                                     var hy2InEl2 = document.getElementById('add-hy2-insecure');
                                     if (hy2InEl2) hy2InEl2.checked = false;
+                                    /* Сбросить протокол и транспорт на дефолт */
+                                    protoSel.value = 'vless';
+                                    transportSel.value = 'tcp';
+                                    updateFields();
                                     rebuildList();
                                 } else {
                                     showStatus('✕ ' + ((r && r.error) || _('ошибка')), false);
