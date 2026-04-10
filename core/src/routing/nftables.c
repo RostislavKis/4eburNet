@@ -19,6 +19,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 
 /* Максимальный размер команды nft */
 #define NFT_CMD_MAX     4096
@@ -113,6 +114,42 @@ static bool valid_nft_name(const char *s)
     for (const char *p = s + 1; *p; p++)
         if (!isalnum((unsigned char)*p) && *p != '_') return false;
     return true;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Проверка и загрузка kmod-nft-tproxy                                */
+/* ------------------------------------------------------------------ */
+
+/* Попытка загрузить nft_tproxy, вернуть 0 если OK, -1 если нет.
+ * Результат кешируется — повторные вызовы не запускают modprobe. */
+static int try_load_nft_tproxy(void)
+{
+    static int cached = -2;  /* -2 = не проверялось */
+    if (cached != -2) return cached;
+
+    /* Сначала проверить: уже загружен? */
+    FILE *f = fopen("/sys/module/nft_tproxy/refcnt", "r");
+    if (f) { fclose(f); cached = 0; return 0; }
+
+    /* Попробовать modprobe */
+    const char *const modprobe_argv[] = {"modprobe", "nft_tproxy", NULL};
+    int rc = exec_cmd_safe(modprobe_argv, NULL, 0);
+    if (rc == 0) { cached = 0; return 0; }
+
+    /* Попробовать insmod с полным путём к модулю */
+    struct utsname uts;
+    if (uname(&uts) == 0) {
+        char ko_path[256];
+        snprintf(ko_path, sizeof(ko_path),
+                 "/lib/modules/%s/kernel/net/netfilter/nft_tproxy.ko",
+                 uts.release);
+        const char *const insmod_argv[] = {"insmod", ko_path, NULL};
+        rc = exec_cmd_safe(insmod_argv, NULL, 0);
+        if (rc == 0) { cached = 0; return 0; }
+    }
+
+    cached = -1;
+    return -1;
 }
 
 nft_result_t nft_exec(const char *cmd)
@@ -412,6 +449,14 @@ nft_result_t nft_tproxy_enable(uint16_t port, nft_proto_t proto)
      *   prerouting — tproxy + mark (перехват трафика)
      *   forward    — mark (маркировка транзитного трафика)
      */
+    if (try_load_nft_tproxy() < 0) {
+        log_msg(LOG_WARN,
+            "kmod-nft-tproxy недоступен на этом устройстве. "
+            "TPROXY перехват трафика отключён. "
+            "Установите: opkg install kmod-nft-tproxy");
+        return NFT_OK;
+    }
+
     const char *proto_match;
     switch (proto) {
     case NFT_PROTO_TCP: proto_match = "tcp dport 1-65535"; break;
@@ -532,6 +577,19 @@ nft_result_t nft_mode_set_rules(void)
      * Порядок правил в prerouting:
      *   block → local → bypass → proxy+tproxy → accept
      */
+
+    /* Без kmod-nft-tproxy правила загружаются без перехвата трафика */
+    if (try_load_nft_tproxy() < 0) {
+        log_msg(LOG_WARN,
+            "kmod-nft-tproxy недоступен на этом устройстве. "
+            "TPROXY перехват трафика отключён. "
+            "Установите: opkg install kmod-nft-tproxy");
+        nft_result_t rc = apply_mode(NULL, NULL);
+        if (rc == NFT_OK)
+            log_msg(LOG_INFO, "Режим маршрутизации: rules (без TPROXY)");
+        return rc;
+    }
+
     char pre_rules[1024];
     snprintf(pre_rules, sizeof(pre_rules),
         "\n"
@@ -575,6 +633,19 @@ nft_result_t nft_mode_set_global(void)
      * Порядок правил в prerouting:
      *   block → local → bypass → tproxy (всё)
      */
+
+    /* Без kmod-nft-tproxy правила загружаются без перехвата трафика */
+    if (try_load_nft_tproxy() < 0) {
+        log_msg(LOG_WARN,
+            "kmod-nft-tproxy недоступен на этом устройстве. "
+            "TPROXY перехват трафика отключён. "
+            "Установите: opkg install kmod-nft-tproxy");
+        nft_result_t rc = apply_mode(NULL, NULL);
+        if (rc == NFT_OK)
+            log_msg(LOG_INFO, "Режим маршрутизации: global (без TPROXY)");
+        return rc;
+    }
+
     char pre_rules[1024];
     snprintf(pre_rules, sizeof(pre_rules),
         "\n"
