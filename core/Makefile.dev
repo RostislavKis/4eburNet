@@ -51,6 +51,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/crypto/quic_salamander.c \
           $(SRCDIR)/proxy/protocols/hysteria2.c \
           $(SRCDIR)/proxy/protocols/hysteria2_udp.c \
+          $(SRCDIR)/proxy/protocols/hysteria2_cc.c \
           $(SRCDIR)/crypto/noise.c \
           $(SRCDIR)/proxy/protocols/awg.c \
           $(SRCDIR)/routing/device_policy.c \
