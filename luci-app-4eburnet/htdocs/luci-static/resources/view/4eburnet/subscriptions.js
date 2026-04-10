@@ -67,6 +67,11 @@ return view.extend({
                     importStatus.textContent = '✕ Введите URL подписки';
                     return;
                 }
+                if (!/^https?:\/\//i.test(url)) {
+                    importStatus.style.color = '#f85149';
+                    importStatus.textContent = '✕ URL должен начинаться с http:// или https://';
+                    return;
+                }
 
                 importBtn.disabled = true;
                 importStatus.style.color = '#8d96a0';
@@ -86,8 +91,12 @@ return view.extend({
                         importStatus.textContent = '✓ ' + r.message;
                     } else {
                         importStatus.style.color = '#f85149';
-                        importStatus.textContent = '✕ ' + (r && r.error || 'ошибка');
+                        importStatus.textContent = '✕ ' + (r && r.error || 'неизвестная ошибка');
                     }
+                }).catch(function(err) {
+                    importBtn.disabled = false;
+                    importStatus.style.color = '#f85149';
+                    importStatus.textContent = '✕ RPC ошибка: ' + String(err);
                 });
             }
         }, ['📥 Импортировать']);
