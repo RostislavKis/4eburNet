@@ -472,7 +472,9 @@ const methods = {
     server_add: {
         args: { name: '', protocol: '', address: '', port: 0,
                 transport: '', uuid: '', password: '',
-                reality_pbk: '', reality_sid: '' },
+                reality_pbk: '', reality_sid: '',
+                hy2_obfs_password: '', hy2_sni: '',
+                hy2_insecure: 0, hy2_up_mbps: 0, hy2_down_mbps: 0 },
         call: function(req) {
             let a = req.args ?? {};
             let _tmp4 = ['name', 'protocol', 'address', 'port'];
@@ -481,7 +483,8 @@ const methods = {
                 if (!a[f]) return { ok: false, error: 'field required: ' + f };
             }
 
-            let proto_ok = { vless: 1, trojan: 1, shadowsocks: 1, awg: 1 };
+            let proto_ok = { vless: 1, trojan: 1, shadowsocks: 1, awg: 1,
+                             hysteria2: 1 };
             if (!proto_ok[a.protocol])
                 return { ok: false, error: 'invalid protocol: ' + a.protocol };
 
@@ -501,6 +504,24 @@ const methods = {
                 if (safe[k] && a[k]) c.set('4eburnet', sec, k, '' + a[k]);
             c.set('4eburnet', sec, 'port', '' + port);
             c.set('4eburnet', sec, 'enabled', '1');
+
+            /* Hysteria2-специфичные поля */
+            if (a.protocol === 'hysteria2') {
+                if (a.hy2_obfs_password)
+                    c.set('4eburnet', sec, 'hy2_obfs_password',
+                          '' + a.hy2_obfs_password);
+                if (a.hy2_sni)
+                    c.set('4eburnet', sec, 'hy2_sni', '' + a.hy2_sni);
+                c.set('4eburnet', sec, 'hy2_insecure',
+                      a.hy2_insecure ? '1' : '0');
+                let up = int(a.hy2_up_mbps);
+                if (up > 0)
+                    c.set('4eburnet', sec, 'hy2_up_mbps', '' + up);
+                let down = int(a.hy2_down_mbps);
+                if (down > 0)
+                    c.set('4eburnet', sec, 'hy2_down_mbps', '' + down);
+            }
+
             c.commit('4eburnet');
 
             return { ok: true, section: sec };

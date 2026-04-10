@@ -7,7 +7,9 @@ var callServerAdd    = rpc.declare({
     object: '4eburnet', method: 'server_add',
     params: ['name', 'protocol', 'address', 'port',
              'transport', 'uuid', 'password',
-             'reality_pbk', 'reality_sid']
+             'reality_pbk', 'reality_sid',
+             'hy2_obfs_password', 'hy2_sni', 'hy2_insecure',
+             'hy2_up_mbps', 'hy2_down_mbps']
 });
 var callServerDelete = rpc.declare({
     object: '4eburnet', method: 'server_delete',
@@ -21,7 +23,7 @@ var TD = 'padding:7px 10px;border-bottom:1px solid #21262d;font-size:11px';
 
 var PROTO_COLORS = {
     vless: '#bc8cff', trojan: '#4aa8f0',
-    shadowsocks: '#f0b429', awg: '#3ecf6a'
+    shadowsocks: '#f0b429', awg: '#3ecf6a', hysteria2: '#ff7b54'
 };
 
 function mkInp(id, placeholder, mono) {
@@ -92,7 +94,11 @@ return view.extend({
                     E('td', {style: TD + ';font-family:monospace;color:#4aa8f0'}, [
                         (s.address || '—') + ':' + (s.port || '—')
                     ]),
-                    E('td', {style: TD + ';color:#8d96a0'}, [s.transport || 'tcp']),
+                    E('td', {style: TD + ';color:#8d96a0'}, [
+                        s.protocol === 'hysteria2'
+                            ? (s.hy2_obfs_password ? 'salamander' : 'quic')
+                            : (s.transport || 'tcp')
+                    ]),
                     E('td', {style: TD}, [
                         s['.name'] ? E('button', {
                             class: 'btn cbi-button-negative',
@@ -128,7 +134,8 @@ return view.extend({
             E('option', {value: 'vless'},       ['VLESS']),
             E('option', {value: 'trojan'},       ['Trojan']),
             E('option', {value: 'shadowsocks'},  ['Shadowsocks']),
-            E('option', {value: 'awg'},          ['AmneziaWG'])
+            E('option', {value: 'awg'},          ['AmneziaWG']),
+            E('option', {value: 'hysteria2'},    ['Hysteria2'])
         ]);
 
         var transportSel = E('select', {
@@ -151,9 +158,37 @@ return view.extend({
             ])
         ]);
 
+        /* Hysteria2-специфичные поля */
+        var rowHy2Auth = E('div', {id: 'row-hy2-auth', style: 'display:none'}, [
+            mkInp('add-hy2-password', 'Пароль авторизации', true)
+        ]);
+        var rowHy2Obfs = E('div', {id: 'row-hy2-obfs', style: 'display:none'}, [
+            mkInp('add-hy2-obfs-password',
+                  'Salamander obfs пароль (пусто = без obfs)', true)
+        ]);
+        var rowHy2Sni = E('div', {id: 'row-hy2-sni', style: 'display:none'}, [
+            mkInp('add-hy2-sni', 'SNI (пусто = server address)', false)
+        ]);
+        var rowHy2Insecure = E('div', {id: 'row-hy2-insecure', style: 'display:none'}, [
+            E('label', {
+                style: 'display:flex;align-items:center;gap:6px;'
+                     + 'font-size:11px;color:#e6edf3;cursor:pointer'
+            }, [
+                E('input', {type: 'checkbox', id: 'add-hy2-insecure'}),
+                _('Пропустить проверку TLS сертификата')
+            ])
+        ]);
+        var rowHy2Bw = E('div', {id: 'row-hy2-bw', style: 'display:none'}, [
+            E('div', {style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px'}, [
+                mkInp('add-hy2-up',   '↑ Up Мбит/с (0=авто)',   false),
+                mkInp('add-hy2-down', '↓ Down Мбит/с (0=авто)', false)
+            ])
+        ]);
+
         function updateFields() {
             var p = protoSel.value;
             var t = transportSel.value;
+            var isHy2 = (p === 'hysteria2');
 
             /* UUID / пароль */
             document.getElementById('row-uuid').style.display
@@ -163,6 +198,19 @@ return view.extend({
             /* Reality поля — только для VLESS + reality */
             document.getElementById('row-reality').style.display
                 = (p === 'vless' && t === 'reality') ? '' : 'none';
+
+            /* Hysteria2 поля */
+            ['row-hy2-auth', 'row-hy2-obfs', 'row-hy2-sni',
+             'row-hy2-insecure', 'row-hy2-bw'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.style.display = isHy2 ? '' : 'none';
+            });
+            var hy2Wrap = document.getElementById('hy2-wrap');
+            if (hy2Wrap) hy2Wrap.style.display = isHy2 ? '' : 'none';
+
+            /* Скрыть transport для Hysteria2 — QUIC, выбор не нужен */
+            var transportRow = document.getElementById('row-transport');
+            if (transportRow) transportRow.style.display = isHy2 ? 'none' : '';
         }
 
         transportSel.addEventListener('change', function() { updateFields(); });
@@ -219,7 +267,7 @@ return view.extend({
                         E('div', {style: 'font-size:10px;color:#545d68;margin-bottom:3px'}, [_('Порт')]),
                         mkInp('add-port', '443', false)
                     ]),
-                    E('div', {}, [
+                    E('div', {id: 'row-transport'}, [
                         E('div', {style: 'font-size:10px;color:#545d68;margin-bottom:3px'}, [_('Транспорт')]),
                         transportSel
                     ])
@@ -234,6 +282,17 @@ return view.extend({
                 E('div', {id: 'reality-wrap', style: 'margin-bottom:10px'}, [
                     E('div', {style: 'font-size:10px;color:#545d68;margin-bottom:3px'}, [_('Reality параметры')]),
                     rowReality
+                ]),
+                E('div', {id: 'hy2-wrap', style: 'display:none;margin-bottom:10px'}, [
+                    E('div', {style: 'font-size:10px;color:#545d68;margin-bottom:3px'}, [_('Hysteria2 Auth пароль')]),
+                    rowHy2Auth,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('Salamander obfuscation (опционально)')]),
+                    rowHy2Obfs,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('SNI')]),
+                    rowHy2Sni,
+                    rowHy2Insecure,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('Bandwidth (Brutal CC)')]),
+                    rowHy2Bw
                 ]),
 
                 E('div', {style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, [
@@ -256,24 +315,40 @@ return view.extend({
                             var sid      = gv('add-sid');
                             var transport = transportSel.value;
 
+                            /* Hysteria2 параметры */
+                            var hy2Pass  = gv('add-hy2-password');
+                            var hy2Obfs  = gv('add-hy2-obfs-password');
+                            var hy2Sni   = gv('add-hy2-sni');
+                            var hy2InEl  = document.getElementById('add-hy2-insecure');
+                            var hy2Insec = (hy2InEl && hy2InEl.checked) ? 1 : 0;
+                            var hy2Up    = gv('add-hy2-up') || '0';
+                            var hy2Down  = gv('add-hy2-down') || '0';
+
+                            /* Для hysteria2 auth-пароль передаётся в uuid-слоте */
+                            var authCred = (proto === 'hysteria2')
+                                ? hy2Pass : (uuid || password);
+
                             showStatus(_('Добавление…'), true);
 
                             callServerAdd(
                                 name, proto, addr, port,
-                                transport,
-                                uuid || password,
-                                password,
-                                pbk, sid
+                                transport, authCred, password,
+                                pbk, sid,
+                                hy2Obfs, hy2Sni, hy2Insec, hy2Up, hy2Down
                             ).then(function(r) {
                                 if (r && r.ok) {
                                     showStatus('✓ ' + _('Сервер добавлен'), true);
                                     /* Очистить форму */
                                     ['add-name','add-address','add-port',
-                                     'add-uuid','add-password','add-pbk','add-sid'
+                                     'add-uuid','add-password','add-pbk','add-sid',
+                                     'add-hy2-password','add-hy2-obfs-password',
+                                     'add-hy2-sni','add-hy2-up','add-hy2-down'
                                     ].forEach(function(id) {
                                         var el = document.getElementById(id);
                                         if (el) el.value = '';
                                     });
+                                    var hy2InEl2 = document.getElementById('add-hy2-insecure');
+                                    if (hy2InEl2) hy2InEl2.checked = false;
                                     rebuildList();
                                 } else {
                                     showStatus('✕ ' + ((r && r.error) || _('ошибка')), false);

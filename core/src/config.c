@@ -256,6 +256,22 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         /* M-17: range validation */
         long v = strtol(value, NULL, 10);
         srv->awg_keepalive = (v >= 0 && v <= 65535) ? (uint16_t)v : 25;
+    /* Hysteria2-специфичные опции */
+    } else if (strcmp(key, "hy2_obfs_password") == 0) {
+        strncpy(srv->hy2_obfs_password, value,
+                sizeof(srv->hy2_obfs_password) - 1);
+        /* Наличие непустого obfs_password = obfs включён */
+        srv->hy2_obfs_enabled = (value[0] != '\0');
+    } else if (strcmp(key, "hy2_sni") == 0) {
+        strncpy(srv->hy2_sni, value, sizeof(srv->hy2_sni) - 1);
+    } else if (strcmp(key, "hy2_insecure") == 0) {
+        srv->hy2_insecure = (strcmp(value, "1") == 0);
+    } else if (strcmp(key, "hy2_up_mbps") == 0) {
+        long v = strtol(value, NULL, 10);
+        srv->hy2_up_mbps = (v > 0 && v <= 100000) ? (uint32_t)v : 0;
+    } else if (strcmp(key, "hy2_down_mbps") == 0) {
+        long v = strtol(value, NULL, 10);
+        srv->hy2_down_mbps = (v > 0 && v <= 100000) ? (uint32_t)v : 0;
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
     }
