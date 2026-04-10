@@ -1,12 +1,12 @@
 # 4eburNet UCI конфиг
 # Конвертировано из Clash config (Flint-2)
 
-config main 'main'
+config 4eburnet 'main'
 	option enabled '1'
 	option mode 'rules'
 	option log_level 'info'
 	option lan_interface 'br-lan'
-	option geo_region 'ru'
+	option region 'ru'
 	option geo_dir '/etc/4eburnet/geo'
 
 config dns 'dns'
