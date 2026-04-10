@@ -41,7 +41,7 @@
 - Собственный DNS-сервер на порту `:53` (epoll, до 2048 соединений)
 - **DoH** (DNS over HTTPS, RFC 8484) — wolfSSL, nonblocking
 - **DoT** (DNS over TLS, порт 853)
-- **DoQ** (DNS over QUIC, RFC 9250) — опционально, требует `CONFIG_EBURNET_DOQ=1`
+- **DoQ** (DNS over QUIC, RFC 9250)
 - **Fake-IP** режим (пул 198.18.0.0/16, LRU eviction, адаптивный размер)
 - **Nameserver Policy** — разные upstream по паттерну домена
 - **Bogus NXDOMAIN** фильтр — защита от DNS hijacking провайдером
