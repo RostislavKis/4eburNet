@@ -54,6 +54,26 @@ define Package/luci-app-4eburnet/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/4eburnet.init \
 	  $(1)/etc/init.d/4eburnet
+
+	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
+	$(INSTALL_BIN) ./root/usr/libexec/rpcd/4eburnet \
+	  $(1)/usr/libexec/rpcd/
+
+	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
+	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/luci-app-4eburnet.json \
+	  $(1)/usr/share/rpcd/acl.d/
+
+	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
+	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/4eburnet.json \
+	  $(1)/usr/share/luci/menu.d/
+
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/4eburnet
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/4eburnet/*.js \
+	  $(1)/www/luci-static/resources/view/4eburnet/
+
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/4eburnet
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/4eburnet/logo.png \
+	  $(1)/www/luci-static/resources/4eburnet/
 endef
 
 $(eval $(call BuildPackage,luci-app-4eburnet))

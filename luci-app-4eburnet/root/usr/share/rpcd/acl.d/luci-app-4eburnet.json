@@ -1,0 +1,21 @@
+{
+  "4eburnet-admin": {
+    "description": "4eburNet admin access",
+    "read": {
+      "ubus": {
+        "4eburnet": ["status","stats","logs","wan_ip","devices","groups","tproxy_status"]
+      },
+      "uci": {
+        "4eburnet": ["*"]
+      }
+    },
+    "write": {
+      "ubus": {
+        "4eburnet": ["reload","stop","restart","group_select"]
+      },
+      "uci": {
+        "4eburnet": ["*"]
+      }
+    }
+  }
+}
