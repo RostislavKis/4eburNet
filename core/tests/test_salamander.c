@@ -100,20 +100,13 @@ static int test_process_correctness(void)
         return 1;
     }
 
-    /* Header byte */
-    uint8_t expected_header = 0xC0 ^ key[0];
-    if (pkt[8] != expected_header) {
-        printf("FAIL test_process_correctness: pkt[8]=0x%02x, ожидалось 0x%02x\n",
-               pkt[8], expected_header);
-        return 1;
-    }
-
-    /* Payload: pkt[9+i] ^= key[i % 32] */
-    for (int i = 0; i < 8; i++) {
-        uint8_t exp = pkt_copy[9 + i] ^ key[i % 32];
-        if (pkt[9 + i] != exp) {
-            printf("FAIL test_process_correctness: pkt[%d]=0x%02x, ожидалось 0x%02x\n",
-                   9 + i, pkt[9 + i], exp);
+    /* Unified counter: pkt[8+j] = pkt_copy[8+j] ^ key[j % 32]
+     * j=0: header byte (pkt[8]), j=1..8: payload (pkt[9..16]) */
+    for (int j = 0; j < 9; j++) {
+        uint8_t exp = pkt_copy[8 + j] ^ key[j % 32];
+        if (pkt[8 + j] != exp) {
+            printf("FAIL test_process_correctness: pkt[%d]=0x%02x, ожидалось 0x%02x (key[%d])\n",
+                   8 + j, pkt[8 + j], exp, j % 32);
             return 1;
         }
     }
@@ -243,8 +236,9 @@ static int test_edge_cases(void)
  *   salt = bytes([0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08])
  *   psk  = b"test-password"
  *   key  = hashlib.blake2b(salt + psk, digest_size=32).digest()
- *   pkt_in  = salt + bytes([0xC0,0x11,0x22,0x33])
- *   pkt_out = salt + bytes([0xC0^key[0], 0x11^key[0], 0x22^key[1], 0x33^key[2]])
+ *   pkt_in  = salt + bytes([0xC0, 0x11, 0x22, 0x33])
+ *   # unified i от 0: pkt[8+i] ^= key[i % 32]
+ *   pkt_out = salt + bytes([0xC0^key[0], 0x11^key[1], 0x22^key[2], 0x33^key[3]])
  */
 static int test_crosscheck(void)
 {
@@ -272,17 +266,18 @@ static int test_crosscheck(void)
         return 1;
     }
 
-    uint8_t exp8  = 0xC0 ^ key[0];
-    uint8_t exp9  = 0x11 ^ key[0];
-    uint8_t exp10 = 0x22 ^ key[1];
-    uint8_t exp11 = 0x33 ^ key[2];
+    /* unified i: pkt[8+i] = orig[8+i] ^ key[i % 32] */
+    uint8_t exp8  = 0xC0 ^ key[0];  /* i=0 */
+    uint8_t exp9  = 0x11 ^ key[1];  /* i=1 */
+    uint8_t exp10 = 0x22 ^ key[2];  /* i=2 */
+    uint8_t exp11 = 0x33 ^ key[3];  /* i=3 */
 
     if (pkt[8] != exp8 || pkt[9] != exp9 || pkt[10] != exp10 || pkt[11] != exp11) {
         printf("FAIL test_crosscheck:\n");
         printf("  pkt[8]=0x%02x  ожидалось 0x%02x (0xC0^key[0])\n", pkt[8],  exp8);
-        printf("  pkt[9]=0x%02x  ожидалось 0x%02x (0x11^key[0])\n", pkt[9],  exp9);
-        printf("  pkt[10]=0x%02x ожидалось 0x%02x (0x22^key[1])\n", pkt[10], exp10);
-        printf("  pkt[11]=0x%02x ожидалось 0x%02x (0x33^key[2])\n", pkt[11], exp11);
+        printf("  pkt[9]=0x%02x  ожидалось 0x%02x (0x11^key[1])\n", pkt[9],  exp9);
+        printf("  pkt[10]=0x%02x ожидалось 0x%02x (0x22^key[2])\n", pkt[10], exp10);
+        printf("  pkt[11]=0x%02x ожидалось 0x%02x (0x33^key[3])\n", pkt[11], exp11);
         print_hex("key", key, 32);
         return 1;
     }
