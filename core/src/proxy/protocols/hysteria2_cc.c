@@ -74,6 +74,9 @@ void brutal_cc_on_sent(brutal_cc_t *cc, size_t bytes)
     if (!cc || bytes == 0) return;
     (void)bytes;      /* считаем пакеты, не байты */
     cc->window_sent++;
+    /* Авто-обновление при заполнении скользящего окна */
+    if (cc->window_sent >= BRUTAL_WINDOW_SIZE)
+        brutal_cc_update(cc);
 }
 
 void brutal_cc_on_acked(brutal_cc_t *cc, size_t bytes)
@@ -89,7 +92,9 @@ void brutal_cc_on_lost(brutal_cc_t *cc, size_t bytes)
 {
     if (!cc || bytes == 0) return;
     (void)bytes;
-    cc->window_lost++;
+    /* Потерь не может быть больше чем отправлено (защита от double-report) */
+    if (cc->window_lost < cc->window_sent)
+        cc->window_lost++;
 }
 
 /* ── Пересчёт скорости ──────────────────────────────────────────── */
@@ -121,9 +126,9 @@ void brutal_cc_update(brutal_cc_t *cc)
         /* Потеряно почти всё — ставить максимум */
         new_actual = cc->max_bps;
     } else {
-        float denom  = 1.0f - loss;
-        float scaled = (float)cc->target_bps / denom;
-        new_actual   = (uint64_t)scaled;
+        double denom  = 1.0 - (double)loss;
+        double scaled = (double)cc->target_bps / denom;
+        new_actual    = (uint64_t)scaled;
     }
 
     /* Ограничить: [target_bps, max_bps] */
@@ -166,11 +171,13 @@ void brutal_cc_tick(brutal_cc_t *cc, uint64_t now_us)
 
     /*
      * Прирост токенов: actual_bps байт/с × elapsed_s
-     * Вычисление: (elapsed_us / 1000) × (actual_bps / 1000)
-     * Делим оба на 1000 чтобы избежать переполнения uint64.
-     * Погрешность: ~0.1% при elapsed_us < 1с — приемлемо.
+     * Вычисление: total_us / 1000 × actual_bps / 1000
+     * tick_remainder_us накапливает sub-millisecond остатки —
+     * без него sub-ms тики не пополняли бы bucket вовсе.
      */
-    uint64_t new_tokens = (elapsed_us / 1000ULL) * (cc->actual_bps / 1000ULL);
+    uint64_t total_us   = elapsed_us + cc->tick_remainder_us;
+    uint64_t new_tokens = (total_us / 1000ULL) * (cc->actual_bps / 1000ULL);
+    cc->tick_remainder_us = total_us % 1000ULL;
 
     cc->bucket_tokens += new_tokens;
     if (cc->bucket_tokens > cc->bucket_capacity)

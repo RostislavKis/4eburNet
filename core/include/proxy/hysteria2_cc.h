@@ -64,6 +64,7 @@ typedef struct {
     uint64_t  bucket_tokens;      /* текущий уровень (байты) */
     uint64_t  bucket_capacity;    /* максимум = actual_bps * BRUTAL_BUCKET_SECONDS */
     uint64_t  last_tick_us;       /* время последнего tick (микросекунды) */
+    uint64_t  tick_remainder_us;  /* накопленный sub-ms остаток для tick */
 
     /* RTT оценка */
     uint32_t  rtt_ms;             /* сглаженный RTT (EWMA 7/8 + 1/8) */
@@ -112,8 +113,9 @@ void brutal_cc_tick(brutal_cc_t *cc, uint64_t now_us);
 int brutal_cc_can_send(brutal_cc_t *cc, size_t bytes, uint64_t now_us);
 
 /*
- * Текущая расчётная скорость (байт/с).
- * Используется для HTTP/3 заголовка Hysteria-CC-RX: <down_mbps>.
+ * Текущая расчётная скорость в байт/с.
+ * Для заголовка Hysteria-CC-RX нужно бит/с:
+ *   brutal_cc_get_rate(cc) * 8  →  значение для Hysteria-CC-RX
  */
 uint64_t brutal_cc_get_rate(const brutal_cc_t *cc);
 
