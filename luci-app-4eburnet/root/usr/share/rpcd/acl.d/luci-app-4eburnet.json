@@ -1,12 +1,13 @@
 {
   "4eburnet-admin": {
-    "description": "4eburNet admin access",
+    "description": "4eburNet full admin",
     "read": {
       "ubus": {
         "4eburnet": [
-          "status", "stats", "logs", "wan_ip", "devices",
-          "groups", "tproxy_status", "providers", "rules_list",
-          "geo_status", "pkg_manager", "backup", "backup_status", "config_get"
+          "status", "stats", "logs", "wan_ip", "devices", "groups",
+          "tproxy_status", "providers", "rules_list", "geo_status",
+          "pkg_manager", "backup_status", "config_get", "server_list",
+          "adblock_status", "dns_get"
         ]
       },
       "uci": { "4eburnet": ["*"] }
@@ -14,8 +15,10 @@
     "write": {
       "ubus": {
         "4eburnet": [
-          "reload", "stop", "restart", "group_select",
-          "provider_update", "install_pkg", "restore", "config_set"
+          "reload", "stop", "restart", "group_select", "provider_update",
+          "device_save", "server_add", "server_delete",
+          "rule_add", "rule_delete", "install_pkg", "backup", "restore",
+          "config_set", "dns_set"
         ]
       },
       "uci": { "4eburnet": ["*"] }

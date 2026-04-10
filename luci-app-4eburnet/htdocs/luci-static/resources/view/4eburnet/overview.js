@@ -1,40 +1,14 @@
 'use strict';
 'require view';
 'require rpc';
-'require poll';
 
-var callStatus = rpc.declare({
-    object: '4eburnet',
-    method: 'status'
-});
-var callStats = rpc.declare({
-    object: '4eburnet',
-    method: 'stats'
-});
-var callGroups = rpc.declare({
-    object: '4eburnet',
-    method: 'groups'
-});
-var callWanIp = rpc.declare({
-    object: '4eburnet',
-    method: 'wan_ip'
-});
-var callTproxyStatus = rpc.declare({
-    object: '4eburnet',
-    method: 'tproxy_status'
-});
-var callReload = rpc.declare({
-    object: '4eburnet',
-    method: 'reload'
-});
-var callRestart = rpc.declare({
-    object: '4eburnet',
-    method: 'restart'
-});
-var callStop = rpc.declare({
-    object: '4eburnet',
-    method: 'stop'
-});
+var callStatus = rpc.declare({ object: '4eburnet', method: 'status' });
+var callStats  = rpc.declare({ object: '4eburnet', method: 'stats' });
+var callGroups = rpc.declare({ object: '4eburnet', method: 'groups' });
+var callWanIp  = rpc.declare({ object: '4eburnet', method: 'wan_ip' });
+var callTproxy = rpc.declare({ object: '4eburnet', method: 'tproxy_status' });
+var callReload = rpc.declare({ object: '4eburnet', method: 'reload' });
+var callStop   = rpc.declare({ object: '4eburnet', method: 'stop' });
 
 function fmtUptime(sec) {
     sec = sec || 0;
@@ -43,23 +17,27 @@ function fmtUptime(sec) {
          + (sec % 60) + 'с';
 }
 
-function badge(text, cls) {
+function badge(text, col) {
     return E('span', {
-        class: 'eb-badge eb-' + cls,
         style: 'display:inline-block;padding:2px 7px;border-radius:3px;'
-             + 'font-size:10px;font-weight:600;margin-right:4px'
+             + 'font-size:10px;font-weight:600;margin-right:4px;'
+             + 'background:rgba(255,255,255,.06);color:' + (col || '#8d96a0')
     }, [text]);
 }
 
-function statusCard(label, valueId, subId, colorCls) {
+function statCard(label, valId, subId) {
     return E('div', {
-        style: 'background:#161b22;border:1px solid #30363d;border-radius:5px;'
-             + 'padding:12px 14px;' + (colorCls === 'ok' ? 'border-color:rgba(62,207,106,.25)' : '')
+        style: 'background:#161b22;border:1px solid #30363d;border-radius:5px;padding:12px 14px'
     }, [
         E('div', {style: 'font-size:10px;color:#545d68;text-transform:uppercase;letter-spacing:.05em'}, [label]),
-        E('div', {id: valueId, style: 'font-size:18px;font-weight:700;margin-top:4px'}, ['—']),
-        E('div', {id: subId || ('_sub_' + valueId), style: 'font-size:10px;color:#545d68;margin-top:2px'}, [''])
+        E('div', {id: valId, style: 'font-size:18px;font-weight:700;margin-top:4px;color:#e6edf3'}, ['—']),
+        E('div', {id: subId, style: 'font-size:10px;color:#545d68;margin-top:2px'}, [''])
     ]);
+}
+
+function setTxt(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val;
 }
 
 return view.extend({
@@ -70,7 +48,7 @@ return view.extend({
             callStats(),
             callGroups(),
             callWanIp(),
-            callTproxyStatus()
+            callTproxy()
         ]);
     },
 
@@ -80,11 +58,6 @@ return view.extend({
         var groups  = data[2] || {};
         var wanData = data[3] || {};
         var tproxy  = data[4] || {};
-
-        var setTxt = function(id, val) {
-            var el = document.getElementById(id);
-            if (el) el.textContent = val;
-        };
 
         var node = E('div', {style: 'font-family:inherit'}, [
 
@@ -104,16 +77,17 @@ return view.extend({
                     E('div', {style: 'font-size:11px;color:#8d96a0;margin-top:3px'},
                         ['Прокси-маршрутизатор · OpenWrt']),
                     E('div', {style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap'}, [
-                        badge('v0.1.0', 'bnt'),
+                        badge('v0.2.0', '#8d96a0'),
                         E('span', {
                             id: 'hero-status',
-                            style: 'display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;'
+                            style: 'display:inline-block;padding:2px 8px;border-radius:3px;'
+                                 + 'font-size:10px;font-weight:600;'
                                  + (status.running
                                      ? 'background:rgba(62,207,106,.12);color:#3ecf6a;border:1px solid rgba(62,207,106,.2)'
                                      : 'background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.2)')
                         }, [status.running ? '● Активен' : '● Остановлен']),
-                        badge(status.mode || '—', 'bin'),
-                        badge('VLESS · AWG · DoQ', 'bpu')
+                        badge(status.mode || '—', '#4aa8f0'),
+                        badge('VLESS · AWG · DoQ', '#bc8cff')
                     ])
                 ]),
                 E('div', {style: 'text-align:right;flex-shrink:0'}, [
@@ -156,7 +130,8 @@ return view.extend({
                         [_('kmod-nft-tproxy недоступен')]),
                     E('div', {style: 'font-size:11px;color:#8d96a0;margin-top:3px'}, [
                         _('Перехват трафика отключён. Установите: '),
-                        E('code', {style: 'background:#21262d;padding:1px 5px;border-radius:3px'}, ['opkg install kmod-nft-tproxy'])
+                        E('code', {style: 'background:#21262d;padding:1px 5px;border-radius:3px'},
+                            ['opkg install kmod-nft-tproxy'])
                     ])
                 ])
             ]) : E('span'),
@@ -166,11 +141,11 @@ return view.extend({
                 style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));'
                      + 'gap:10px;margin-bottom:14px'
             }, [
-                statusCard(_('Статус'), 'stat-status', 'stat-uptime', status.running ? 'ok' : ''),
-                statusCard(_('Режим'), 'stat-mode', '_sub_stat-mode', ''),
-                statusCard(_('Соединения'), 'stat-conns', 'stat-conns-s', ''),
-                statusCard(_('DNS запросов'), 'stat-dns', 'stat-dns-s', ''),
-                statusCard(_('Группы'), 'stat-groups', '_sub_stat-groups', 'ok')
+                statCard(_('Статус'),      'stat-status', 'stat-uptime'),
+                statCard(_('Режим'),       'stat-mode',   'stat-mode-sub'),
+                statCard(_('Соединения'),  'stat-conns',  'stat-conns-s'),
+                statCard(_('DNS запросов'),'stat-dns',    'stat-dns-s'),
+                statCard(_('Группы'),      'stat-groups', 'stat-groups-s')
             ]),
 
             /* Нижняя сетка: WAN IP + группы */
@@ -187,7 +162,7 @@ return view.extend({
                             click: function() {
                                 callWanIp().then(function(d) {
                                     if (d && d.ip)
-                                        document.getElementById('wan-ip-txt').textContent = d.ip;
+                                        setTxt('wan-ip-txt', d.ip);
                                 });
                             }
                         }, ['⟳'])
@@ -202,7 +177,8 @@ return view.extend({
                 E('div', {
                     style: 'background:#161b22;border:1px solid #30363d;border-radius:5px;padding:14px'
                 }, [
-                    E('div', {style: 'font-size:12px;font-weight:600;color:#8d96a0;margin-bottom:10px'}, [_('👥 Proxy группы')]),
+                    E('div', {style: 'font-size:12px;font-weight:600;color:#8d96a0;margin-bottom:10px'},
+                        [_('👥 Proxy группы')]),
                     E('div', {id: 'groups-mini'}, [
                         (groups.groups || []).length > 0
                         ? E('div', {},
@@ -229,35 +205,51 @@ return view.extend({
             ])
         ]);
 
-        /* Заполнить stat cards */
+        /* Заполнить stat cards начальными данными */
         setTxt('stat-status', status.running ? _('Активен') : _('Остановлен'));
         setTxt('stat-uptime', status.running ? fmtUptime(status.uptime) : '');
-        setTxt('stat-mode', status.mode || '—');
-        setTxt('stat-conns', String(stats.connections || '—'));
+        setTxt('stat-mode',   status.mode || '—');
+        setTxt('stat-conns',  String(stats.connections || '—'));
         setTxt('stat-conns-s', _('Всего: ') + (stats.connections_total || 0));
-        setTxt('stat-dns', String(stats.dns_queries || '—'));
-        setTxt('stat-dns-s', _('Кэш: ') + (stats.dns_cached || 0));
+        setTxt('stat-dns',    String(stats.dns_queries || '—'));
+        setTxt('stat-dns-s',  _('Кэш: ') + (stats.dns_cached || 0));
         setTxt('stat-groups', String((groups.groups || []).length || '—'));
 
-        /* Polling: статус каждые 3 сек */
-        poll.add(function() {
-            return callStatus().then(function(d) {
+        /* Polling через setInterval с cleanup при уходе со страницы.
+           clearInterval вызывается в handleReset — LuCI дёргает его при
+           переходе на другую страницу, так что таймеры не накапливаются. */
+        var pollTimer = setInterval(function() {
+            callStatus().then(function(d) {
                 if (!d) return;
+                /* Если DOM ушёл — остановить таймер */
                 var hs = document.getElementById('hero-status');
-                if (hs) {
-                    hs.textContent = d.running ? '● Активен' : '● Остановлен';
-                    hs.style.color = d.running ? '#3ecf6a' : '#f85149';
-                }
+                if (!hs) { clearInterval(pollTimer); return; }
+                hs.textContent = d.running ? '● Активен' : '● Остановлен';
+                hs.style.cssText = 'display:inline-block;padding:2px 8px;border-radius:3px;'
+                    + 'font-size:10px;font-weight:600;'
+                    + (d.running
+                        ? 'background:rgba(62,207,106,.12);color:#3ecf6a;border:1px solid rgba(62,207,106,.2)'
+                        : 'background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.2)');
                 setTxt('hero-uptime', d.running ? 'Аптайм: ' + fmtUptime(d.uptime) : '—');
                 setTxt('stat-status', d.running ? _('Активен') : _('Остановлен'));
                 setTxt('stat-uptime', d.running ? fmtUptime(d.uptime) : '');
             });
-        }, 3);
+        }, 3000);
 
+        /* Сохранить ID таймера в dataset для handleReset */
+        node.dataset.pollTimer = String(pollTimer);
         return node;
     },
 
     handleSaveApply: null,
     handleSave: null,
-    handleReset: null
+
+    handleReset: function() {
+        /* Остановить polling при уходе со страницы */
+        var node = document.querySelector('[data-poll-timer]');
+        if (node && node.dataset.pollTimer) {
+            clearInterval(parseInt(node.dataset.pollTimer, 10));
+            delete node.dataset.pollTimer;
+        }
+    }
 });

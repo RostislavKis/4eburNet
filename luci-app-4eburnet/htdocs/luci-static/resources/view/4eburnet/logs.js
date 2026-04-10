@@ -1,13 +1,8 @@
 'use strict';
 'require view';
 'require rpc';
-'require poll';
 
-var callLogs = rpc.declare({
-    object: '4eburnet',
-    method: 'logs',
-    params: ['lines']
-});
+var callLogs = rpc.declare({ object: '4eburnet', method: 'logs', params: ['lines'] });
 
 function escHtml(s) {
     return String(s)
@@ -18,10 +13,7 @@ function escHtml(s) {
 
 function renderLines(lines, lvl, search) {
     var colorMap = {
-        debug: '#545d68',
-        info:  '#4aa8f0',
-        warn:  '#f0b429',
-        error: '#f85149'
+        debug: '#545d68', info: '#4aa8f0', warn: '#f0b429', error: '#f85149'
     };
     return lines.filter(function(l) {
         var ll = l.toLowerCase();
@@ -47,9 +39,8 @@ return view.extend({
         return callLogs(100);
     },
 
-    render: function(data) {
-        var logData = data || {};
-        var allLines = logData.lines || [];
+    render: function(logData) {
+        var allLines = (logData || {}).lines || [];
 
         var area = E('div', {
             style: 'background:#0a0d11;border:1px solid #30363d;border-radius:5px;'
@@ -60,7 +51,7 @@ return view.extend({
         var lvSel = E('select', {
             style: 'padding:4px 8px;background:#21262d;border:1px solid #30363d;'
                  + 'border-radius:4px;color:#e6edf3;font-size:11px',
-            change: function() { update(); }
+            change: function() { doUpdate(); }
         }, [
             E('option', {value: ''}, [_('Все уровни')]),
             E('option', {value: 'debug'}, ['DEBUG']),
@@ -70,34 +61,43 @@ return view.extend({
         ]);
 
         var searchInp = E('input', {
-            type: 'text',
-            placeholder: _('Поиск…'),
+            type: 'text', placeholder: _('Поиск…'),
             style: 'padding:4px 8px;background:#21262d;border:1px solid #30363d;'
                  + 'border-radius:4px;color:#e6edf3;font-size:11px;width:180px',
-            input: function() { update(); }
+            input: function() { doUpdate(); }
         });
 
-        function update() {
+        var countSpan = E('span', {style: 'font-size:10px;color:#545d68;margin-left:4px'},
+            [_('Строк: '), E('span', {id: 'log-count-val'}, [String(allLines.length)])]);
+
+        function doUpdate() {
             area.innerHTML = renderLines(
                 allLines,
                 lvSel.value,
                 searchInp.value.toLowerCase()
             );
             area.scrollTop = area.scrollHeight;
+            var el = document.getElementById('log-count-val');
+            if (el) el.textContent = String(allLines.length);
         }
 
-        update();
+        doUpdate();
 
-        /* Polling: обновлять каждые 3 сек */
-        poll.add(function() {
-            return callLogs(100).then(function(d) {
-                if (!d || !d.lines) return;
-                allLines = d.lines;
-                update();
+        /* Polling через setInterval с cleanup в handleReset */
+        var pollTimer = setInterval(function() {
+            callLogs(100).then(function(resp) {
+                if (!resp || !resp.lines) return;
+                /* Если DOM ушёл — остановить таймер */
+                if (!document.getElementById('log-count-val')) {
+                    clearInterval(pollTimer);
+                    return;
+                }
+                allLines = resp.lines;
+                doUpdate();
             });
-        }, 3);
+        }, 3000);
 
-        return E('div', {}, [
+        var node = E('div', {'data-poll-timer': String(pollTimer)}, [
             E('div', {
                 style: 'display:flex;gap:10px;margin-bottom:10px;align-items:center;flex-wrap:wrap'
             }, [
@@ -107,21 +107,28 @@ return view.extend({
                     class: 'btn cbi-button',
                     style: 'padding:4px 9px;font-size:11px',
                     click: function() {
-                        callLogs(100).then(function(d) {
-                            if (d && d.lines) { allLines = d.lines; update(); }
+                        callLogs(100).then(function(resp) {
+                            if (resp && resp.lines) { allLines = resp.lines; doUpdate(); }
                         });
                     }
                 }, ['⟳ ' + _('Обновить')]),
-                E('span', {style: 'font-size:10px;color:#545d68;margin-left:4px'}, [
-                    _('Строк: '),
-                    E('span', {id: 'log-count'}, [String(allLines.length)])
-                ])
+                countSpan
             ]),
             area
         ]);
+
+        return node;
     },
 
     handleSaveApply: null,
     handleSave: null,
-    handleReset: null
+
+    handleReset: function() {
+        /* Остановить polling при уходе со страницы */
+        var node = document.querySelector('[data-poll-timer]');
+        if (node && node.dataset.pollTimer) {
+            clearInterval(parseInt(node.dataset.pollTimer, 10));
+            delete node.dataset.pollTimer;
+        }
+    }
 });

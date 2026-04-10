@@ -2,13 +2,58 @@
 'require view';
 'require rpc';
 
-var callDevices = rpc.declare({ object: '4eburnet', method: 'devices' });
+var callDevices    = rpc.declare({ object: '4eburnet', method: 'devices' });
+var callDeviceSave = rpc.declare({
+    object: '4eburnet', method: 'device_save',
+    params: ['mac', 'policy', 'group', 'alias']
+});
 
-var TH_STYLE = 'padding:7px 10px;font-size:10px;color:#545d68;'
-    + 'text-transform:uppercase;letter-spacing:.05em;'
-    + 'border-bottom:1px solid #30363d;text-align:left';
+var TH = 'padding:7px 10px;font-size:10px;color:#545d68;'
+       + 'text-transform:uppercase;letter-spacing:.05em;'
+       + 'border-bottom:1px solid #30363d;text-align:left';
+var TD = 'padding:6px 10px;border-bottom:1px solid #21262d';
 
-var TD_STYLE = 'padding:6px 10px;border-bottom:1px solid #21262d';
+function policySelect(dev) {
+    var sel = E('select', {
+        style: 'padding:3px 7px;background:#21262d;border:1px solid #30363d;'
+             + 'border-radius:4px;color:#e6edf3;font-size:11px;cursor:pointer'
+    }, [
+        E('option', {value: 'default'}, [_('default')]),
+        E('option', {value: 'proxy'},   [_('proxy')]),
+        E('option', {value: 'bypass'},  [_('bypass')]),
+        E('option', {value: 'block'},   [_('block')])
+    ]);
+
+    /* Установить текущее значение */
+    sel.value = dev.policy || 'default';
+
+    var statusSpan = E('span', {
+        style: 'font-size:10px;margin-left:6px;min-width:14px;display:inline-block'
+    }, ['']);
+
+    sel.addEventListener('change', function() {
+        var chosen = sel.value;
+        statusSpan.textContent = '…';
+        statusSpan.style.color = '#8d96a0';
+        callDeviceSave(dev.mac, chosen, dev.group || '', dev.alias || '')
+            .then(function(r) {
+                if (r && r.ok) {
+                    dev.policy = chosen;
+                    statusSpan.textContent = '✓';
+                    statusSpan.style.color = '#3ecf6a';
+                    /* Убрать галочку через 1.5 сек */
+                    setTimeout(function() { statusSpan.textContent = ''; }, 1500);
+                } else {
+                    statusSpan.textContent = '✕';
+                    statusSpan.style.color = '#f85149';
+                    /* Откатить выбор */
+                    sel.value = dev.policy || 'default';
+                }
+            });
+    });
+
+    return E('div', {style: 'display:flex;align-items:center'}, [sel, statusSpan]);
+}
 
 return view.extend({
 
@@ -21,27 +66,28 @@ return view.extend({
 
         var rows = devs.length > 0
             ? devs.map(function(d) {
+                var dotColor = d.policy === 'block'  ? '#f85149'
+                             : d.policy === 'bypass' ? '#f0b429'
+                             : d.policy === 'proxy'  ? '#4aa8f0'
+                             : '#3ecf6a';
                 return E('tr', {}, [
-                    E('td', {style: TD_STYLE}, [
+                    E('td', {style: TD}, [
                         E('div', {
                             style: 'width:7px;height:7px;border-radius:50%;'
-                                 + 'background:#3ecf6a;display:inline-block'
+                                 + 'background:' + dotColor + ';display:inline-block'
                         })
                     ]),
-                    E('td', {style: TD_STYLE + ';font-family:monospace;font-size:11px'}, [d.mac]),
-                    E('td', {style: TD_STYLE + ';font-family:monospace;font-size:11px'}, [d.ip]),
-                    E('td', {style: TD_STYLE + ';font-size:11px;color:#8d96a0'}, [d.iface || '—']),
-                    E('td', {style: TD_STYLE}, [
-                        E('select', {
-                            style: 'padding:3px 7px;background:#21262d;border:1px solid #30363d;'
-                                 + 'border-radius:4px;color:#e6edf3;font-size:11px'
-                        }, [
-                            E('option', {value: 'default'}, [_('default')]),
-                            E('option', {value: 'proxy'},   [_('proxy')]),
-                            E('option', {value: 'bypass'},  [_('bypass')]),
-                            E('option', {value: 'block'},   [_('block')])
-                        ])
-                    ])
+                    E('td', {style: TD + ';font-family:monospace;font-size:11px'}, [d.mac]),
+                    E('td', {style: TD + ';font-family:monospace;font-size:11px'}, [d.ip]),
+                    E('td', {style: TD + ';font-size:11px;color:#8d96a0'}, [
+                        d.hostname
+                            ? E('span', {}, [
+                                d.hostname,
+                                E('span', {style: 'color:#30363d;margin-left:4px'}, [d.iface || ''])
+                              ])
+                            : (d.iface || '—')
+                    ]),
+                    E('td', {style: TD}, [policySelect(d)])
                 ]);
             })
             : [E('tr', {}, [
@@ -53,8 +99,7 @@ return view.extend({
 
         return E('div', {}, [
             E('div', {
-                style: 'display:flex;align-items:center;'
-                     + 'justify-content:space-between;margin-bottom:12px'
+                style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:12px'
             }, [
                 E('div', {style: 'font-size:15px;font-weight:600;color:#e6edf3'}, [
                     _('Устройства в сети'),
@@ -64,28 +109,31 @@ return view.extend({
                 ]),
                 E('button', {
                     class: 'btn cbi-button',
-                    click: function() { location.reload(); }
+                    click: function() {
+                        callDevices().then(function(r) {
+                            if (r) location.reload();
+                        });
+                    }
                 }, [_('📡 Обновить')])
             ]),
             E('div', {
-                style: 'overflow-x:auto;background:#161b22;'
-                     + 'border:1px solid #30363d;border-radius:5px'
+                style: 'overflow-x:auto;background:#161b22;border:1px solid #30363d;border-radius:5px'
             }, [
                 E('table', {style: 'width:100%;border-collapse:collapse'}, [
                     E('thead', {}, [
                         E('tr', {}, [
-                            E('th', {style: TH_STYLE}, ['']),
-                            E('th', {style: TH_STYLE}, ['MAC']),
-                            E('th', {style: TH_STYLE}, ['IP']),
-                            E('th', {style: TH_STYLE}, [_('Интерфейс')]),
-                            E('th', {style: TH_STYLE}, [_('Политика')])
+                            E('th', {style: TH}, ['']),
+                            E('th', {style: TH}, ['MAC']),
+                            E('th', {style: TH}, ['IP']),
+                            E('th', {style: TH}, [_('Хост / Интерфейс')]),
+                            E('th', {style: TH}, [_('Политика')])
                         ])
                     ]),
                     E('tbody', {}, rows)
                 ])
             ]),
             E('div', {style: 'font-size:10px;color:#545d68;margin-top:8px'}, [
-                _('Источник: /proc/net/arp · Политика применяется через MAC-based routing')
+                _('Источник: ARP + DHCP leases · Политика сохраняется в UCI и применяется через reload')
             ])
         ]);
     },

@@ -1,94 +1,85 @@
 #!/usr/bin/lua
 --[[
-  rpcd backend для 4eburNet
-  Протокол: JSON-RPC через stdin/stdout
-  Связь с 4eburnetd через Unix socket /var/run/4eburnet.sock
+  rpcd backend для 4eburNet v0.2
+  JSON-RPC через stdin/stdout → nixio IPC → 4eburnetd
 --]]
 
--- ------------------------------------------------------------------ --
---  JSON: попробовать luci.jsonc → cjson → fallback                   --
--- ------------------------------------------------------------------ --
-
-local json_ok, json_mod = pcall(require, "luci.jsonc")
+-- ── JSON ──────────────────────────────────────────────────────────
+local json_ok, json = pcall(require, "luci.jsonc")
 if not json_ok then
-    json_ok, json_mod = pcall(require, "cjson")
+    json_ok, json = pcall(require, "cjson")
+end
+
+local function json_encode(v)
+    local t = type(v)
+    if t == "nil" then
+        return "null"
+    elseif t == "boolean" then
+        return tostring(v)
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return "null" end
+        return tostring(v)
+    elseif t == "string" then
+        return '"' .. v:gsub('[\\"/%c]', function(c)
+            local esc = {['"']='\\"', ['\\']='\\\\', ['/']='\\/',
+                         ['\n']='\\n', ['\r']='\\r', ['\t']='\\t'}
+            return esc[c] or ('\\u00' .. string.format('%02x', c:byte()))
+        end) .. '"'
+    elseif t == "table" then
+        local n = 0
+        for _ in pairs(v) do n = n + 1 end
+        local is_arr = (n > 0 and v[1] ~= nil and #v == n)
+        if is_arr then
+            local a = {}
+            for i = 1, #v do a[i] = json_encode(v[i]) end
+            return "[" .. table.concat(a, ",") .. "]"
+        else
+            local a = {}
+            for k, val in pairs(v) do
+                if type(k) == "string" or type(k) == "number" then
+                    a[#a+1] = json_encode(tostring(k)) .. ":" .. json_encode(val)
+                end
+            end
+            return "{" .. table.concat(a, ",") .. "}"
+        end
+    end
+    return "null"
 end
 
 if not json_ok then
-    -- Полный fallback: корректная сериализация объектов и массивов
-
-    local function json_stringify_val(v)
-        local t = type(v)
-        if t == "nil" then
-            return "null"
-        elseif t == "boolean" then
-            return tostring(v)
-        elseif t == "number" then
-            return tostring(v)
-        elseif t == "string" then
-            local s = v:gsub('\\', '\\\\')
-                       :gsub('"',  '\\"')
-                       :gsub('\n', '\\n')
-                       :gsub('\r', '\\r')
-                       :gsub('\t', '\\t')
-            return '"' .. s .. '"'
-        elseif t == "table" then
-            -- Определить: массив или объект
-            local max_idx = 0
-            local is_array = true
-            for k, _ in pairs(v) do
-                if type(k) ~= "number" or k ~= math.floor(k) or k < 1 then
-                    is_array = false
-                    break
-                end
-                if k > max_idx then max_idx = k end
-            end
-            if is_array and max_idx == #v then
-                local parts = {}
-                for i = 1, #v do
-                    parts[i] = json_stringify_val(v[i])
-                end
-                return "[" .. table.concat(parts, ",") .. "]"
-            else
-                local parts = {}
-                for k, val in pairs(v) do
-                    parts[#parts+1] = '"' .. tostring(k) .. '":' .. json_stringify_val(val)
-                end
-                return "{" .. table.concat(parts, ",") .. "}"
-            end
-        end
-        return "null"
-    end
-
-    json_mod = {
-        stringify = function(t) return json_stringify_val(t) end,
-        parse     = function(s) return nil end    -- без внешней либы не парсим
+    json = {
+        stringify = json_encode,
+        parse     = function() return nil end
     }
 end
 
--- ------------------------------------------------------------------ --
---  nixio                                                              --
--- ------------------------------------------------------------------ --
+local function jstr(v)
+    local ok, r = pcall(json.stringify, v)
+    return ok and r or json_encode(v)
+end
 
+local function jparse(s)
+    if not s or s == "" then return nil end
+    local ok, r = pcall(json.parse, s)
+    return (ok and r) or nil
+end
+
+-- ── nixio ─────────────────────────────────────────────────────────
 local nixio_ok, nixio = pcall(require, "nixio")
 
--- ------------------------------------------------------------------ --
---  Константы                                                          --
--- ------------------------------------------------------------------ --
+-- ── Константы ─────────────────────────────────────────────────────
+local SOCKET       = "/var/run/4eburnet.sock"
+local IPC_VERSION  = 1
+local IPC_TIMEOUT  = 3
+local RECV_MAX_ITER = 64
+local BACKUP_FILE  = "/etc/4eburnet/backup.tar.gz"
 
-local SOCKET      = "/var/run/4eburnet.sock"
-local VERSION     = 1
-local TIMEOUT     = 3
-local BACKUP_PATH = "/tmp/4eburnet-backup.tar.gz"
+-- ── IPC ───────────────────────────────────────────────────────────
+local ipc_req_id = 0
 
--- ------------------------------------------------------------------ --
---  IPC                                                                --
--- ------------------------------------------------------------------ --
-
--- IPC header: version(u8) cmd(u8) length(u16 BE) req_id(u32 BE) = 8 байт
 local function pack_hdr(cmd, plen, rid)
     return string.char(
-        VERSION, cmd,
+        IPC_VERSION, cmd,
         math.floor(plen / 256) % 256, plen % 256,
         math.floor(rid / 16777216) % 256,
         math.floor(rid / 65536) % 256,
@@ -96,82 +87,89 @@ local function pack_hdr(cmd, plen, rid)
         rid % 256)
 end
 
--- Читать ровно n байт из сокета (TCP может дробить данные)
-local function ipc_recv_all(s, n)
+local function recv_exact(sock, n)
     if n == 0 then return "" end
-    local buf = ""
-    local max_iter = n * 2 + 16  -- защита от бесконечного цикла
-    local iter = 0
-    while #buf < n and iter < max_iter do
+    local buf, iter = "", 0
+    while #buf < n and iter < RECV_MAX_ITER do
         iter = iter + 1
-        local chunk, _ = s:recv(n - #buf)
+        local chunk = sock:recv(n - #buf)
         if not chunk or #chunk == 0 then break end
         buf = buf .. chunk
     end
-    return #buf == n and buf or nil
+    return (#buf == n) and buf or nil
 end
 
 local function ipc_call(cmd, payload)
-    if not nixio_ok then return nil, "nixio недоступен" end
+    if not nixio_ok then return nil, "nixio not available" end
     payload = payload or ""
-    local s = nixio.socket("unix", "stream")
-    if not s then return nil, "socket create failed" end
-    s:settimeout(TIMEOUT)
-    local ok, e = s:connect(SOCKET)
-    if not ok then s:close(); return nil, "connect: " .. tostring(e) end
 
-    local req_id = os.time() % 65535
-    local sent, err = s:send(pack_hdr(cmd, #payload, req_id) .. payload)
-    if not sent then s:close(); return nil, "send: " .. tostring(err) end
+    local sock = nixio.socket("unix", "stream")
+    if not sock then return nil, "socket() failed" end
 
-    -- Читать заголовок (ровно 8 байт)
-    local hdr = ipc_recv_all(s, 8)
-    if not hdr then s:close(); return nil, "no response header" end
+    sock:settimeout(IPC_TIMEOUT)
+    local connected, conn_err = sock:connect(SOCKET)
+    if not connected then
+        sock:close()
+        return nil, "connect: " .. tostring(conn_err)
+    end
 
-    local plen = hdr:byte(3) * 256 + hdr:byte(4)
+    ipc_req_id = (ipc_req_id + 1) % 65535
+    local hdr = pack_hdr(cmd, #payload, ipc_req_id)
+    local sent, send_err = sock:send(hdr .. payload)
+    if not sent then
+        sock:close()
+        return nil, "send: " .. tostring(send_err)
+    end
 
-    -- Читать payload (все байты)
+    local resp_hdr = recv_exact(sock, 8)
+    if not resp_hdr then
+        sock:close()
+        return nil, "recv header failed"
+    end
+
+    local resp_len = resp_hdr:byte(3) * 256 + resp_hdr:byte(4)
     local body = ""
-    if plen > 0 then
-        body = ipc_recv_all(s, plen)
-        if not body then s:close(); return nil, "recv payload incomplete" end
+    if resp_len > 0 then
+        body = recv_exact(sock, resp_len)
+        if not body then
+            sock:close()
+            return nil, "recv body incomplete"
+        end
     end
-    s:close()
+    sock:close()
 
-    -- Найти начало JSON объекта или массива (B3: find вместо match)
-    local js_start = (body or ""):find("[{%[]")
-    if js_start then
-        return (body or ""):sub(js_start), nil
-    end
-    return body, nil
+    local js_pos = body:find("[{%[]")
+    return js_pos and body:sub(js_pos) or body, nil
 end
 
--- ------------------------------------------------------------------ --
---  Вспомогательные                                                    --
--- ------------------------------------------------------------------ --
+local function ipc_json(cmd, payload)
+    local r, e = ipc_call(cmd, payload)
+    if e then return nil, e end
+    local d = jparse(r)
+    return d, (d == nil and "parse error" or nil)
+end
 
+-- ── Утилиты ───────────────────────────────────────────────────────
 local function is_running()
     local f = io.open("/var/run/4eburnet.pid", "r")
     if not f then return false end
-    local pid = tonumber(f:read("*l")); f:close()
+    local pid = tonumber(f:read("*l"))
+    f:close()
     if not pid then return false end
-    -- B1: Lua 5.1 (OpenWrt) возвращает true/false, Lua 5.2+ возвращает число
     local ret = os.execute("kill -0 " .. pid .. " 2>/dev/null")
     return ret == 0 or ret == true
 end
 
--- Определить пакетный менеджер по версии OpenWrt
--- OpenWrt >= 25.12.0 использует apk, остальные — opkg
-local function detect_pkg_manager()
+local function get_pkg_mgr()
     local f = io.open("/usr/bin/apk", "r")
     if f then f:close(); return "apk" end
-    local vf = io.open("/etc/openwrt_release", "r")
-    if vf then
-        local content = vf:read("*a"); vf:close()
-        local major, minor = content:match('DISTRIB_RELEASE="(%d+)%.(%d+)')
-        if major and minor then
-            local maj, min = tonumber(major), tonumber(minor)
-            if maj and min and (maj > 25 or (maj == 25 and min >= 12)) then
+    local rf = io.open("/etc/openwrt_release", "r")
+    if rf then
+        local content = rf:read("*a"); rf:close()
+        local maj, min = content:match('DISTRIB_RELEASE="(%d+)%.(%d+)')
+        if maj and min then
+            local ma, mi = tonumber(maj), tonumber(min)
+            if ma and mi and (ma > 25 or (ma == 25 and mi >= 12)) then
                 return "apk"
             end
         end
@@ -180,158 +178,435 @@ local function detect_pkg_manager()
 end
 
 local function pkg_installed(name)
-    local mgr = detect_pkg_manager()
-    local cmd = mgr == "apk"
-        and ("apk info " .. name .. " 2>/dev/null")
-        or  ("opkg list-installed " .. name .. " 2>/dev/null")
+    local mgr = get_pkg_mgr()
+    local cmd = (mgr == "apk")
+        and ("apk info " .. name .. " 2>/dev/null | grep -c '^'")
+        or  ("opkg list-installed " .. name .. " 2>/dev/null | grep -c '^'")
     local f = io.popen(cmd)
     if not f then return false end
-    local out = f:read("*a"); f:close()
-    return out and #out > 0
+    local n = tonumber(f:read("*l") or "0"); f:close()
+    return (n or 0) > 0
 end
 
--- ------------------------------------------------------------------ --
---  Методы rpcd                                                        --
--- ------------------------------------------------------------------ --
+-- Получить всю секцию uci как таблицу
+local function uci_get_section(config, section)
+    if section:match("[^%w_%-]") then return {} end
+    local f = io.popen("uci -q show " .. config .. "." .. section
+                       .. " 2>/dev/null")
+    if not f then return {} end
+    local result = {}
+    for line in f:lines() do
+        local opt, val = line:match(
+            config .. "%." .. section .. "%.(%w+)='?(.-)'?$")
+        if opt then result[opt] = val end
+    end
+    f:close()
+    return result
+end
 
+-- Получить все секции заданного типа
+local function uci_get_sections_of_type(config, stype)
+    local f = io.popen("uci -q show " .. config .. " 2>/dev/null")
+    if not f then return {} end
+
+    -- Собрать все имена секций нужного типа
+    local ordered_names = {}
+    local name_set = {}
+    local sections = {}
+
+    for line in f:lines() do
+        -- Строка вида: config.section=type
+        local sec_name, sec_type = line:match("^" .. config .. "%.([%w_%-]+)='" .. stype .. "'$")
+        if sec_name and not name_set[sec_name] then
+            name_set[sec_name] = true
+            ordered_names[#ordered_names+1] = sec_name
+            sections[sec_name] = {}
+        end
+        -- Строка вида: config.section.option='value'
+        local sn, opt, val = line:match("^" .. config .. "%.([%w_%-]+)%.(%w+)='?(.-)'?$")
+        if sn and sections[sn] and opt then
+            sections[sn][opt] = val
+        end
+    end
+    f:close()
+
+    local arr = {}
+    for _, name in ipairs(ordered_names) do
+        local data = sections[name]
+        data[".name"] = name
+        arr[#arr+1] = data
+    end
+    return arr
+end
+
+-- Безопасный uci set через экранирование одинарной кавычки
+local function uci_set(config, section, option, value)
+    if section:match("[^%w_%-]") or option:match("[^%w_%-]") then
+        return false, "invalid identifier"
+    end
+    local escaped = tostring(value):gsub("'", "'\\''")
+    local cmd = string.format(
+        "uci -q set %s.%s.%s='%s' 2>/dev/null && uci -q commit %s 2>/dev/null",
+        config, section, option, escaped, config)
+    local ret = os.execute(cmd)
+    return ret == 0 or ret == true
+end
+
+-- ── Методы ────────────────────────────────────────────────────────
 local methods = {}
 
-methods.status = function(args)
+methods.status = function(_)
     local running = is_running()
-    local data = {}
+    local ipc_data = {}
     if running then
-        local r, _ = ipc_call(1)  -- IPC_CMD_STATUS
-        if r then
-            local ok, d = pcall(json_mod.parse, r)
-            if ok and d then data = d end
-        end
+        local d, _ = ipc_json(1)  -- IPC_CMD_STATUS
+        if d then ipc_data = d end
     end
     return {
         running   = running,
-        uptime    = data.uptime or 0,
-        mode      = data.mode or "unknown",
+        uptime    = ipc_data.uptime or 0,
+        mode      = ipc_data.mode  or uci_get_section("4eburnet","main").mode or "rules",
+        profile   = ipc_data.profile or "unknown",
         timestamp = os.time()
     }
 end
 
-methods.stats = function(args)
-    local r, e = ipc_call(4)  -- IPC_CMD_STATS
-    if e then return { error = e, connections = 0, dns_queries = 0 } end
-    local ok, d = pcall(json_mod.parse, r or "")
-    return (ok and d) or { raw = r, connections = 0, dns_queries = 0 }
+methods.stats = function(_)
+    local d, e = ipc_json(4)  -- IPC_CMD_STATS
+    if e then
+        return {error=e, connections=0, dns_queries=0,
+                dns_cached=0, connections_total=0}
+    end
+    return d
 end
 
-methods.reload = function(args)
+methods.reload = function(_)
     local _, e = ipc_call(2)  -- IPC_CMD_RELOAD
-    return { ok = (e == nil), error = e }
+    return {ok=(e==nil), error=e}
 end
 
-methods.stop = function(args)
+methods.stop = function(_)
     local _, e = ipc_call(3)  -- IPC_CMD_STOP
-    return { ok = (e == nil), error = e }
+    return {ok=(e==nil), error=e}
 end
 
-methods.restart = function(args)
-    os.execute("/etc/init.d/4eburnet stop 2>/dev/null; sleep 1; /etc/init.d/4eburnet start 2>/dev/null")
-    return { ok = true }
+methods.restart = function(_)
+    os.execute("/etc/init.d/4eburnet stop 2>/dev/null")
+    os.execute("sleep 1")
+    local ret = os.execute("/etc/init.d/4eburnet start 2>/dev/null")
+    return {ok=(ret == 0 or ret == true)}
 end
 
-methods.groups = function(args)
-    local r, e = ipc_call(20)  -- IPC_CMD_GROUP_LIST
-    if e then return { error = e, groups = {} } end
-    local ok, d = pcall(json_mod.parse, r or "")
-    return (ok and d) or { groups = {}, raw = r }
+methods.groups = function(_)
+    local d, e = ipc_json(20)  -- IPC_CMD_GROUP_LIST
+    if e then return {error=e, groups={}} end
+    return d or {groups={}}
 end
 
 methods.group_select = function(args)
-    local payload = json_mod.stringify(args or {})
+    args = args or {}
+    if not args.group or not args.idx then
+        return {ok=false, error="group and idx required"}
+    end
+    local payload = jstr({group=args.group, idx=tonumber(args.idx) or 0})
     local _, e = ipc_call(21, payload)  -- IPC_CMD_GROUP_SELECT
-    return { ok = (e == nil), error = e }
+    return {ok=(e==nil), error=e}
 end
 
-methods.providers = function(args)
-    local r, e = ipc_call(23)  -- IPC_CMD_PROVIDER_LIST
-    if e then return { error = e, providers = {} } end
-    local ok, d = pcall(json_mod.parse, r or "")
-    return (ok and d) or { providers = {}, raw = r }
+methods.providers = function(_)
+    local d, e = ipc_json(23)  -- IPC_CMD_PROVIDER_LIST
+    if e then return {error=e, providers={}} end
+    return d or {providers={}}
 end
 
 methods.provider_update = function(args)
-    local payload = json_mod.stringify(args or {})
+    args = args or {}
+    if not args.name then return {ok=false, error="name required"} end
+    local payload = jstr({name=args.name})
     local _, e = ipc_call(24, payload)  -- IPC_CMD_PROVIDER_UPDATE
-    return { ok = (e == nil), error = e }
+    return {ok=(e==nil), error=e}
 end
 
-methods.rules_list = function(args)
-    local r, e = ipc_call(25)  -- IPC_CMD_RULES_LIST
-    if e then return { error = e, rules = {} } end
-    local ok, d = pcall(json_mod.parse, r or "")
-    return (ok and d) or { rules = {}, raw = r }
+methods.rules_list = function(_)
+    local d, e = ipc_json(25)  -- IPC_CMD_RULES_LIST
+    if e then
+        local rules = uci_get_sections_of_type("4eburnet", "traffic_rule")
+        return {rules=rules, source="uci"}
+    end
+    return d or {rules={}}
 end
 
-methods.geo_status = function(args)
-    local r, e = ipc_call(26)  -- IPC_CMD_GEO_STATUS
-    if e then return { error = e, loaded = false } end
-    local ok, d = pcall(json_mod.parse, r or "")
-    return (ok and d) or { loaded = false, raw = r }
+methods.geo_status = function(_)
+    local d, e = ipc_json(26)  -- IPC_CMD_GEO_STATUS
+    if e then return {error=e, loaded=false} end
+    return d or {loaded=false}
 end
 
 methods.logs = function(args)
-    local n = tonumber((args or {}).lines) or 50
-    if n > 500 then n = 500 end
+    local n = math.min(tonumber((args or {}).lines) or 50, 500)
     local lines = {}
     local f = io.open("/tmp/4eburnet.log", "r")
     if f then
         local all = {}
         for l in f:lines() do all[#all+1] = l end
         f:close()
-        local s = math.max(1, #all - n + 1)
-        for i = s, #all do lines[#lines+1] = all[i] end
+        for i = math.max(1, #all - n + 1), #all do
+            lines[#lines+1] = all[i]
+        end
     end
-    return { lines = lines, count = #lines }
+    return {lines=lines, count=#lines}
 end
 
-methods.wan_ip = function(args)
-    local ip
+methods.wan_ip = function(_)
+    local ip = nil
+
+    -- Метод 1: ip route get
     local f = io.popen("ip route get 8.8.8.8 2>/dev/null")
     if f then
         local line = f:read("*l"); f:close()
-        if line then ip = line:match("src%s+(%S+)") end
+        if line then ip = line:match("src%s+(%d+%.%d+%.%d+%.%d+)") end
     end
-    return { ip = ip or "unknown", timestamp = os.time() }
+
+    -- Метод 2: первый глобальный адрес из ip addr
+    if not ip then
+        f = io.popen("ip addr show scope global 2>/dev/null")
+        if f then
+            for line in f:lines() do
+                local a = line:match("inet%s+(%d+%.%d+%.%d+%.%d+)")
+                if a then ip = a; break end
+            end
+            f:close()
+        end
+    end
+
+    -- Метод 3: netifd через ubus
+    if not ip then
+        f = io.popen("ubus call network.interface.wan status 2>/dev/null")
+        if f then
+            local out = f:read("*a"); f:close()
+            ip = out and out:match('"address"%s*:%s*"([^"]+)"')
+        end
+    end
+
+    return {ip = ip or "unknown", timestamp = os.time()}
 end
 
-methods.devices = function(args)
+methods.devices = function(_)
     local devs = {}
+    local seen = {}
+
+    -- ARP таблица
     local f = io.open("/proc/net/arp", "r")
     if f then
-        f:read("*l")  -- пропустить заголовок
+        f:read("*l")  -- заголовок
         for l in f:lines() do
-            local ip, _, _, mac, _, iface = l:match(
+            local ip,_,_,mac,_,iface = l:match(
                 "(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
             if ip and mac and mac ~= "00:00:00:00:00:00" then
-                devs[#devs+1] = { ip = ip, mac = mac:upper(), iface = iface }
+                local m = mac:upper()
+                if not seen[m] then
+                    seen[m] = true
+                    devs[#devs+1] = {ip=ip, mac=m, iface=iface, source="arp"}
+                end
             end
         end
         f:close()
     end
-    return { devices = devs, count = #devs }
+
+    -- DHCP leases — добавить hostname
+    f = io.open("/tmp/dhcp.leases", "r")
+    if f then
+        for l in f:lines() do
+            local mac, ip, name = l:match("%S+%s+(%S+)%s+(%S+)%s+(%S+)")
+            if mac and ip then
+                local m = mac:upper()
+                local found = false
+                for _, d in ipairs(devs) do
+                    if d.mac == m then
+                        d.hostname = (name ~= "*") and name or nil
+                        found = true; break
+                    end
+                end
+                if not found and not seen[m] then
+                    seen[m] = true
+                    devs[#devs+1] = {
+                        ip=ip, mac=m,
+                        hostname=(name ~= "*") and name or nil,
+                        source="dhcp"
+                    }
+                end
+            end
+        end
+        f:close()
+    end
+
+    -- Добавить UCI политику для каждого устройства
+    local policy_sections = uci_get_sections_of_type("4eburnet", "device")
+    for _, d in ipairs(devs) do
+        for _, ps in ipairs(policy_sections) do
+            if ps.mac and ps.mac:upper() == d.mac then
+                d.policy = ps.policy or "default"
+                d.group  = ps.server_group or ""
+                d.alias  = ps.alias or ""
+                break
+            end
+        end
+        if not d.policy then d.policy = "default" end
+    end
+
+    return {devices=devs, count=#devs}
 end
 
-methods.tproxy_status = function(args)
+methods.device_save = function(args)
+    args = args or {}
+    local mac = args.mac
+    if not mac or not mac:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") then
+        return {ok=false, error="invalid MAC address"}
+    end
+    local policy = args.policy or "default"
+    local allowed_policies = {default=1, proxy=1, bypass=1, block=1}
+    if not allowed_policies[policy] then
+        return {ok=false, error="invalid policy"}
+    end
+    local group = (args.group or ""):gsub("'","")
+    local alias = (args.alias or ""):gsub("'","")
+
+    -- Найти существующую секцию device для этого MAC
+    local existing_section = nil
+    local sections = uci_get_sections_of_type("4eburnet", "device")
+    for _, s in ipairs(sections) do
+        if s.mac and s.mac:upper() == mac:upper() then
+            existing_section = s[".name"]
+            break
+        end
+    end
+
+    if existing_section then
+        uci_set("4eburnet", existing_section, "policy", policy)
+        if group ~= "" then
+            uci_set("4eburnet", existing_section, "server_group", group)
+        end
+        if alias ~= "" then
+            uci_set("4eburnet", existing_section, "alias", alias)
+        end
+    else
+        -- Добавить новую секцию device
+        os.execute("uci -q add 4eburnet device 2>/dev/null")
+        local f = io.popen(
+            "uci -q show 4eburnet | grep \"=device$\" | tail -1 | "
+            .. "cut -d. -f2 | cut -d= -f1 2>/dev/null")
+        local sec_name = f and f:read("*l") or ""
+        if f then f:close() end
+        if sec_name and sec_name ~= "" then
+            uci_set("4eburnet", sec_name, "mac", mac:upper())
+            uci_set("4eburnet", sec_name, "policy", policy)
+            if group ~= "" then
+                uci_set("4eburnet", sec_name, "server_group", group)
+            end
+            if alias ~= "" then
+                uci_set("4eburnet", sec_name, "alias", alias)
+            end
+        end
+    end
+
+    os.execute("uci -q commit 4eburnet 2>/dev/null")
+
+    if is_running() then ipc_call(2) end
+    return {ok=true, mac=mac, policy=policy}
+end
+
+methods.server_list = function(_)
+    local servers = uci_get_sections_of_type("4eburnet", "server")
+    return {servers=servers, count=#servers}
+end
+
+methods.server_add = function(args)
+    args = args or {}
+    local required = {"name", "protocol", "address", "port"}
+    for _, f in ipairs(required) do
+        if not args[f] or args[f] == "" then
+            return {ok=false, error="field required: " .. f}
+        end
+    end
+
+    local proto_ok = {vless=1, trojan=1, shadowsocks=1, awg=1}
+    if not proto_ok[args.protocol] then
+        return {ok=false, error="invalid protocol: " .. tostring(args.protocol)}
+    end
+
+    local port = tonumber(args.port)
+    if not port or port < 1 or port > 65535 then
+        return {ok=false, error="invalid port"}
+    end
+
+    if tostring(args.name):match("[^%w%-%._]") then
+        return {ok=false, error="invalid server name"}
+    end
+
+    os.execute("uci -q add 4eburnet server 2>/dev/null")
+    local f = io.popen(
+        "uci -q show 4eburnet | grep \"=server$\" | tail -1 | "
+        .. "cut -d. -f2 | cut -d= -f1 2>/dev/null")
+    local sec = f and f:read("*l") or ""
+    if f then f:close() end
+
+    if not sec or sec == "" then
+        return {ok=false, error="failed to create UCI section"}
+    end
+
+    local safe_fields = {
+        name=1, protocol=1, address=1, transport=1,
+        uuid=1, password=1, reality_pbk=1, reality_sid=1,
+        xhttp_path=1, xhttp_host=1
+    }
+    for k, v in pairs(args) do
+        if safe_fields[k] and v and v ~= "" then
+            uci_set("4eburnet", sec, k, tostring(v))
+        end
+    end
+    uci_set("4eburnet", sec, "port", tostring(port))
+    uci_set("4eburnet", sec, "enabled", "1")
+    os.execute("uci -q commit 4eburnet 2>/dev/null")
+
+    if is_running() then ipc_call(2) end
+    return {ok=true, section=sec}
+end
+
+methods.server_delete = function(args)
+    args = args or {}
+    local sec = args.section or ""
+    if sec:match("[^%w_%-]") then
+        return {ok=false, error="invalid section name"}
+    end
+    -- Проверить что секция является server
+    local f = io.popen("uci -q get 4eburnet." .. sec .. " 2>/dev/null")
+    local stype = f and f:read("*l") or ""
+    if f then f:close() end
+    if stype ~= "server" then
+        return {ok=false, error="section is not a server"}
+    end
+
+    local ret = os.execute("uci -q delete 4eburnet." .. sec .. " 2>/dev/null"
+                           .. " && uci -q commit 4eburnet 2>/dev/null")
+    local ok = ret == 0 or ret == true
+    if ok and is_running() then ipc_call(2) end
+    return {ok=ok, section=sec}
+end
+
+methods.tproxy_status = function(_)
     local f = io.open("/sys/module/nft_tproxy/refcnt", "r")
     local available = f ~= nil
     if f then f:close() end
-    return { available = available }
+    return {available=available}
 end
 
-methods.pkg_manager = function(args)
-    local mgr = detect_pkg_manager()
+methods.pkg_manager = function(_)
+    local mgr = get_pkg_mgr()
     local version = ""
-    local f = io.open("/etc/openwrt_release", "r")
-    if f then
-        local content = f:read("*a"); f:close()
-        version = content:match('DISTRIB_RELEASE="([^"]+)"') or ""
+    local rf = io.open("/etc/openwrt_release", "r")
+    if rf then
+        local c = rf:read("*a"); rf:close()
+        version = c:match('DISTRIB_RELEASE="([^"]+)"') or ""
     end
     return {
         manager = mgr,
@@ -343,163 +618,295 @@ methods.pkg_manager = function(args)
 end
 
 methods.install_pkg = function(args)
-    local pkg = (args or {}).package
-    if not pkg or pkg == "" then
-        return { ok = false, error = "package name required" }
+    args = args or {}
+    local pkg = args.package or ""
+    if pkg == "" then
+        return {ok=false, error="package name required"}
     end
-    -- Валидация: только буквы, цифры, - _ .
     if pkg:match("[^%w%-%._]") then
-        return { ok = false, error = "invalid package name" }
+        return {ok=false, error="invalid package name"}
     end
+
     if pkg_installed(pkg) then
-        return { ok = true, installed = true, message = "уже установлен" }
+        return {ok=true, installed=true, message="already installed"}
     end
-    local mgr = detect_pkg_manager()
-    local update_cmd  = mgr == "apk" and "apk update 2>&1"         or "opkg update 2>&1"
-    local install_cmd = mgr == "apk" and ("apk add " .. pkg .. " 2>&1") or ("opkg install " .. pkg .. " 2>&1")
-    local f = io.popen(update_cmd)
-    local update_out = f and f:read("*a") or ""
-    if f then f:close() end
-    f = io.popen(install_cmd)
-    local install_out = f and f:read("*a") or ""
-    if f then f:close() end
+
+    local mgr = get_pkg_mgr()
+    local update_out, install_out = "", ""
+    local f
+
+    if mgr == "apk" then
+        f = io.popen("apk update 2>&1"); update_out = f and f:read("*a") or ""; if f then f:close() end
+        f = io.popen("apk add " .. pkg .. " 2>&1"); install_out = f and f:read("*a") or ""; if f then f:close() end
+    else
+        f = io.popen("opkg update 2>&1"); update_out = f and f:read("*a") or ""; if f then f:close() end
+        f = io.popen("opkg install " .. pkg .. " 2>&1"); install_out = f and f:read("*a") or ""; if f then f:close() end
+    end
+
     local installed = pkg_installed(pkg)
     return {
         ok        = installed,
         installed = installed,
         manager   = mgr,
         output    = (update_out .. install_out):sub(1, 500),
-        message   = installed and "установлен успешно" or "ошибка установки"
+        message   = installed and "installed" or "install failed"
     }
 end
 
-methods.backup = function(args)
-    local files = { "/etc/config/4eburnet" }
-    -- Добавить geo если существует
-    local gf = io.open("/etc/4eburnet/geo", "r")
-    if gf then gf:close(); files[#files+1] = "/etc/4eburnet/geo" end
+methods.backup = function(_)
+    -- Убедиться что директория существует
+    os.execute("mkdir -p /etc/4eburnet 2>/dev/null")
 
-    local cmd = "tar czf " .. BACKUP_PATH
-    for _, fp in ipairs(files) do cmd = cmd .. " " .. fp end
-    cmd = cmd .. " 2>&1"
-    local f = io.popen(cmd)
-    local out = f and f:read("*a") or ""
-    if f then f:close() end
-
-    local sf = io.open(BACKUP_PATH, "rb")
-    local size = 0
-    if sf then size = sf:seek("end") or 0; sf:close() end
-
-    if size == 0 then
-        return { ok = false, error = "tar провалился: " .. out }
+    local backup_files = {}
+    local candidates = {"/etc/config/4eburnet", "/etc/4eburnet/geo"}
+    for _, path in ipairs(candidates) do
+        local f = io.open(path, "r")
+        if f then f:close(); backup_files[#backup_files+1] = path end
     end
+
+    if #backup_files == 0 then
+        return {ok=false, error="no files to backup"}
+    end
+
+    local files_arg = table.concat(backup_files, " ")
+    local ret = os.execute(
+        "tar czf " .. BACKUP_FILE .. " " .. files_arg .. " 2>/dev/null")
+    local ok = ret == 0 or ret == true
+
+    local size = 0
+    if ok then
+        local f = io.open(BACKUP_FILE, "rb")
+        if f then size = f:seek("end") or 0; f:close() end
+    end
+
     return {
-        ok      = true,
-        path    = BACKUP_PATH,
+        ok      = ok and size > 0,
+        path    = BACKUP_FILE,
         size    = size,
-        message = "бэкап создан (" .. math.floor(size / 1024) .. " KB)"
+        message = (ok and size > 0)
+            and ("backup created (" .. math.floor(size/1024) .. "KB)")
+            or  "backup failed"
     }
+end
+
+methods.backup_status = function(_)
+    local f = io.open(BACKUP_FILE, "rb")
+    -- Также проверить /tmp/ как fallback для обратной совместимости
+    if not f then f = io.open("/tmp/4eburnet-backup.tar.gz", "rb") end
+    if not f then return {exists=false, path=BACKUP_FILE} end
+    local size = f:seek("end") or 0
+    f:close()
+    return {exists=true, path=BACKUP_FILE, size=size}
 end
 
 methods.restore = function(args)
-    local path = (args or {}).path or BACKUP_PATH
-    -- Разрешить только /tmp/ пути
-    if not path:match("^/tmp/") then
-        return { ok = false, error = "restore разрешён только из /tmp/" }
+    args = args or {}
+    local path = args.path or BACKUP_FILE
+
+    -- Разрешить только заранее известные пути
+    local allowed = {
+        [BACKUP_FILE] = true,
+        ["/tmp/4eburnet-backup.tar.gz"] = true,
+        ["/tmp/4eburnet-restore.tar.gz"] = true,
+    }
+    if not allowed[path] then
+        return {ok=false, error="restore only allowed from known paths"}
     end
+
     local f = io.open(path, "rb")
     if not f then
-        return { ok = false, error = "файл не найден: " .. path }
+        return {ok=false, error="file not found: " .. path}
     end
     f:close()
-    local cmd = "tar xzf " .. path .. " -C / 2>&1"
-    local fh = io.popen(cmd)
-    local out = fh and fh:read("*a") or ""
-    if fh then fh:close() end
-    local _, reload_err = ipc_call(2)  -- IPC_CMD_RELOAD
-    return {
-        ok       = true,
-        output   = out:sub(1, 200),
-        reloaded = (reload_err == nil),
-        message  = "конфиг восстановлен"
-    }
-end
 
-methods.backup_status = function(args)
-    local f = io.open(BACKUP_PATH, "rb")
-    if not f then return { exists = false } end
-    local size = f:seek("end") or 0
-    f:close()
-    return { exists = true, path = BACKUP_PATH, size = size }
+    -- Проверить пути внутри архива перед распаковкой
+    local safe_restore = true
+    local check = io.popen("tar tzf " .. path .. " 2>/dev/null")
+    if check then
+        for entry in check:lines() do
+            -- Разрешены только пути внутри /etc/config/ и /etc/4eburnet/
+            local ok_entry = entry:match("^etc/config/4eburnet")
+                          or entry:match("^etc/4eburnet/")
+                          or entry == "etc/" or entry == "etc/config/"
+            if entry:match("^/") or entry:match("%.%./") then
+                safe_restore = false; break
+            end
+            if not ok_entry and entry ~= "" and not entry:match("/$") then
+                safe_restore = false; break
+            end
+        end
+        check:close()
+    end
+
+    if not safe_restore then
+        return {ok=false, error="archive contains unsafe paths"}
+    end
+
+    local ret = os.execute("tar xzf " .. path .. " -C / 2>/dev/null")
+    local ok = ret == 0 or ret == true
+
+    if ok and is_running() then ipc_call(2) end
+    return {ok=ok, reloaded=is_running(), message=ok and "restored" or "failed"}
 end
 
 methods.config_get = function(args)
-    local section = (args or {}).section or "main"
+    args = args or {}
+    local section = args.section or "main"
     if section:match("[^%w_]") then
-        return { error = "invalid section name" }
+        return {error="invalid section name"}
     end
-    local cmd = "uci show 4eburnet." .. section .. " 2>/dev/null"
-    local f = io.popen(cmd)
-    local out = f and f:read("*a") or ""
-    if f then f:close() end
-    local result = {}
-    for line in out:gmatch("[^\n]+") do
-        local key, val = line:match("4eburnet%." .. section .. "%.(%w+)='?([^']*)'?")
-        if key and val then result[key] = val end
-    end
-    return result
+    return uci_get_section("4eburnet", section)
 end
 
 methods.config_set = function(args)
-    local section = (args or {}).section or "main"
-    local values  = (args or {}).values  or {}
+    args = args or {}
+    local section = args.section or "main"
+    local values  = args.values  or {}
+
     if section:match("[^%w_]") then
-        return { ok = false, error = "invalid section name" }
+        return {ok=false, error="invalid section name"}
     end
+
     local allowed = {
-        enabled = 1, mode = 1, log_level = 1,
-        lan_interface = 1, region = 1, geo_dir = 1
+        main = {enabled=1, mode=1, log_level=1, lan_interface=1,
+                region=1, geo_dir=1},
+        dns  = {enabled=1, listen_port=1, upstream_bypass=1,
+                upstream_proxy=1, upstream_default=1, upstream_fallback=1,
+                upstream_port=1, cache_size=1, parallel_query=1,
+                doh_enabled=1, doh_url=1, doh_ip=1, doh_sni=1, doh_port=1,
+                dot_enabled=1, dot_server_ip=1, dot_port=1, dot_sni=1,
+                doq_enabled=1, doq_server_ip=1, doq_server_port=1, doq_sni=1,
+                fake_ip_enabled=1, fake_ip_range=1, fake_ip_ttl=1,
+                fake_ip_pool_size=1, bogus_nxdomain=1}
     }
-    for k, v in pairs(values) do
-        if not allowed[k] then
-            return { ok = false, error = "field not allowed: " .. tostring(k) }
-        end
-        local sv = tostring(v):gsub("'", "")
-        os.execute("uci set 4eburnet." .. section .. "." .. k
-                   .. "='" .. sv .. "' 2>/dev/null")
+
+    local sec_allowed = allowed[section]
+    if not sec_allowed then
+        return {ok=false, error="section not editable: " .. section}
     end
-    os.execute("uci commit 4eburnet 2>/dev/null")
-    return { ok = true }
+
+    local updated = {}
+    for k, v in pairs(values) do
+        if sec_allowed[k] then
+            local ok_set, _ = uci_set("4eburnet", section, k, tostring(v))
+            if ok_set then updated[#updated+1] = k end
+        end
+    end
+
+    if is_running() then ipc_call(2) end
+    return {ok=true, updated=updated}
 end
 
--- ------------------------------------------------------------------ --
---  rpcd dispatch                                                       --
--- ------------------------------------------------------------------ --
+methods.dns_get = function(_)
+    return uci_get_section("4eburnet", "dns")
+end
 
+methods.dns_set = function(args)
+    return methods.config_set({section="dns", values=args or {}})
+end
+
+methods.rule_add = function(args)
+    args = args or {}
+    local valid_types = {domain=1, domain_suffix=1, domain_keyword=1,
+                         ip_cidr=1, geoip=1, geosite=1, rule_set=1, match=1}
+    local rtype = args.type or ""
+    if not valid_types[rtype] then
+        return {ok=false, error="invalid rule type"}
+    end
+
+    local priority = tonumber(args.priority) or 500
+    if priority < 1 or priority > 9999 then
+        return {ok=false, error="priority must be 1-9999"}
+    end
+
+    os.execute("uci -q add 4eburnet traffic_rule 2>/dev/null")
+    local f = io.popen(
+        "uci -q show 4eburnet | grep \"=traffic_rule$\" | tail -1 | "
+        .. "cut -d. -f2 | cut -d= -f1 2>/dev/null")
+    local sec = f and f:read("*l") or ""
+    if f then f:close() end
+    if not sec or sec == "" then
+        return {ok=false, error="failed to add section"}
+    end
+
+    uci_set("4eburnet", sec, "type",     rtype)
+    uci_set("4eburnet", sec, "value",    tostring(args.value or ""))
+    uci_set("4eburnet", sec, "target",   tostring(args.target or "DIRECT"))
+    uci_set("4eburnet", sec, "priority", tostring(priority))
+
+    if is_running() then ipc_call(2) end
+    return {ok=true, section=sec}
+end
+
+methods.rule_delete = function(args)
+    args = args or {}
+    local sec = args.section or ""
+    if sec:match("[^%w_%-]") then
+        return {ok=false, error="invalid section"}
+    end
+    local f = io.popen("uci -q get 4eburnet." .. sec .. " 2>/dev/null")
+    local stype = f and f:read("*l") or ""
+    if f then f:close() end
+    if stype ~= "traffic_rule" then
+        return {ok=false, error="not a traffic_rule section"}
+    end
+    local ret = os.execute("uci -q delete 4eburnet." .. sec
+                           .. " 2>/dev/null && uci -q commit 4eburnet 2>/dev/null")
+    local ok = ret == 0 or ret == true
+    if ok and is_running() then ipc_call(2) end
+    return {ok=ok}
+end
+
+methods.adblock_status = function(_)
+    local dns_sec = uci_get_section("4eburnet", "dns")
+    local enabled = (dns_sec.fake_ip_enabled == "1")
+    local ads_count = 0
+    local f = io.open("/etc/4eburnet/geo/geosite-ads.lst", "r")
+    if f then
+        for _ in f:lines() do ads_count = ads_count + 1 end
+        f:close()
+    end
+    return {
+        enabled   = enabled,
+        ads_count = ads_count,
+        geo_file  = "/etc/4eburnet/geo/geosite-ads.lst",
+        has_list  = (ads_count > 0)
+    }
+end
+
+-- ── rpcd dispatch ─────────────────────────────────────────────────
 local mode = arg[1]
 
 if mode == "list" then
     local list = {}
-    for k, _ in pairs(methods) do list[k] = {} end
+    for k in pairs(methods) do list[k] = {} end
     -- Сигнатуры с параметрами
-    list.group_select    = { group = "", idx = 0 }
-    list.logs            = { lines = 50 }
-    list.install_pkg     = { package = "" }
-    list.provider_update = { name = "" }
-    list.restore         = { path = "" }
-    list.config_get      = { section = "" }
-    list.config_set      = { section = "", values = {} }
-    io.write(json_mod.stringify(list) .. "\n")
+    list.logs            = {lines=50}
+    list.group_select    = {group="", idx=0}
+    list.provider_update = {name=""}
+    list.device_save     = {mac="", policy="", group="", alias=""}
+    list.server_add      = {name="", protocol="", address="", port=0,
+                            transport="", uuid="", password="",
+                            reality_pbk="", reality_sid=""}
+    list.server_delete   = {section=""}
+    list.rule_add        = {type="", value="", target="", priority=0}
+    list.rule_delete     = {section=""}
+    list.install_pkg     = {package=""}
+    list.restore         = {path=""}
+    list.config_get      = {section=""}
+    list.config_set      = {section="", values={}}
+    list.dns_set         = {}
+    io.write(jstr(list) .. "\n")
 
 elseif mode == "call" then
     local method = arg[2]
     local fn = methods[method]
     if not fn then
-        io.write('{"error":"unknown method"}\n')
+        io.write('{"error":"unknown method: ' .. tostring(method) .. '"}\n')
         os.exit(1)
     end
-    local input = io.read("*a")
-    local ok, args = pcall(json_mod.parse, input or "")
-    local result = fn(ok and args or {})
-    io.write(json_mod.stringify(result) .. "\n")
+    local input = io.read("*a") or ""
+    local call_args = jparse(input) or {}
+    local result = fn(call_args)
+    io.write(jstr(result) .. "\n")
 end
