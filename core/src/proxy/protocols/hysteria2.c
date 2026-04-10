@@ -589,9 +589,16 @@ int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
         if (*c == ':') { colon = c; break; }
     if (!colon || colon == p) return -1;  /* нет порта */
 
+    const char *host_start = p;
     size_t hlen = (size_t)(colon - p);
+    /* IPv6: убрать квадратные скобки [::1] → ::1 */
+    if (hlen >= 2 && host_start[0] == '[' &&
+        host_start[hlen - 1] == ']') {
+        host_start++;
+        hlen -= 2;
+    }
     if (hlen == 0 || hlen >= sizeof(cfg->server_addr)) return -1;
-    memcpy(cfg->server_addr, p, hlen);
+    memcpy(cfg->server_addr, host_start, hlen);
     cfg->server_addr[hlen] = '\0';
 
     char port_buf[8] = {0};
@@ -606,12 +613,21 @@ int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
     if (!qmark) return 0;  /* нет параметров — успех */
     p = qmark + 1;
     while (*p && *p != '#') {
-        const char *eq  = strchr(p, '=');
-        if (!eq) break;
-        const char *amp = strchr(eq + 1, '&');
-        const char *seg_end = amp  ? amp
-                            : hash ? hash
-                            : p + strlen(p);
+        /* Найти конец текущего сегмента до '=' */
+        const char *amp = strchr(p, '&');
+        if (hash && (!amp || amp > hash)) amp = hash;
+        const char *seg_end = amp ? amp
+                            : (hash ? hash : p + strlen(p));
+
+        /* Искать '=' только внутри текущего сегмента */
+        const char *eq = (const char *)memchr(p, '=',
+                                              (size_t)(seg_end - p));
+        if (!eq) {
+            /* Ключ без значения — пропустить сегмент */
+            p = (amp && amp != hash) ? amp + 1 : seg_end;
+            continue;
+        }
+
         char key[64]  = {0};
         char val[512] = {0};
         size_t klen = (size_t)(eq - p);
@@ -624,7 +640,11 @@ int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
             char raw_val[512] = {0};
             if (vlen < sizeof(raw_val)) {
                 memcpy(raw_val, eq + 1, vlen);
-                percent_decode(raw_val, vlen, val, sizeof(val));
+                if (percent_decode(raw_val, vlen, val, sizeof(val)) < 0) {
+                    /* Значение слишком длинное — пропустить параметр */
+                    p = (amp && amp != hash) ? amp + 1 : seg_end;
+                    continue;
+                }
             }
         }
         if (strcmp(key, "obfs") == 0) {
@@ -638,13 +658,13 @@ int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
             cfg->insecure = (val[0] == '1');
         } else if (strcmp(key, "up") == 0) {
             long v = strtol(val, NULL, 10);
-            if (v > 0 && v <= 10000) cfg->up_mbps = (uint32_t)v;
+            if (v > 0 && v <= 100000) cfg->up_mbps = (uint32_t)v;
         } else if (strcmp(key, "down") == 0) {
             long v = strtol(val, NULL, 10);
-            if (v > 0 && v <= 10000) cfg->down_mbps = (uint32_t)v;
+            if (v > 0 && v <= 100000) cfg->down_mbps = (uint32_t)v;
         }
         /* Неизвестные ключи игнорировать */
-        p = amp ? amp + 1 : seg_end;
+        p = (amp && amp != hash) ? amp + 1 : seg_end;
     }
     /* 7. Fragment — игнорировать */
     return 0;
