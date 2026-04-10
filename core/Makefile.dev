@@ -11,6 +11,7 @@ ifeq ($(PROFILE),micro)
     -DCONFIG_EBURNET_AWG=0      \
     -DCONFIG_EBURNET_FAKE_IP=0  \
     -DCONFIG_EBURNET_DOH=1      \
+    -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=0 \
     -DCONFIG_EBURNET_SNIFFER=1
 else ifeq ($(PROFILE),normal)
@@ -21,10 +22,12 @@ else ifeq ($(PROFILE),normal)
     -DCONFIG_EBURNET_AWG=0      \
     -DCONFIG_EBURNET_FAKE_IP=1  \
     -DCONFIG_EBURNET_DOH=1      \
+    -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
     -DCONFIG_EBURNET_SNIFFER=1
 else
-  KCONFIG_CFLAGS :=
+  KCONFIG_CFLAGS := \
+    -DCONFIG_EBURNET_QUIC=1
 endif
 
 CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
