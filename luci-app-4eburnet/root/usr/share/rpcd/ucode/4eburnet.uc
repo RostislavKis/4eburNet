@@ -814,6 +814,30 @@ const methods = {
                 return { ok: false, error: trim(log) || 'convert failed' };
             }
 
+            /* Валидировать UCI файл: только допустимые типы секций */
+            let allowed_types = {
+                server: true, proxy_group: true,
+                traffic_rule: true, dns_rule: true, device: true
+            };
+            let uci_valid = true;
+            let uci_f = fs.open(tmp_out, 'r');
+            if (uci_f) {
+                let ln;
+                while ((ln = uci_f.read('line')) !== null) {
+                    let tm = match(trim(ln), /^config\s+(\S+)/);
+                    if (tm && !allowed_types[tm[1]]) {
+                        uci_valid = false;
+                        break;
+                    }
+                }
+                uci_f.close();
+            }
+            if (!uci_valid) {
+                fs.unlink(tmp_out);
+                fs.unlink(tmp_err);
+                return { ok: false, error: 'UCI файл содержит недопустимые типы секций' };
+            }
+
             /* Применить UCI (merge — не перезаписываем существующий конфиг) */
             rc = system('uci import -m 4eburnet < ' + sh_quote(tmp_out)
                         + ' && uci commit 4eburnet 2>>' + sh_quote(tmp_err));
