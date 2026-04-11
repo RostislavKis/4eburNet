@@ -27,7 +27,7 @@
  *   - Client hello version: TLS 1.2 (0x0303)
  *   - 17 cipher suites (Chrome набор)
  *   - SessionID: 32 random байта
- *   - Extensions (17): SNI, supported_groups, ALPN (h2/http1.1),
+ *   - Extensions (15): SNI, supported_groups, ALPN (h2/http1.1),
  *     supported_versions (TLS1.3+TLS1.2), signature_algorithms,
  *     key_share (x25519, 32 random байта), psk_key_exchange_modes,
  *     extended_master_secret, renegotiation_info, session_ticket,
