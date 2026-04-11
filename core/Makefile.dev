@@ -14,7 +14,8 @@ ifeq ($(PROFILE),micro)
     -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=0 \
     -DCONFIG_EBURNET_SNIFFER=1  \
-    -DCONFIG_EBURNET_DPI=1
+    -DCONFIG_EBURNET_DPI=1      \
+    -DCONFIG_EBURNET_STLS=0
 else ifeq ($(PROFILE),normal)
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
@@ -26,7 +27,8 @@ else ifeq ($(PROFILE),normal)
     -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
     -DCONFIG_EBURNET_SNIFFER=1  \
-    -DCONFIG_EBURNET_DPI=1
+    -DCONFIG_EBURNET_DPI=1      \
+    -DCONFIG_EBURNET_STLS=1
 else  # full — все функции включены
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
@@ -38,7 +40,8 @@ else  # full — все функции включены
     -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
     -DCONFIG_EBURNET_SNIFFER=1  \
-    -DCONFIG_EBURNET_DPI=1
+    -DCONFIG_EBURNET_DPI=1      \
+    -DCONFIG_EBURNET_STLS=1
 endif
 
 CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
@@ -84,7 +87,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dpi/dpi_filter.c \
           $(SRCDIR)/dpi/dpi_payload.c \
           $(SRCDIR)/dpi/dpi_strategy.c \
-          $(SRCDIR)/dpi/cdn_updater.c
+          $(SRCDIR)/dpi/cdn_updater.c \
+          $(SRCDIR)/crypto/hmac_sha256.c
 TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
@@ -177,6 +181,14 @@ test-cdn-updater:
 	  -o /tmp/test_cdn_updater $(WOLFSSL_LIBS)
 	/tmp/test_cdn_updater
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater
+test-hmac-sha256:
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_STLS=1 \
+	  $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  src/crypto/hmac_sha256.c \
+	  tests/test_hmac_sha256.c \
+	  -o /tmp/test_hmac_sha256 $(WOLFSSL_LIBS)
+	/tmp/test_hmac_sha256
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256
+
+.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256
