@@ -10,7 +10,7 @@ define Package/luci-app-4eburnet
   SECTION:=luci
   CATEGORY:=LuCI
   TITLE:=4eburNet — прокси-маршрутизатор (LuCI)
-  DEPENDS:=+luci-base +luci-lib-jsonc +ucode-mod-socket +rpcd-mod-rpcsys
+  DEPENDS:=+luci-base +ucode-mod-socket +rpcd-mod-ucode
   PKGARCH:=all
 endef
 
