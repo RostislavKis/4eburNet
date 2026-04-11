@@ -133,44 +133,51 @@ int dpi_send_fragment(int fd,
         getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &saved_nodelay, &slen);
         dpi_set_nodelay(fd, 1);
 
-        /* Первый фрагмент */
-        ssize_t n1 = send(fd, data, (size_t)p1, MSG_NOSIGNAL);
-        if (n1 < 0) {
-            log_msg(LOG_WARN, "dpi_send_fragment: send part1: %s",
-                    strerror(errno));
-            dpi_set_nodelay(fd, saved_nodelay);
-            return -1;
-        }
-        if (n1 < (ssize_t)p1) {
-            log_msg(LOG_WARN,
-                    "dpi_send_fragment: partial send part1: %zd < %d",
-                    n1, p1);
-            dpi_set_nodelay(fd, saved_nodelay);
-            return -1;
+        /* Первый фрагмент (retry при partial send) */
+        ssize_t n1 = 0;
+        while (n1 < (ssize_t)p1) {
+            ssize_t w = send(fd, data + n1, (size_t)(p1 - (int)n1),
+                             MSG_NOSIGNAL);
+            if (w < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                log_msg(LOG_WARN, "dpi_send_fragment: send part1: %s",
+                        strerror(errno));
+                dpi_set_nodelay(fd, saved_nodelay);
+                return -1;
+            }
+            n1 += w;
         }
 
-        /* Второй фрагмент */
-        ssize_t n2 = send(fd, data + p1, (size_t)p2, MSG_NOSIGNAL);
-        dpi_set_nodelay(fd, saved_nodelay);   /* восстановить в любом случае */
-        if (n2 < 0) {
-            log_msg(LOG_WARN, "dpi_send_fragment: send part2: %s",
-                    strerror(errno));
-            return -1;
+        /* Второй фрагмент (retry при partial send) */
+        ssize_t n2 = 0;
+        while (n2 < (ssize_t)p2) {
+            ssize_t w = send(fd, data + p1 + n2,
+                             (size_t)(p2 - (int)n2), MSG_NOSIGNAL);
+            if (w < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                log_msg(LOG_WARN, "dpi_send_fragment: send part2: %s",
+                        strerror(errno));
+                dpi_set_nodelay(fd, saved_nodelay);
+                return -1;
+            }
+            n2 += w;
         }
-        if (n2 < (ssize_t)p2) {
-            log_msg(LOG_WARN,
-                    "dpi_send_fragment: partial send part2: %zd < %d",
-                    n2, p2);
-            return -1;
-        }
+        dpi_set_nodelay(fd, saved_nodelay);
         return (int)(n1 + n2);
     }
 
-    /* p2 == 0: split_pos >= data_len, отправляем всё одним send() без TCP_NODELAY */
-    ssize_t n1 = send(fd, data, (size_t)p1, MSG_NOSIGNAL);
-    if (n1 < 0) {
-        log_msg(LOG_WARN, "dpi_send_fragment: send: %s", strerror(errno));
-        return -1;
+    /* p2 == 0: split_pos >= data_len, отправляем всё без TCP_NODELAY */
+    ssize_t n1 = 0;
+    while (n1 < (ssize_t)p1) {
+        ssize_t w = send(fd, data + n1, (size_t)(p1 - (int)n1),
+                         MSG_NOSIGNAL);
+        if (w < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            log_msg(LOG_WARN, "dpi_send_fragment: send: %s",
+                    strerror(errno));
+            return -1;
+        }
+        n1 += w;
     }
     return (int)n1;
 }
