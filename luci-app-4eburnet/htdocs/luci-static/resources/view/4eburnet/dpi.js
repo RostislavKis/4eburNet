@@ -31,20 +31,13 @@ function mkNumber(id, val, min, max) {
     });
 }
 
-function mkRow(label, content, hint) {
-    var items = [
+function mkRow(label, content) {
+    return E('div', {
+        style: 'display:flex;gap:12px;margin-bottom:10px;align-items:flex-start'
+    }, [
         E('div', {style: 'min-width:180px;font-size:11px;color:#8d96a0;padding-top:8px;flex-shrink:0'}, [label]),
         E('div', {style: 'flex:1;min-width:0'}, [content])
-    ];
-    var row = E('div', {
-        style: 'display:flex;gap:12px;margin-bottom:10px;align-items:flex-start'
-    }, items);
-    if (hint) {
-        row.appendChild(E('div', {
-            style: 'width:100%;font-size:10px;color:#6e7681;margin-top:2px;padding-left:192px'
-        }, [hint]));
-    }
-    return row;
+    ]);
 }
 
 function mkStatRow(label, value) {
@@ -186,9 +179,11 @@ return view.extend({
                                 cdn_cf_v6_url:            sel('cdn-cf-v6').value,
                                 cdn_fastly_url:           sel('cdn-fastly').value
                             }).then(function(r) {
-                                if (r && r.ok)
+                                if (r && r.ok) {
+                                    callReload();
                                     ui.addNotification(null,
                                         E('p', {}, [_('Настройки CDN сохранены')]), 'info');
+                                }
                             });
                         }
                     }, [_('\uD83D\uDCBE Сохранить CDN')]),
