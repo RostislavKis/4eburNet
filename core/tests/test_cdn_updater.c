@@ -5,6 +5,7 @@
  */
 #define CONFIG_EBURNET_DPI 1
 #include "dpi/cdn_updater.h"
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -12,7 +13,7 @@
 #include <unistd.h>
 #include <time.h>
 
-void log_msg(int level, const char *fmt, ...) {
+void log_msg(log_level_t level, const char *fmt, ...) {
     (void)level;
     va_list ap; va_start(ap, fmt); vprintf(fmt, ap); va_end(ap);
     printf("\n");
@@ -203,6 +204,41 @@ static void test_write_atomic(void)
           "write_atomic: .tmp файл удалён после rename");
 }
 
+/* Тест 13: cdn_updater_update — несуществующие URL → -1, файлы не создаются */
+static void test_updater_no_network(void)
+{
+    /* Минимальный конфиг: URL на заведомо недоступный хост */
+    EburNetConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.cdn_update_interval_days = 7;
+    snprintf(cfg.dpi_dir, sizeof(cfg.dpi_dir), "%s", TMP_DIR "/dpi_no_net");
+    /* URL на localhost:1 — немедленный ECONNREFUSED, без сети */
+    snprintf(cfg.cdn_cf_v4_url, sizeof(cfg.cdn_cf_v4_url),
+             "https://127.0.0.1:1/ips-v4");
+    snprintf(cfg.cdn_cf_v6_url, sizeof(cfg.cdn_cf_v6_url),
+             "https://127.0.0.1:1/ips-v6");
+    snprintf(cfg.cdn_fastly_url, sizeof(cfg.cdn_fastly_url),
+             "https://127.0.0.1:1/public-ip-list");
+
+    system("mkdir -p " TMP_DIR "/dpi_no_net");
+
+    int rc = cdn_updater_update(&cfg);
+    CHECK(rc == -1, "updater_no_network: все источники недоступны → -1");
+
+    /* ipset.txt не должен появиться (нечего записывать) */
+    char ipset_path[320];
+    snprintf(ipset_path, sizeof(ipset_path), "%s/dpi_no_net/ipset.txt", TMP_DIR);
+    CHECK(access(ipset_path, F_OK) != 0,
+          "updater_no_network: ipset.txt не создан при ошибке всех источников");
+
+    /* stamp не должен появиться */
+    char stamp_path[320];
+    snprintf(stamp_path, sizeof(stamp_path),
+             "%s/dpi_no_net/ipset.stamp", TMP_DIR);
+    CHECK(access(stamp_path, F_OK) != 0,
+          "updater_no_network: stamp не создан при ошибке");
+}
+
 /* main */
 int main(void)
 {
@@ -221,6 +257,7 @@ int main(void)
     test_parse_fastly_empty();
     test_merge_dedup();
     test_write_atomic();
+    test_updater_no_network();
 
     cleanup();
     printf("\n%s: %d тест(ов) провалено\n",
