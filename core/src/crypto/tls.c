@@ -230,12 +230,9 @@ int tls_connect_start(tls_conn_t *conn, int fd,
         return -1;
     }
 
-    wolfSSL_set_fd(ssl, fd);
-
-    /* ShadowTLS I/O callbacks: перенаправить wolfSSL через stls_wrap/unwrap */
     if (config->io_send && config->io_recv) {
-        /* Cast: tls_config_t использует generic fn ptr (без wolfSSL headers),
-         * ABI-совместим с CallbackIORecv/Send (WOLFSSL* ≡ void* на ABI уровне) */
+        /* ShadowTLS: custom I/O callbacks, fd хранится в stls_io_ctx_t.
+         * Не вызываем wolfSSL_set_fd — он установил бы стандартные callbacks. */
         CallbackIORecv recv_cb;
         CallbackIOSend send_cb;
         memcpy(&recv_cb, &config->io_recv, sizeof(recv_cb));
@@ -244,6 +241,9 @@ int tls_connect_start(tls_conn_t *conn, int fd,
         wolfSSL_SSLSetIOSend(ssl, send_cb);
         wolfSSL_SetIOReadCtx(ssl, config->io_ctx);
         wolfSSL_SetIOWriteCtx(ssl, config->io_ctx);
+    } else {
+        /* Стандартный путь: wolfSSL напрямую на fd */
+        wolfSSL_set_fd(ssl, fd);
     }
 
     if (conn->config.sni[0]) {

@@ -68,11 +68,17 @@
 #include <wolfssl/options.h>
 #include <wolfssl/error-ssl.h>
 
+/* Буфер для приёма ShadowTLS wrapped records в wolfSSL recv callback.
+ * TLS record максимум = TLS_RECORD_HDR(5) + 16383 = 16388 байт.
+ * Для VLESS/Trojan wolfSSL по умолчанию ≤ 4096 байт.
+ * При переполнении: rbuf_len == STLS_IO_RBUF_SIZE && rec_sz < 0 → ERR_GENERAL. */
+#define STLS_IO_RBUF_SIZE  4096
+
 /* wolfSSL I/O context для ShadowTLS transport */
 typedef struct {
     shadowtls_ctx_t *stls;
     int              fd;
-    uint8_t          rbuf[4096]; /* буфер для partial TLS records от upstream */
+    uint8_t          rbuf[STLS_IO_RBUF_SIZE];
     int              rbuf_len;
 } stls_io_ctx_t;
 
@@ -124,7 +130,7 @@ static int stls_ssl_recv(void *ssl, char *buf, int sz, void *ctx)
     int rec_sz = stls_record_size(io->rbuf, io->rbuf_len);
     if (rec_sz < 0) {
         /* rbuf полон но неполная запись — протокольная ошибка */
-        if (io->rbuf_len >= (int)sizeof(io->rbuf))
+        if (io->rbuf_len >= STLS_IO_RBUF_SIZE)
             return WOLFSSL_CBIO_ERR_GENERAL;
         return WOLFSSL_CBIO_ERR_WANT_READ;
     }
