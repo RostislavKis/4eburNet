@@ -190,6 +190,20 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
             log_msg(LOG_WARN,
                     "dpi_fake_sni: невалидный hostname '%s', "
                     "используется '%s'", value, cfg->dpi_fake_sni);
+    } else if (strcmp(key, "cdn_update_interval_days") == 0) {
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 365)
+            cfg->cdn_update_interval_days = (int)v;
+        else
+            log_msg(LOG_WARN,
+                    "cdn_update_interval_days: невалидное '%s' (диапазон 0..365), "
+                    "используется %d", value, cfg->cdn_update_interval_days);
+    } else if (strcmp(key, "cdn_cf_v4_url") == 0) {
+        snprintf(cfg->cdn_cf_v4_url, sizeof(cfg->cdn_cf_v4_url), "%s", value);
+    } else if (strcmp(key, "cdn_cf_v6_url") == 0) {
+        snprintf(cfg->cdn_cf_v6_url, sizeof(cfg->cdn_cf_v6_url), "%s", value);
+    } else if (strcmp(key, "cdn_fastly_url") == 0) {
+        snprintf(cfg->cdn_fastly_url, sizeof(cfg->cdn_fastly_url), "%s", value);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
@@ -373,6 +387,10 @@ int config_load(const char *path, EburNetConfig *cfg)
     cfg->dpi_fake_ttl     = 5;
     cfg->dpi_fake_repeats = 8;
     snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "www.google.com");
+
+    /* CDN updater defaults */
+    cfg->cdn_update_interval_days = 7;
+    /* cdn_*_url: пустые строки → cdn_updater.c использует встроенные defaults */
 
     /* Временные массивы на heap (H-11: ~191KB на стеке → calloc) */
     ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));
