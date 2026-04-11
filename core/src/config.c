@@ -199,11 +199,32 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
                     "cdn_update_interval_days: невалидное '%s' (диапазон 0..365), "
                     "используется %d", value, cfg->cdn_update_interval_days);
     } else if (strcmp(key, "cdn_cf_v4_url") == 0) {
-        snprintf(cfg->cdn_cf_v4_url, sizeof(cfg->cdn_cf_v4_url), "%s", value);
+        if (value[0] == '\0') { /* пусто → default, без предупреждения */ }
+        else if (strncmp(value, "https://", 8) != 0)
+            log_msg(LOG_WARN,
+                    "cdn_cf_v4_url: ожидается https:// URL, получено '%s'",
+                    value);
+        else
+            snprintf(cfg->cdn_cf_v4_url, sizeof(cfg->cdn_cf_v4_url),
+                     "%s", value);
     } else if (strcmp(key, "cdn_cf_v6_url") == 0) {
-        snprintf(cfg->cdn_cf_v6_url, sizeof(cfg->cdn_cf_v6_url), "%s", value);
+        if (value[0] == '\0') { /* пусто → default */ }
+        else if (strncmp(value, "https://", 8) != 0)
+            log_msg(LOG_WARN,
+                    "cdn_cf_v6_url: ожидается https:// URL, получено '%s'",
+                    value);
+        else
+            snprintf(cfg->cdn_cf_v6_url, sizeof(cfg->cdn_cf_v6_url),
+                     "%s", value);
     } else if (strcmp(key, "cdn_fastly_url") == 0) {
-        snprintf(cfg->cdn_fastly_url, sizeof(cfg->cdn_fastly_url), "%s", value);
+        if (value[0] == '\0') { /* пусто → default */ }
+        else if (strncmp(value, "https://", 8) != 0)
+            log_msg(LOG_WARN,
+                    "cdn_fastly_url: ожидается https:// URL, получено '%s'",
+                    value);
+        else
+            snprintf(cfg->cdn_fastly_url, sizeof(cfg->cdn_fastly_url),
+                     "%s", value);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
