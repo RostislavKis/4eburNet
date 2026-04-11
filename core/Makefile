@@ -13,7 +13,7 @@ define Package/4eburnet-core
   CATEGORY:=Network
   TITLE:=4eburNet — прокси-маршрутизатор для OpenWrt
   URL:=https://github.com/RostislavKis/4eburnet
-  DEPENDS:=+libwolfssl +libucode
+  DEPENDS:=+kmod-nft-tproxy
 endef
 
 define Package/4eburnet-core/description
