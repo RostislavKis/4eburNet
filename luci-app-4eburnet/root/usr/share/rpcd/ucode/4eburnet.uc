@@ -709,10 +709,15 @@ const methods = {
             let c = uci.cursor();
             let updated = [];
             for (let k in a) {
-                if (allowed[k]) {
-                    c.set('4eburnet', 'main', k, '' + a[k]);
-                    push(updated, k);
+                if (!allowed[k]) continue;
+                let val = '' + a[k];
+                /* dpi_dir: абсолютный путь, без '..' */
+                if (k === 'dpi_dir') {
+                    if (length(val) < 2 || val[0] !== '/' || index(val, '..') >= 0)
+                        continue;
                 }
+                c.set('4eburnet', 'main', k, val);
+                push(updated, k);
             }
             c.commit('4eburnet');
             return { ok: true, updated };
