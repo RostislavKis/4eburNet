@@ -1,8 +1,8 @@
-#!/bin/sh
+#!/bin/bash
 # Сборка 4eburnet через OpenWrt SDK
 # Использование: ./scripts/build.sh {mipsel|aarch64|clean}
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -65,20 +65,13 @@ build_target() {
     # Симлинки пакетов в SDK
     setup_symlinks "$sdk"
 
-    # Сборка core + LuCI
-    printf "Компиляция core..."
+    # Сборка core + LuCI (pipefail прерывает при ошибке)
     cd "$sdk"
+    printf "Компиляция core...\n"
     make package/4eburnet-core/compile V=s 2>&1 | tee /tmp/4eburnet-build-$arch.log
-    printf "Компиляция luci..."
+    printf "Компиляция luci...\n"
     make package/luci-app-4eburnet/compile V=s 2>&1 | tee -a /tmp/4eburnet-build-$arch.log
-
-    if [ $? -eq 0 ]; then
-        msg_ok "сборка завершена"
-    else
-        msg_fail "ошибка сборки"
-        printf "    Лог: /tmp/4eburnet-build-$arch.log\n"
-        exit 1
-    fi
+    msg_ok "сборка завершена (лог: /tmp/4eburnet-build-$arch.log)"
 
     # Копируем ipk в build/
     mkdir -p "$BUILD_DIR/$arch"
