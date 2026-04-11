@@ -57,6 +57,19 @@ function file_lines(path) {
     return lines;
 }
 
+// Подсчитать непустые строки без комментариев
+function count_lines(path) {
+    let f = fs.open(path, 'r');
+    if (!f) return 0;
+    let n = 0, line;
+    while ((line = f.read('line')) != null) {
+        let t = trim(line);
+        if (length(t) > 0 && ord(t, 0) != 0x23) n++;
+    }
+    f.close();
+    return n;
+}
+
 // Безопасный uci_get_section
 function uci_get_section(config, section) {
     let c = uci.cursor();
@@ -649,17 +662,36 @@ const methods = {
     dpi_get: {
         call: function(req) {
             let main = uci_get_section('4eburnet', 'main');
+            let dpi_dir = main.dpi_dir ?? '/etc/4eburnet/dpi';
+
+            // Статистика из файлов на диске
+            let ipset_lines     = count_lines(dpi_dir + '/ipset.txt');
+            let whitelist_count = count_lines(dpi_dir + '/whitelist.txt');
+            let autohosts_count = count_lines(dpi_dir + '/autohosts.txt');
+
+            // Timestamp последнего обновления CDN IP
+            let stamp = 0;
+            let sf = fs.open(dpi_dir + '/ipset.stamp', 'r');
+            if (sf) {
+                stamp = int(sf.read('line')) ?? 0;
+                sf.close();
+            }
+
             return {
                 dpi_enabled:              main.dpi_enabled              ?? '0',
                 dpi_split_pos:            main.dpi_split_pos            ?? '1',
                 dpi_fake_ttl:             main.dpi_fake_ttl             ?? '5',
                 dpi_fake_repeats:         main.dpi_fake_repeats         ?? '8',
                 dpi_fake_sni:             main.dpi_fake_sni             ?? 'www.google.com',
-                dpi_dir:                  main.dpi_dir                  ?? '/etc/4eburnet/dpi',
+                dpi_dir:                  dpi_dir,
                 cdn_update_interval_days: main.cdn_update_interval_days ?? '7',
                 cdn_cf_v4_url:            main.cdn_cf_v4_url            ?? '',
                 cdn_cf_v6_url:            main.cdn_cf_v6_url            ?? '',
-                cdn_fastly_url:           main.cdn_fastly_url           ?? ''
+                cdn_fastly_url:           main.cdn_fastly_url           ?? '',
+                ipset_lines,
+                whitelist_count,
+                autohosts_count,
+                ipset_updated:            stamp > 0 ? stamp : null
             };
         }
     },
