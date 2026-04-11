@@ -73,13 +73,10 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
         gs->interval = gc->interval > 0 ? gc->interval : 300;
         gs->next_check = time(NULL) + gs->interval;
 
-        /* Парсить список серверов (M-5: strtok_r вместо strtok) */
-        char buf[512];
-        snprintf(buf, sizeof(buf), "%s", gc->servers);
-        char *saveptr = NULL;
-        char *tok = strtok_r(buf, " ", &saveptr);
+        /* Итерировать массив серверов группы */
         int total_configured = 0;
-        while (tok) {
+        for (int si = 0; si < gc->server_count; si++) {
+            const char *tok = gc->servers[si];
             int idx = find_server_by_name(cfg, tok);
             if (idx >= 0) {
                 if (gs->server_count < PROXY_GROUP_MAX_SERVERS) {
@@ -87,20 +84,15 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
                     gs->servers[gs->server_count].available = true;
                     gs->servers[gs->server_count].latency_ms = 999;
                     gs->server_count++;
-                } else {
-                    /* Первое превышение — однократное предупреждение */
-                    if (total_configured == PROXY_GROUP_MAX_SERVERS) {
-                        log_msg(LOG_WARN,
-                            "Группа %s: превышен лимит %d серверов — "
-                            "серверы сверх лимита игнорируются",
-                            gs->name, PROXY_GROUP_MAX_SERVERS);
-                    }
+                } else if (total_configured == PROXY_GROUP_MAX_SERVERS) {
+                    log_msg(LOG_WARN,
+                        "Группа %s: превышен лимит %d серверов",
+                        gs->name, PROXY_GROUP_MAX_SERVERS);
                 }
                 total_configured++;
             } else {
                 log_msg(LOG_WARN, "Группа %s: сервер '%s' не найден", gs->name, tok);
             }
-            tok = strtok_r(NULL, " ", &saveptr);
         }
 
         gs->hc_pipe_fd    = -1;

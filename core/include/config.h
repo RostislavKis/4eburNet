@@ -140,7 +140,8 @@ typedef enum {
 typedef struct {
     char               name[64];
     proxy_group_type_t type;
-    char               servers[512];   /* пробел-разделённый список */
+    char             **servers;         /* dynamic массив имён серверов */
+    int                server_count;   /* количество серверов в группе */
     char               url[512];       /* health-check URL */
     int                interval;       /* сек */
     int                timeout_ms;
