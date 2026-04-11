@@ -498,3 +498,57 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
     close(fd);
     return 0;
 }
+
+int ipc_send_command_payload(ipc_command_t cmd,
+                              const char *payload,
+                              char *buf, size_t buf_size)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return -1;
+
+    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, EBURNET_IPC_SOCKET, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd); return -1;
+    }
+
+    uint16_t plen = 0;
+    if (payload) {
+        size_t pl = strlen(payload);
+        if (pl > UINT16_MAX) pl = UINT16_MAX;
+        plen = (uint16_t)pl;
+    }
+
+    ipc_header_t hdr = {
+        .version    = EBURNET_IPC_VERSION,
+        .command    = (uint8_t)cmd,
+        .length     = plen,
+        .request_id = 1,
+    };
+    if (write(fd, &hdr, sizeof(hdr)) < 0) { close(fd); return -1; }
+    if (plen > 0 && write(fd, payload, plen) < 0) { close(fd); return -1; }
+
+    ipc_header_t resp;
+    ssize_t rn = read(fd, &resp, sizeof(resp));
+    if (rn != (ssize_t)sizeof(resp)) { close(fd); return -1; }
+
+    if (resp.length > 0) {
+        size_t to_read = resp.length;
+        if (to_read >= buf_size) to_read = buf_size - 1;
+        rn = read(fd, buf, to_read);
+        if (rn > 0) buf[rn] = '\0';
+        else         buf[0] = '\0';
+    } else {
+        buf[0] = '\0';
+    }
+
+    close(fd);
+    return 0;
+}

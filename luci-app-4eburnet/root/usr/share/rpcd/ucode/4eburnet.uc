@@ -3,28 +3,10 @@
 
 import * as fs     from 'fs';
 import * as uci    from 'uci';
-import * as socket from 'socket';
 
 // ── Константы ──────────────────────────────────────────────────────
-const SOCKET      = '/var/run/4eburnet.sock';
+const EBURNETD    = '/usr/sbin/4eburnetd';
 const BACKUP_FILE = '/etc/4eburnet/backup.tar.gz';
-
-// IPC версия и команды (из 4eburnet.h / ipc.h)
-const EBURNET_IPC_VERSION     = 1;
-const IPC_TIMEOUT_MS          = 3000;
-
-const IPC_CMD_STATUS          = 1;
-const IPC_CMD_RELOAD          = 2;
-const IPC_CMD_STOP            = 3;
-const IPC_CMD_STATS           = 4;
-const IPC_CMD_GROUP_LIST      = 20;
-const IPC_CMD_GROUP_SELECT    = 21;
-const IPC_CMD_GROUP_TEST      = 22;
-const IPC_CMD_PROVIDER_LIST   = 23;
-const IPC_CMD_PROVIDER_UPDATE = 24;
-const IPC_CMD_RULES_LIST      = 25;
-const IPC_CMD_GEO_STATUS      = 26;
-const IPC_CMD_CDN_UPDATE      = 30;
 
 // ── Утилиты ────────────────────────────────────────────────────────
 
@@ -127,112 +109,38 @@ function get_pkg_mgr() {
     return 'opkg';
 }
 
-// ── IPC helpers ────────────────────────────────────────────────────
+// ── IPC через CLI (fs.popen) ──────────────────────────────────────
 
-// Упаковать IPC заголовок (8 байт packed, little-endian):
-//   u8 version, u8 command, u16le length, u32le request_id
-function pack_hdr(cmd, payload_len, req_id) {
-    return chr(EBURNET_IPC_VERSION) +
-           chr(cmd & 0xff) +
-           chr(payload_len & 0xff) +
-           chr((payload_len >> 8) & 0xff) +
-           chr(req_id & 0xff) +
-           chr((req_id >> 8) & 0xff) +
-           chr((req_id >> 16) & 0xff) +
-           chr((req_id >> 24) & 0xff);
-}
+// Допустимые команды (whitelist — защита от injection)
+const IPC_CMDS = {
+    'status': true, 'reload': true, 'stop': true, 'stats': true,
+    'groups': true, 'group-select': true, 'group-test': true,
+    'providers': true, 'provider-update': true, 'rules': true,
+    'geo-status': true, 'cdn-update': true,
+};
 
-// Прочитать ровно n байт из socket (с защитой от частичного recv)
-function recv_exact(sock, n) {
-    if (n <= 0) return '';
-    let buf = '';
-    let iter = 0;
-    while (length(buf) < n && iter < 64) {
-        iter++;
-        let chunk = sock.recv(n - length(buf));
-        if (chunk == null || length(chunk) == 0) break;
-        buf += chunk;
-    }
-    return (length(buf) == n) ? buf : null;
-}
+// Вызвать 4eburnetd --ipc <cmd> [payload] через CLI
+// Возвращает распарсённый JSON объект или { error: '...' }
+function ipc_json(cmd_name, payload) {
+    if (!IPC_CMDS[cmd_name]) return { error: 'unknown command: ' + cmd_name };
 
-// IPC вызов к 4eburnetd через Unix socket
-// cmd — числовой код команды (IPC_CMD_*)
-// payload — необязательная строка (JSON тела запроса)
-// Возвращает: строку-ответ (raw JSON) или объект { error: '...' }
-function ipc_call(cmd, payload) {
-    payload = payload ?? '';
-
-    // Проверить pid-файл перед попыткой connect
-    let pidf = fs.open('/var/run/4eburnet.pid', 'r');
-    if (!pidf) return { error: 'daemon not running' };
-    let pid = int(pidf.read('line'));
-    pidf.close();
-    if (!pid || pid <= 0) return { error: 'daemon not running' };
-
-    // Создать Unix stream socket
-    let sock = socket.create(socket.AF_UNIX, socket.SOCK_STREAM, 0);
-    if (!sock) return { error: 'socket create failed' };
-
-    // Таймаут приёма и отправки
-    let tv = { sec: int(IPC_TIMEOUT_MS / 1000),
-               usec: (IPC_TIMEOUT_MS % 1000) * 1000 };
-    sock.setopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO, tv);
-    sock.setopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, tv);
-
-    // Подключиться к Unix socket
-    if (!sock.connect({ family: socket.AF_UNIX, path: SOCKET })) {
-        let err = sock.error();
-        sock.close();
-        return { error: 'connect failed: ' + err };
+    let cmdline = EBURNETD + ' --ipc ' + cmd_name;
+    if (payload) {
+        // Экранировать одинарные кавычки в payload
+        let safe = replace('' + payload, /'/g, '');
+        cmdline += " '" + safe + "'";
     }
 
-    // Отправить заголовок + payload
-    let req_id = time() % 65535;
-    let hdr = pack_hdr(cmd, length(payload), req_id);
-    if (sock.send(hdr + payload) == null) {
-        sock.close();
-        return { error: 'send failed' };
-    }
+    let f = fs.popen(cmdline + ' 2>/dev/null');
+    if (!f) return { error: 'popen failed' };
+    let out = f.read('all');
+    f.close();
 
-    // Прочитать заголовок ответа (8 байт)
-    let resp_hdr = recv_exact(sock, 8);
-    if (!resp_hdr) {
-        sock.close();
-        return { error: 'recv header timeout' };
-    }
+    if (!out || length(trim(out)) == 0)
+        return { error: 'empty response' };
 
-    // Распаковать длину тела (байты 2-3, little-endian)
-    let resp_len = ord(resp_hdr, 2) | (ord(resp_hdr, 3) << 8);
-
-    // Прочитать тело ответа
-    let body = '';
-    if (resp_len > 0) {
-        body = recv_exact(sock, resp_len);
-        if (!body) {
-            sock.close();
-            return { error: 'recv body incomplete' };
-        }
-    }
-    sock.close();
-
-    // Обрезать до начала JSON (демон не добавляет мусора, но на всякий)
-    let js = index(body, '{');
-    let ja = index(body, '[');
-    if (js < 0 && ja >= 0) js = ja;
-    else if (js >= 0 && ja >= 0 && ja < js) js = ja;
-    if (js > 0) body = substr(body, js);
-
-    return body;
-}
-
-// ipc_call + парсинг JSON → объект
-// Если демон вернул ошибку-объект — возвращает его напрямую
-function ipc_json(cmd, payload) {
-    let r = ipc_call(cmd, payload);
-    if (type(r) == 'object') return r;
-    let d = json(r);
-    return d ?? { error: 'json parse error', raw: r };
+    let d = json(trim(out));
+    return d ?? { error: 'json parse error', raw: out };
 }
 
 // ── Методы ─────────────────────────────────────────────────────────
@@ -246,7 +154,7 @@ const methods = {
                 return { running: false, uptime: 0,
                          mode: uci_get_section('4eburnet', 'main')['mode'] ?? 'rules',
                          profile: 'unknown', timestamp: time() };
-            let d = ipc_json(IPC_CMD_STATUS);
+            let d = ipc_json('status');
             if (d.error)
                 return { running: true, uptime: 0,
                          mode: uci_get_section('4eburnet', 'main')['mode'] ?? 'rules',
@@ -266,7 +174,7 @@ const methods = {
             if (!is_running())
                 return { error: 'not running', connections: 0,
                          dns_queries: 0, dns_cached: 0, connections_total: 0 };
-            let d = ipc_json(IPC_CMD_STATS);
+            let d = ipc_json('stats');
             if (d.error) return { error: d.error, connections: 0,
                                   dns_queries: 0, dns_cached: 0, connections_total: 0 };
             return d;
@@ -604,7 +512,7 @@ const methods = {
     groups: {
         call: function(req) {
             if (!is_running()) return { error: 'not running', groups: [] };
-            let d = ipc_json(IPC_CMD_GROUP_LIST);
+            let d = ipc_json('groups');
             if (d.error) return { error: d.error, groups: [] };
             return d;
         }
@@ -618,7 +526,7 @@ const methods = {
             let server = replace(req.args?.server ?? '', /"/g, '');
             if (!group || !server)
                 return { ok: false, error: 'group and server required' };
-            let r = ipc_json(IPC_CMD_GROUP_SELECT,
+            let r = ipc_json('group-select',
                         '{"group":"' + group + '","server":"' + server + '"}');
             return r.error ? { ok: false, error: r.error }
                            : { ok: r.status === 'ok' };
@@ -628,7 +536,7 @@ const methods = {
     providers: {
         call: function(req) {
             if (!is_running()) return { error: 'not running', providers: [] };
-            let d = ipc_json(IPC_CMD_PROVIDER_LIST);
+            let d = ipc_json('providers');
             if (d.error) return { error: d.error, providers: [] };
             return d;
         }
@@ -640,7 +548,7 @@ const methods = {
             if (!is_running()) return { ok: false, error: 'not running' };
             let name = replace(req.args?.name ?? '', /"/g, '');
             if (!name) return { ok: false, error: 'name required' };
-            let r = ipc_json(IPC_CMD_PROVIDER_UPDATE,
+            let r = ipc_json('provider-update',
                         '{"name":"' + name + '"}');
             return r.error ? { ok: false, error: r.error }
                            : { ok: r.status === 'ok' };
@@ -655,7 +563,7 @@ const methods = {
                 if (f) f.close();
                 return { loaded, categories: [] };
             }
-            let d = ipc_json(IPC_CMD_GEO_STATUS);
+            let d = ipc_json('geo-status');
             if (d.error) return { loaded: false, categories: [], error: d.error };
             return d;
         }
@@ -729,7 +637,7 @@ const methods = {
     cdn_update: {
         call: function(req) {
             if (!is_running()) return { ok: false, error: 'daemon not running' };
-            let r = ipc_json(IPC_CMD_CDN_UPDATE);
+            let r = ipc_json('cdn-update');
             if (r.error) return { ok: false, error: r.error };
             return { ok: true, msg: r.msg ?? 'cdn update scheduled' };
         }
@@ -985,7 +893,7 @@ const methods = {
 
             /* Reload демона если запущен */
             if (is_running())
-                ipc_call(IPC_CMD_RELOAD);
+                ipc_json('reload');
 
             return {
                 ok:      true,

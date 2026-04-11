@@ -203,24 +203,71 @@ static void daemonize(void)
 /* Обработка IPC-команды (клиентский режим) */
 static int handle_client_command(const char *cmd)
 {
-    ipc_command_t ipc_cmd;
+    /* Маппинг имя → ipc_command_t */
+    static const struct { const char *name; ipc_command_t cmd; } map[] = {
+        { "status",          IPC_CMD_STATUS          },
+        { "reload",          IPC_CMD_RELOAD          },
+        { "stop",            IPC_CMD_STOP            },
+        { "stats",           IPC_CMD_STATS           },
+        { "groups",          IPC_CMD_GROUP_LIST      },
+        { "group-select",    IPC_CMD_GROUP_SELECT    },
+        { "group-test",      IPC_CMD_GROUP_TEST      },
+        { "providers",       IPC_CMD_PROVIDER_LIST   },
+        { "provider-update", IPC_CMD_PROVIDER_UPDATE },
+        { "rules",           IPC_CMD_RULES_LIST      },
+        { "geo-status",      IPC_CMD_GEO_STATUS      },
+#if CONFIG_EBURNET_DPI
+        { "cdn-update",      IPC_CMD_CDN_UPDATE      },
+#endif
+        { NULL, 0 }
+    };
 
-    if (strcmp(cmd, "status") == 0) {
-        ipc_cmd = IPC_CMD_STATUS;
-    } else if (strcmp(cmd, "reload") == 0) {
-        ipc_cmd = IPC_CMD_RELOAD;
-    } else if (strcmp(cmd, "stop") == 0) {
-        ipc_cmd = IPC_CMD_STOP;
-    } else if (strcmp(cmd, "stats") == 0) {
-        ipc_cmd = IPC_CMD_STATS;
-    } else {
+    ipc_command_t ipc_cmd = 0;
+    for (int i = 0; map[i].name; i++) {
+        if (strcmp(cmd, map[i].name) == 0) {
+            ipc_cmd = map[i].cmd;
+            break;
+        }
+    }
+    if (!ipc_cmd) {
         fprintf(stderr, "Неизвестная команда: %s\n", cmd);
         return 1;
     }
 
-    char buf[512];
+    char buf[4096];
     if (ipc_send_command(ipc_cmd, buf, sizeof(buf)) < 0) {
-        fprintf(stderr, "Не удалось подключиться к демону. Возможно, он не запущен.\n");
+        fprintf(stderr, "{\"error\":\"ipc failed\"}\n");
+        return 1;
+    }
+
+    printf("%s\n", buf);
+    return 0;
+}
+
+/* CLI с payload: 4eburnetd --ipc <command> <json_payload> */
+static int handle_ipc_with_payload(const char *cmd, const char *payload)
+{
+    static const struct { const char *name; ipc_command_t cmd; } map[] = {
+        { "group-select",    IPC_CMD_GROUP_SELECT    },
+        { "provider-update", IPC_CMD_PROVIDER_UPDATE },
+        { NULL, 0 }
+    };
+
+    ipc_command_t ipc_cmd = 0;
+    for (int i = 0; map[i].name; i++) {
+        if (strcmp(cmd, map[i].name) == 0) {
+            ipc_cmd = map[i].cmd;
+            break;
+        }
+    }
+    if (!ipc_cmd) {
+        /* Нет payload — fallback на обычный handle_client_command */
+        return handle_client_command(cmd);
+    }
+
+    char buf[4096];
+    if (ipc_send_command_payload(ipc_cmd, payload, buf, sizeof(buf)) < 0) {
+        fprintf(stderr, "{\"error\":\"ipc failed\"}\n");
         return 1;
     }
 
@@ -262,7 +309,17 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Проверяем, есть ли позиционная команда (status/stop/reload/stats) */
+    /* CLI: 4eburnetd --ipc <cmd> [payload] */
+    if (optind < argc && strcmp(argv[optind], "--ipc") == 0) {
+        if (optind + 1 >= argc) {
+            fprintf(stderr, "usage: %s --ipc <command> [payload]\n", argv[0]);
+            return 1;
+        }
+        const char *payload = (optind + 2 < argc) ? argv[optind + 2] : NULL;
+        return handle_ipc_with_payload(argv[optind + 1], payload);
+    }
+
+    /* Позиционная команда (status/stop/reload/stats/groups/...) */
     if (optind < argc) {
         return handle_client_command(argv[optind]);
     }
