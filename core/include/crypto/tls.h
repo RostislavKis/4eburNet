@@ -22,10 +22,13 @@ typedef struct {
     const uint8_t      *reality_key;      /* x25519 публичный ключ сервера */
     size_t              reality_key_len;  /* 32 байта */
     const char         *reality_short_id; /* short ID (hex строка) */
-    /* Optional I/O callbacks (ShadowTLS transport, D.4)
-     * Signature: int (*)(WOLFSSL*, char*, int, void*) */
-    int                (*io_send)(void*, char*, int, void*);
-    int                (*io_recv)(void*, char*, int, void*);
+    /* Optional I/O callbacks (ShadowTLS transport, D.4).
+     * Сигнатура совпадает с wolfSSL CallbackIOSend/CallbackIORecv:
+     *   int (*)(WOLFSSL*, char*, int, void*)
+     * tls.h не включает wolfSSL headers, поэтому типы generic.
+     * Cast в CallbackIOSend/Recv выполняется в tls.c. */
+    int                (*io_send)(void *, char *, int, void *);
+    int                (*io_recv)(void *, char *, int, void *);
     void               *io_ctx;
 } tls_config_t;
 
