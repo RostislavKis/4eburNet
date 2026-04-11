@@ -22,7 +22,7 @@ typedef struct {
     uint16_t awg_s1, awg_s2, awg_s3, awg_s4;
     uint8_t  awg_jc;
     uint16_t awg_jmin, awg_jmax;
-    char     awg_i1[256], awg_i2[256], awg_i3[256], awg_i4[256], awg_i5[256];
+    char    *awg_i[5];   /* strdup, NULL если не задано. Освобождается в config_free. */
     uint16_t awg_keepalive;
     char     xhttp_path[128];      /* HTTP путь для XHTTP, default "/" */
     char     xhttp_host[128];      /* Host заголовок для XHTTP */

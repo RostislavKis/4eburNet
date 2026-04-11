@@ -340,16 +340,11 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 65535)
             srv->awg_jmax = (uint16_t)v;
-    } else if (strcmp(key, "awg_i1") == 0) {
-        snprintf(srv->awg_i1, sizeof(srv->awg_i1), "%s", value);
-    } else if (strcmp(key, "awg_i2") == 0) {
-        snprintf(srv->awg_i2, sizeof(srv->awg_i2), "%s", value);
-    } else if (strcmp(key, "awg_i3") == 0) {
-        snprintf(srv->awg_i3, sizeof(srv->awg_i3), "%s", value);
-    } else if (strcmp(key, "awg_i4") == 0) {
-        snprintf(srv->awg_i4, sizeof(srv->awg_i4), "%s", value);
-    } else if (strcmp(key, "awg_i5") == 0) {
-        snprintf(srv->awg_i5, sizeof(srv->awg_i5), "%s", value);
+    } else if (strncmp(key, "awg_i", 5) == 0 &&
+               key[5] >= '1' && key[5] <= '5' && key[6] == '\0') {
+        int idx = key[5] - '1';
+        free(srv->awg_i[idx]);
+        srv->awg_i[idx] = strdup(value);
     } else if (strcmp(key, "awg_keepalive") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 65535)
@@ -974,6 +969,12 @@ cleanup_fail:
 
 void config_free(EburNetConfig *cfg)
 {
+    /* Освободить динамические awg_i поля серверов */
+    for (int s = 0; s < cfg->server_count; s++)
+        for (int i = 0; i < 5; i++) {
+            free(cfg->servers[s].awg_i[i]);
+            cfg->servers[s].awg_i[i] = NULL;
+        }
     free(cfg->proxy_groups);        cfg->proxy_groups = NULL;
     free(cfg->proxy_providers);     cfg->proxy_providers = NULL;
     cfg->proxy_provider_count = 0;
