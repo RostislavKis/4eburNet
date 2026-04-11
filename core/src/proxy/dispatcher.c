@@ -66,7 +66,6 @@
  * Сейчас безопасно — однопоточная архитектура, один экземпляр (M-09). */
 #if CONFIG_EBURNET_STLS
 #include <wolfssl/options.h>
-#include <wolfssl/wolfio.h>
 #include <wolfssl/error-ssl.h>
 
 /* wolfSSL I/O context для ShadowTLS transport */
@@ -77,11 +76,16 @@ typedef struct {
     int              rbuf_len;
 } stls_io_ctx_t;
 
-/* wolfSSL send callback: wrap через ShadowTLS */
-static int stls_ssl_send(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+/* wolfSSL send callback: wrap через ShadowTLS.
+ * Сигнатура: int (*)(void*, char*, int, void*) — совместима с CallbackIOSend
+ * (WOLFSSL* ≡ void* на ABI уровне). */
+static int stls_ssl_send(void *ssl, char *buf, int sz, void *ctx)
 {
     (void)ssl;
     stls_io_ctx_t *io = (stls_io_ctx_t *)ctx;
+    /* Malloc необходим: stls_buf из dispatcher_state_t
+     * недоступен из wolfSSL I/O callback context.
+     * Для SS (use_tls=false) wrap использует stls_buf без malloc. */
     uint8_t *tmp = malloc((size_t)sz + 9);
     if (!tmp) return WOLFSSL_CBIO_ERR_GENERAL;
     int wlen = stls_wrap(io->stls, (const uint8_t *)buf, sz, tmp, sz + 9);
@@ -97,7 +101,7 @@ static int stls_ssl_send(WOLFSSL *ssl, char *buf, int sz, void *ctx)
 }
 
 /* wolfSSL recv callback: unwrap ShadowTLS record */
-static int stls_ssl_recv(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+static int stls_ssl_recv(void *ssl, char *buf, int sz, void *ctx)
 {
     (void)ssl;
     stls_io_ctx_t *io = (stls_io_ctx_t *)ctx;
@@ -118,7 +122,12 @@ static int stls_ssl_recv(WOLFSSL *ssl, char *buf, int sz, void *ctx)
 
     /* Полная STLS запись? */
     int rec_sz = stls_record_size(io->rbuf, io->rbuf_len);
-    if (rec_sz < 0) return WOLFSSL_CBIO_ERR_WANT_READ;
+    if (rec_sz < 0) {
+        /* rbuf полон но неполная запись — протокольная ошибка */
+        if (io->rbuf_len >= (int)sizeof(io->rbuf))
+            return WOLFSSL_CBIO_ERR_GENERAL;
+        return WOLFSSL_CBIO_ERR_WANT_READ;
+    }
 
     /* Unwrap */
     int ulen = stls_unwrap(io->stls, io->rbuf, rec_sz,
@@ -205,8 +214,8 @@ static int vless_protocol_start(relay_conn_t *relay,
 #if CONFIG_EBURNET_STLS
     /* ShadowTLS I/O callbacks: wolfSSL ↔ stls_wrap/unwrap ↔ upstream_fd */
     if (relay->stls_io) {
-        cfg.io_send = (int(*)(void*,char*,int,void*))stls_ssl_send;
-        cfg.io_recv = (int(*)(void*,char*,int,void*))stls_ssl_recv;
+        cfg.io_send = stls_ssl_send;
+        cfg.io_recv = stls_ssl_recv;
         cfg.io_ctx  = relay->stls_io;
     }
 #endif
@@ -351,8 +360,8 @@ static int trojan_protocol_start(relay_conn_t *relay,
     cfg.verify_cert = false;
 #if CONFIG_EBURNET_STLS
     if (relay->stls_io) {
-        cfg.io_send = (int(*)(void*,char*,int,void*))stls_ssl_send;
-        cfg.io_recv = (int(*)(void*,char*,int,void*))stls_ssl_recv;
+        cfg.io_send = stls_ssl_send;
+        cfg.io_recv = stls_ssl_recv;
         cfg.io_ctx  = relay->stls_io;
     }
 #endif

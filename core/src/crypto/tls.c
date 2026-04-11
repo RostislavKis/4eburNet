@@ -234,8 +234,14 @@ int tls_connect_start(tls_conn_t *conn, int fd,
 
     /* ShadowTLS I/O callbacks: перенаправить wolfSSL через stls_wrap/unwrap */
     if (config->io_send && config->io_recv) {
-        wolfSSL_SSLSetIORecv(ssl, (CallbackIORecv)(void(*)(void))config->io_recv);
-        wolfSSL_SSLSetIOSend(ssl, (CallbackIOSend)(void(*)(void))config->io_send);
+        /* Cast: tls_config_t использует generic fn ptr (без wolfSSL headers),
+         * ABI-совместим с CallbackIORecv/Send (WOLFSSL* ≡ void* на ABI уровне) */
+        CallbackIORecv recv_cb;
+        CallbackIOSend send_cb;
+        memcpy(&recv_cb, &config->io_recv, sizeof(recv_cb));
+        memcpy(&send_cb, &config->io_send, sizeof(send_cb));
+        wolfSSL_SSLSetIORecv(ssl, recv_cb);
+        wolfSSL_SSLSetIOSend(ssl, send_cb);
         wolfSSL_SetIOReadCtx(ssl, config->io_ctx);
         wolfSSL_SetIOWriteCtx(ssl, config->io_ctx);
     }
