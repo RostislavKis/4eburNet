@@ -130,6 +130,25 @@ static void test_unwrap_wrong_password(void)
     ASSERT(out_len == -1, "wrong_password: unwrap отклонил чужой пароль");
 }
 
+/* Тест 7: unwrap с десинхронизированным счётчиком → -1 */
+static void test_counter_desync(void)
+{
+    shadowtls_ctx_t send_ctx, recv_ctx;
+    stls_ctx_init(&send_ctx, "secret");
+    stls_ctx_init(&recv_ctx, "secret");
+    recv_ctx.recv_counter = 1;  /* десинхронизация */
+
+    uint8_t data[] = "data";
+    uint8_t record[64];
+    int rec_len = stls_wrap(&send_ctx, data, 4, record, sizeof(record));
+    ASSERT(rec_len > 0, "counter_desync: wrap OK");
+
+    uint8_t out[64];
+    int result = stls_unwrap(&recv_ctx, record, rec_len, out, sizeof(out));
+    ASSERT(result == -1,
+           "counter_desync: unwrap отклонил десинхронизированный счётчик");
+}
+
 int main(void)
 {
     printf("=== test_shadowtls ===\n\n");
@@ -140,6 +159,7 @@ int main(void)
     test_counter_increment();
     test_unwrap_invalid_tag();
     test_unwrap_wrong_password();
+    test_counter_desync();
 
     printf("\nALL PASS: %d тест(ов) провалено\n", fail_count);
     return fail_count ? 1 : 0;
