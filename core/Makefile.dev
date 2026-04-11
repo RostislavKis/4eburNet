@@ -88,7 +88,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dpi/dpi_payload.c \
           $(SRCDIR)/dpi/dpi_strategy.c \
           $(SRCDIR)/dpi/cdn_updater.c \
-          $(SRCDIR)/crypto/hmac_sha256.c
+          $(SRCDIR)/crypto/hmac_sha256.c \
+          $(SRCDIR)/proxy/protocols/shadowtls.c
 TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
@@ -189,6 +190,17 @@ test-hmac-sha256:
 	  -o /tmp/test_hmac_sha256 $(WOLFSSL_LIBS)
 	/tmp/test_hmac_sha256
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256
+test-shadowtls:
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_STLS=1 -DCONFIG_EBURNET_DPI=1 \
+	  $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  src/log.c \
+	  src/crypto/hmac_sha256.c \
+	  src/dpi/dpi_payload.c \
+	  src/proxy/protocols/shadowtls.c \
+	  tests/test_shadowtls.c \
+	  -o /tmp/test_shadowtls $(WOLFSSL_LIBS)
+	/tmp/test_shadowtls
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls
+
+.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls
