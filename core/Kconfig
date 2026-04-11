@@ -1,5 +1,3 @@
-mainmenu "4eburNet Configuration"
-
 menu "Protocols"
 config EBURNET_VLESS
     bool "VLESS + Reality"
