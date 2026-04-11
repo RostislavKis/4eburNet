@@ -83,5 +83,11 @@ int stls_unwrap(shadowtls_ctx_t *ctx,
                 const uint8_t *record, int record_len,
                 uint8_t *out, int out_size);
 
+/*
+ * Вернуть полный размер TLS record в buf (header + payload).
+ * Возвращает размер если record полный, -1 если данных не хватает.
+ */
+int stls_record_size(const uint8_t *buf, int len);
+
 #endif /* CONFIG_EBURNET_STLS */
 #endif /* EBURNET_SHADOWTLS_H */
