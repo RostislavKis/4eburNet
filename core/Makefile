@@ -34,12 +34,12 @@ endef
 # Собирается отдельно: cd core && make -f Makefile.dev cross-$(ARCH)
 # Результат: prebuilt/$(ARCH)/4eburnetd
 define Build/Compile
-	@if [ ! -f "$(CURDIR)/prebuilt/$(ARCH)/4eburnetd" ]; then \
+	@if [ ! -f "$(SOURCE)/../prebuilt/$(ARCH)/4eburnetd" ]; then \
 		echo "ERROR: prebuilt/$(ARCH)/4eburnetd не найден."; \
 		echo "Запустите: cd core && make -f Makefile.dev cross-$(ARCH)"; \
 		exit 1; \
 	fi
-	$(CP) $(CURDIR)/prebuilt/$(ARCH)/4eburnetd $(PKG_BUILD_DIR)/
+	$(CP) $(SOURCE)/../prebuilt/$(ARCH)/4eburnetd $(PKG_BUILD_DIR)/
 endef
 
 define Package/4eburnet-core/install
