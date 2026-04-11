@@ -16,6 +16,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
@@ -43,23 +44,29 @@ int stls_send_client_hello(int fd, shadowtls_ctx_t *ctx, const char *sni)
 {
     if (fd < 0 || !ctx || !sni) return -1;
 
-    /* Сгенерировать ClientHello, получить client_random */
-    uint8_t ch_buf[768];
-    int ch_len = dpi_make_tls_clienthello_ex(ch_buf, sizeof(ch_buf),
-                                              sni, NULL, NULL,
-                                              ctx->client_random);
-    if (ch_len < 0) return -1;
+    /* Сгенерировать client_random из /dev/urandom */
+    int rfd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (rfd < 0) return -1;
+    ssize_t rn = 0;
+    while (rn < 32) {
+        ssize_t r = read(rfd, ctx->client_random + rn, (size_t)(32 - rn));
+        if (r > 0) rn += r;
+        else if (!(r < 0 && errno == EINTR)) break;
+    }
+    close(rfd);
+    if (rn < 32) return -1;
 
-    /* Вычислить SessionID = HMAC(password, client_random) */
+    /* SessionID = HMAC(password, client_random) */
     uint8_t session_id[32];
     if (hmac_sha256(ctx->password, ctx->password_len,
                     ctx->client_random, 32, session_id) != 0)
         return -1;
 
-    /* Пересобрать ClientHello с правильным SessionID */
-    ch_len = dpi_make_tls_clienthello_ex(ch_buf, sizeof(ch_buf),
-                                          sni, ctx->client_random,
-                                          session_id, NULL);
+    /* Собрать ClientHello с правильными random + session_id */
+    uint8_t ch_buf[768];
+    int ch_len = dpi_make_tls_clienthello_ex(ch_buf, sizeof(ch_buf),
+                                              sni, ctx->client_random,
+                                              session_id, NULL);
     if (ch_len < 0) return -1;
 
     ssize_t sent = send(fd, ch_buf, (size_t)ch_len, MSG_NOSIGNAL);
@@ -145,17 +152,21 @@ int stls_recv_handshake(int fd, shadowtls_ctx_t *ctx)
                 ctx->state = STLS_SKIP_HS;
             }
         } else if (ctx->state == STLS_SKIP_HS) {
-            /* Пропускаем handshake records, ждём первый AppData (0x17) */
-            if (rtype == 0x17) {
-                ctx->state = STLS_ACTIVE;
-                /* Удалить обработанные данные из буфера, оставить непрочитанное */
-                int remaining = ctx->recv_len - pos;
-                if (remaining > 0 && pos > 0)
-                    memmove(ctx->recv_buf, ctx->recv_buf + pos, (size_t)remaining);
-                ctx->recv_len = remaining;
-                log_msg(LOG_DEBUG, "stls: handshake завершён, ACTIVE");
-                return 1;
+            /* Ждём ChangeCipherSpec (0x14) → переход к Finished */
+            if (rtype == 0x14) {
+                ctx->state = STLS_WAIT_FINISHED;
+                log_msg(LOG_DEBUG, "stls: ChangeCipherSpec получен");
             }
+            /* Остальные records (Certificate, etc.) пропускаем */
+        } else if (ctx->state == STLS_WAIT_FINISHED) {
+            /* Record после CCS = Finished → переходим в ACTIVE */
+            ctx->state = STLS_ACTIVE;
+            int remaining = ctx->recv_len - pos;
+            if (remaining > 0 && pos > 0)
+                memmove(ctx->recv_buf, ctx->recv_buf + pos, (size_t)remaining);
+            ctx->recv_len = remaining;
+            log_msg(LOG_DEBUG, "stls: Finished получен, ACTIVE");
+            return 1;
         }
 
         pos += TLS_RECORD_HDR + rlen;
@@ -198,16 +209,10 @@ int stls_wrap(shadowtls_ctx_t *ctx,
         cnt >>= 8;
     }
 
-    /* counter_be || data → HMAC-SHA256 → первые 4 байта */
+    /* HMAC(password, counter_be || data) → первые 4 байта как тег */
     uint8_t hmac_out[32];
-    uint8_t hmac_input[4096];
-    size_t input_len = 8 + (size_t)len;
-    memcpy(hmac_input, counter_be, 8);
-    if ((size_t)len <= sizeof(hmac_input) - 8)
-        memcpy(hmac_input + 8, data, (size_t)len);
-    hmac_sha256(ctx->password, ctx->password_len,
-                hmac_input, input_len <= sizeof(hmac_input)
-                            ? input_len : 8, hmac_out);
+    hmac_sha256_2(ctx->password, ctx->password_len,
+                  counter_be, 8, data, (size_t)len, hmac_out);
 
     memcpy(out + TLS_RECORD_HDR, hmac_out, STLS_TAG_LEN);
     memcpy(out + TLS_RECORD_HDR + STLS_TAG_LEN, data, (size_t)len);
@@ -244,14 +249,8 @@ int stls_unwrap(shadowtls_ctx_t *ctx,
     }
 
     uint8_t hmac_out[32];
-    uint8_t hmac_input[4096];
-    size_t input_len = 8 + (size_t)data_len;
-    memcpy(hmac_input, counter_be, 8);
-    if ((size_t)data_len <= sizeof(hmac_input) - 8)
-        memcpy(hmac_input + 8, data, (size_t)data_len);
-    hmac_sha256(ctx->password, ctx->password_len,
-                hmac_input, input_len <= sizeof(hmac_input)
-                            ? input_len : 8, hmac_out);
+    hmac_sha256_2(ctx->password, ctx->password_len,
+                  counter_be, 8, data, (size_t)data_len, hmac_out);
 
     if (memcmp(tag, hmac_out, STLS_TAG_LEN) != 0) {
         log_msg(LOG_WARN, "stls: unwrap HMAC tag mismatch (counter=%lu)",

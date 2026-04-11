@@ -17,12 +17,13 @@
 
 /* Состояния ShadowTLS state machine */
 typedef enum {
-    STLS_INIT       = 0,
-    STLS_SEND_CH    = 1,  /* ClientHello отправлен */
-    STLS_RECV_SH    = 2,  /* ожидаем ServerHello → извлечь server_random */
-    STLS_SKIP_HS    = 3,  /* пропускаем остальной handshake до AppData */
-    STLS_ACTIVE     = 4,  /* данные идут */
-    STLS_ERROR      = 5,
+    STLS_INIT           = 0,
+    STLS_SEND_CH        = 1,  /* ClientHello отправлен */
+    STLS_RECV_SH        = 2,  /* ожидаем ServerHello → извлечь server_random */
+    STLS_SKIP_HS        = 3,  /* пропускаем handshake records (Certificate...) */
+    STLS_WAIT_FINISHED  = 4,  /* CCS получен, ждём Finished */
+    STLS_ACTIVE         = 5,  /* данные идут */
+    STLS_ERROR          = 6,
 } stls_state_t;
 
 /* Контекст одного ShadowTLS соединения */
