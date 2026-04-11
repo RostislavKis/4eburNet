@@ -63,6 +63,14 @@
       "path": "4eburnet/adblock"
     }
   },
+  "admin/services/4eburnet/dpi": {
+    "title": "DPI Bypass",
+    "order": 24,
+    "action": {
+      "type": "view",
+      "path": "4eburnet/dpi"
+    }
+  },
   "admin/services/4eburnet/logs": {
     "title": "Логи",
     "order": 30,
