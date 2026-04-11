@@ -1659,6 +1659,11 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
         case RELAY_DONE:
             break;
+
+        default:
+            log_msg(LOG_WARN, "relay: неизвестное состояние %d", r->state);
+            relay_free(ds, r);
+            continue;
         }
     }
 
