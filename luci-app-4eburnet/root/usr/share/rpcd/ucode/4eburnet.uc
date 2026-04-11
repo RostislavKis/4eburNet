@@ -485,7 +485,8 @@ const methods = {
                 transport: '', uuid: '', password: '',
                 reality_pbk: '', reality_sid: '',
                 hy2_obfs_password: '', hy2_sni: '',
-                hy2_insecure: 0, hy2_up_mbps: 0, hy2_down_mbps: 0 },
+                hy2_insecure: 0, hy2_up_mbps: 0, hy2_down_mbps: 0,
+                stls_password: '', stls_sni: '' },
         call: function(req) {
             let a = req.args ?? {};
             let required_fields = ['name', 'protocol', 'address', 'port'];
@@ -495,7 +496,7 @@ const methods = {
             }
 
             let proto_ok = { vless: 1, trojan: 1, shadowsocks: 1, awg: 1,
-                             hysteria2: 1 };
+                             hysteria2: 1, shadowtls: 1 };
             if (!proto_ok[a.protocol])
                 return { ok: false, error: 'invalid protocol: ' + a.protocol };
 
@@ -510,7 +511,8 @@ const methods = {
             let sec = c.add('4eburnet', 'server');
             let safe = { name:1, protocol:1, address:1, transport:1,
                          uuid:1, password:1, reality_pbk:1, reality_sid:1,
-                         xhttp_path:1, xhttp_host:1 };
+                         xhttp_path:1, xhttp_host:1,
+                         stls_password:1, stls_sni:1 };
             for (let k in a)
                 if (safe[k] && a[k]) c.set('4eburnet', sec, k, '' + a[k]);
             c.set('4eburnet', sec, 'port', '' + port);

@@ -36,6 +36,11 @@ typedef struct {
     char     hy2_sni[256];
     uint32_t hy2_up_mbps;
     uint32_t hy2_down_mbps;
+#if CONFIG_EBURNET_STLS
+    /* ShadowTLS v3 (transport wrapper, protocol="shadowtls") */
+    char     stls_password[256]; /* PSK для HMAC верификации */
+    char     stls_sni[256];      /* SNI реального сервера ("www.microsoft.com") */
+#endif
     /* Источник сервера: "" = основной конфиг, иначе имя провайдера */
     char     source_provider[64];
 } ServerConfig;
