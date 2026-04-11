@@ -112,7 +112,7 @@ def parse_trojan_uri(uri: str) -> dict | None:
             if '=' in kv:
                 k, v = kv.split('=', 1)
                 params[k] = urllib.parse.unquote(v)
-    return {
+    srv = {
         'protocol': 'trojan',
         'name':     urllib.parse.unquote(name or host),
         'address':  host,
@@ -120,6 +120,15 @@ def parse_trojan_uri(uri: str) -> dict | None:
         'password': password,
         'sni':      params.get('sni', ''),
     }
+    # ShadowTLS из URI: ?transport=shadowtls&stls-password=X&stls-sni=Y
+    if params.get('transport') == 'shadowtls':
+        stls_pass = params.get('stls-password', params.get('shadow-tls-password', ''))
+        stls_sni  = params.get('stls-sni', params.get('shadow-tls-sni', ''))
+        if stls_pass:
+            srv['transport']     = 'shadowtls'
+            srv['stls_password'] = stls_pass
+            srv['stls_sni']      = stls_sni or host
+    return srv
 
 
 def parse_hysteria2_uri(uri: str) -> dict | None:
@@ -318,6 +327,30 @@ def _parse_inline_dict(s: str) -> dict:
     return result
 
 
+def _apply_shadowtls(proxy: dict, srv: dict) -> None:
+    """Извлечь ShadowTLS параметры из Clash proxy dict.
+    Два формата:
+      1) shadow-tls-password + shadow-tls-sni (inline)
+      2) plugin: shadow-tls + plugin-opts: {password, host}
+    """
+    stls_pass = proxy.get('shadow-tls-password', '')
+    stls_sni  = proxy.get('shadow-tls-sni', '')
+
+    # Формат plugin-opts
+    if not stls_pass:
+        plugin = proxy.get('plugin', '')
+        if plugin == 'shadow-tls':
+            opts = proxy.get('plugin-opts', {})
+            if isinstance(opts, dict):
+                stls_pass = opts.get('password', '')
+                stls_sni  = opts.get('host', '')
+
+    if stls_pass:
+        srv['transport']     = 'shadowtls'
+        srv['stls_password'] = stls_pass
+        srv['stls_sni']      = stls_sni or srv.get('address', '')
+
+
 def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
     """Конвертировать Clash proxy dict в 4eburNet server dict."""
     ptype = proxy.get('type', '').lower()
@@ -345,22 +378,26 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             'sni':         proxy.get('servername', proxy.get('sni', '')),
         })
     elif ptype == 'trojan':
-        servers.append({
+        srv = {
             'protocol': 'trojan',
             'name':     name,
             'address':  host,
             'port':     int(port),
             'password': proxy.get('password', ''),
             'sni':      proxy.get('sni', ''),
-        })
+        }
+        _apply_shadowtls(proxy, srv)
+        servers.append(srv)
     elif ptype in ('ss', 'shadowsocks'):
-        servers.append({
+        srv = {
             'protocol': 'shadowsocks',
             'name':     name,
             'address':  host,
             'port':     int(port),
             'password': proxy.get('password', ''),
-        })
+        }
+        _apply_shadowtls(proxy, srv)
+        servers.append(srv)
     elif ptype == 'hysteria2':
         servers.append({
             'protocol':  'hysteria2',
