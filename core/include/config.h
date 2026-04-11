@@ -238,7 +238,12 @@ typedef struct EburNetConfig {
     int                   dpi_fake_ttl;     /* TTL fake пакета */
     int                   dpi_fake_repeats; /* кол-во fake пакетов */
     char                  dpi_fake_sni[256];/* SNI для fake TLS */
-    /* dpi_fooling_ts: добавляется в C.4 (требует raw TCP) */
+    /* dpi_fooling_ts: добавляется в C.5 (требует raw TCP) */
+    /* CDN автообновление ipset.txt */
+    int                   cdn_update_interval_days; /* 0=выкл, default 7 */
+    char                  cdn_cf_v4_url[256]; /* "" = встроенный default */
+    char                  cdn_cf_v6_url[256];
+    char                  cdn_fastly_url[256];
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
 } EburNetConfig;
 
