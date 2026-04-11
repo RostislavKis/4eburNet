@@ -7,6 +7,9 @@
 #if CONFIG_EBURNET_FAKE_IP
 #include "dns/fake_ip.h"
 #endif
+#if CONFIG_EBURNET_STLS
+#include "proxy/shadowtls.h"
+#endif
 #include "config.h"
 
 #include <stdint.h>
@@ -33,6 +36,9 @@ typedef enum {
 #if CONFIG_EBURNET_AWG
     RELAY_AWG_HANDSHAKE = 14,  /* AWG UDP handshake */
     RELAY_AWG_ACTIVE    = 15,  /* AWG туннель активен */
+#endif
+#if CONFIG_EBURNET_STLS
+    RELAY_STLS_SHAKE    = 16,  /* ShadowTLS handshake в процессе */
 #endif
 } relay_state_t;
 
@@ -78,6 +84,9 @@ struct relay_conn {
     struct xhttp_state     *xhttp;            /* NULL если не XHTTP */
     struct ss_state        *ss;              /* NULL если не SS 2022 */
     struct awg_state       *awg;             /* NULL если не AWG */
+#if CONFIG_EBURNET_STLS
+    shadowtls_ctx_t        *stls;           /* NULL если не ShadowTLS transport */
+#endif
     int                     download_fd;       /* XHTTP GET fd (-1 если нет) */
     relay_ep_t              ep_download;       /* epoll тег для download_fd */
 };

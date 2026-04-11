@@ -423,6 +423,9 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             r->xhttp       = NULL;
             r->ss          = NULL;
             r->awg         = NULL;
+#if CONFIG_EBURNET_STLS
+            r->stls        = NULL;
+#endif
             r->state       = RELAY_CONNECTING;
             r->last_active = time(NULL);
             r->ep_client.relay     = r;
@@ -479,6 +482,12 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
         ss_cleanup(r->ss);  /* C-08: освободить overflow буфер */
         free(r->ss);
         r->ss = NULL;
+    }
+#endif
+#if CONFIG_EBURNET_STLS
+    if (r->stls) {
+        free(r->stls);
+        r->stls = NULL;
     }
 #endif
 
@@ -771,6 +780,22 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
         }
 #endif
 
+#if CONFIG_EBURNET_STLS
+        /* ShadowTLS transport: обернуть данные перед отправкой */
+        if (r->stls && r->stls->state == STLS_ACTIVE && !r->use_tls) {
+            int wrap_size = (int)n + 9;  /* TLS hdr(5) + tag(4) + data */
+            uint8_t *wrap_buf = malloc((size_t)wrap_size);
+            if (!wrap_buf) return -1;
+            int wlen = stls_wrap(r->stls, ds->relay_buf, (int)n,
+                                 wrap_buf, wrap_size);
+            if (wlen < 0) { free(wrap_buf); return -1; }
+            ssize_t sent = send(r->upstream_fd, wrap_buf, (size_t)wlen,
+                                MSG_NOSIGNAL);
+            free(wrap_buf);
+            return (sent == wlen) ? n : (ssize_t)-1;
+        }
+#endif
+
         if (r->use_tls)
             return tls_send(&r->tls, ds->relay_buf, n);
 
@@ -791,6 +816,32 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
          * Upstream → клиент
          * Пишем в client_fd (всегда plain TCP)
          */
+#if CONFIG_EBURNET_STLS
+        /* ShadowTLS transport: прочитать и развернуть */
+        if (r->stls && r->stls->state == STLS_ACTIVE && !r->use_tls) {
+            n = read(r->upstream_fd, ds->relay_buf, ds->relay_buf_size);
+            if (n <= 0) return n;
+            uint8_t *unwrap_buf = malloc((size_t)n);
+            if (!unwrap_buf) return -1;
+            int ulen = stls_unwrap(r->stls, ds->relay_buf, (int)n,
+                                   unwrap_buf, (int)n);
+            if (ulen <= 0) { free(unwrap_buf); return (ulen == 0) ? 0 : -1; }
+            ssize_t wr = 0;
+            while (wr < ulen) {
+                ssize_t w = write(r->client_fd, unwrap_buf + wr,
+                                  (size_t)(ulen - wr));
+                if (w < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                    free(unwrap_buf);
+                    return -1;
+                }
+                wr += w;
+            }
+            free(unwrap_buf);
+            return wr;
+        }
+#endif
+
         if (r->use_tls)
             n = tls_recv(&r->tls, ds->relay_buf, ds->relay_buf_size);
         else
@@ -1142,6 +1193,31 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     server = &g_config->servers[r->server_idx];
 
                 if (server) {
+#if CONFIG_EBURNET_STLS
+                    /* ShadowTLS transport: handshake до inner protocol */
+                    if (server->stls_password[0] &&
+                        server->transport[0] &&
+                        strcmp(server->transport, "shadowtls") == 0) {
+                        shadowtls_ctx_t *stls =
+                            malloc(sizeof(shadowtls_ctx_t));
+                        if (!stls) {
+                            relay_free(ds, r); continue;
+                        }
+                        stls_ctx_init(stls, server->stls_password);
+                        r->stls = stls;
+                        if (stls_send_client_hello(r->upstream_fd, stls,
+                                                    server->stls_sni) < 0) {
+                            log_msg(LOG_WARN,
+                                "relay: ShadowTLS ClientHello провалился");
+                            dispatcher_server_result(ds, r->server_idx,
+                                                     false);
+                            relay_free(ds, r);
+                            continue;
+                        }
+                        r->state = RELAY_STLS_SHAKE;
+                        break;
+                    }
+#endif
                     const proxy_protocol_t *proto =
                         protocol_find_for_server(server);
                     if (proto->start(r, &r->dst, server) < 0) {
@@ -1539,6 +1615,43 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 relay_free(ds, r);
             break;
 #endif /* CONFIG_EBURNET_AWG */
+
+#if CONFIG_EBURNET_STLS
+        case RELAY_STLS_SHAKE:
+            /* ShadowTLS handshake — читаем ServerHello + skip HS */
+            if (ep->is_client) break;
+            if (!(ev & EPOLLIN)) break;
+            {
+                int hrc = stls_recv_handshake(r->upstream_fd, r->stls);
+                if (hrc < 0) {
+                    log_msg(LOG_WARN,
+                            "relay: ShadowTLS handshake провалился");
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                    continue;
+                }
+                if (hrc == 0) break;  /* нужно больше данных */
+                /* hrc == 1: handshake завершён → запустить inner protocol */
+                const ServerConfig *server = NULL;
+                if (g_config && r->server_idx >= 0 &&
+                    r->server_idx < g_config->server_count)
+                    server = &g_config->servers[r->server_idx];
+                if (server) {
+                    const proxy_protocol_t *proto =
+                        protocol_find_for_server(server);
+                    if (proto->start(r, &r->dst, server) < 0) {
+                        log_msg(LOG_WARN,
+                                "relay: inner proto start провалился");
+                        relay_free(ds, r);
+                        continue;
+                    }
+                    /* state установлен proto->start: TLS_SHAKE или ACTIVE */
+                } else {
+                    r->state = RELAY_ACTIVE;
+                }
+            }
+            break;
+#endif
 
         case RELAY_CLOSING:
             relay_free(ds, r);
