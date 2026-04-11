@@ -123,6 +123,8 @@ static int parse_ipset(const char *path)
     g_ipv4 = calloc((size_t)(n4 + 1), sizeof(ipv4_cidr_t));
     g_ipv6 = calloc((size_t)(n6 + 1), sizeof(ipv6_cidr_t));
     if (!g_ipv4 || !g_ipv6) {
+        free(g_ipv4); g_ipv4 = NULL;
+        free(g_ipv6); g_ipv6 = NULL;
         fclose(f);
         return -1;
     }
@@ -143,7 +145,10 @@ static int parse_ipset(const char *path)
         int plen = -1;
         if (slash) {
             *slash = '\0';
-            plen = atoi(slash + 1);
+            /* strtol с endptr: отклоняем "1.2.3.0/" и "x/0abc" */
+            char *endp;
+            long pl_raw = strtol(slash + 1, &endp, 10);
+            plen = (endp != slash + 1 && *endp == '\0') ? (int)pl_raw : -1;
         }
 
         if (strchr(p, ':')) {
@@ -152,7 +157,8 @@ static int parse_ipset(const char *path)
             struct in6_addr a6;
             if (inet_pton(AF_INET6, p, &a6) != 1) continue;
             memcpy(g_ipv6[g_ipv6_n].addr, &a6, 16);
-            int pl = (plen >= 0 && plen <= 128) ? plen : 128;
+            /* plen > 0: /0 даёт mask=0 и матчит всё — трактовать как /128 */
+            int pl = (plen > 0 && plen <= 128) ? plen : 128;
             prefix_to_mask6(pl, g_ipv6[g_ipv6_n].mask);
             /* Применить маску к адресу */
             for (int i = 0; i < 16; i++)
@@ -164,7 +170,8 @@ static int parse_ipset(const char *path)
             struct in_addr a4;
             if (inet_pton(AF_INET, p, &a4) != 1) continue;
             uint32_t addr = ntohl(a4.s_addr);
-            int pl = (plen >= 0 && plen <= 32) ? plen : 32;
+            /* plen > 0: /0 даёт mask=0 и матчит всё — трактовать как /32 */
+            int pl = (plen > 0 && plen <= 32) ? plen : 32;
             uint32_t mask = prefix_to_mask4(pl);
             g_ipv4[g_ipv4_n].addr = addr & mask;
             g_ipv4[g_ipv4_n].mask = mask;
@@ -237,6 +244,12 @@ static void free_domain_list(char **arr, int n)
 
 /* ── Инициализация ──────────────────────────────────────────────── */
 
+/*
+ * NOT thread-safe: вызывать только из главного потока (epoll loop).
+ * dpi_filter_free() + перезагрузка не защищены mutex.
+ * parse_ipset: два прохода по файлу. При горячей замене ipset.txt
+ * (reload в C.5+) заменить на однопроходный парсинг с realloc.
+ */
 int dpi_filter_init(const char *dpi_dir)
 {
     dpi_filter_free();
@@ -298,7 +311,7 @@ dpi_match_t dpi_filter_match_ipv4(uint32_t ip, uint16_t port)
             hi = mid - 1;
     }
     /* Кандидаты: hi и hi-1..0 — нужно проверить все у которых addr <= ip */
-    for (int i = hi; i >= 0 && i >= hi - 4; i--) {
+    for (int i = hi; i >= 0; i--) {
         if (g_ipv4[i].addr > ip) continue;
         if ((ip & g_ipv4[i].mask) == g_ipv4[i].addr)
             return DPI_MATCH_BYPASS;
@@ -319,7 +332,7 @@ dpi_match_t dpi_filter_match_ipv6(const uint8_t ip6[16], uint16_t port)
         else
             hi = mid - 1;
     }
-    for (int i = hi; i >= 0 && i >= hi - 4; i--) {
+    for (int i = hi; i >= 0; i--) {
         if (memcmp(g_ipv6[i].addr, ip6, 16) > 0) continue;
         /* Проверить ip6 & mask == addr */
         int match = 1;
