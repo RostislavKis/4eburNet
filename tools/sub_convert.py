@@ -519,13 +519,22 @@ def _parse_clash_rule(rule_str: str) -> dict | None:
         'GEOSITE':        'geosite',
         'RULE-SET':       'rule_set',
         'MATCH':          'match',
-        'DST-PORT':       None,
+        'DST-PORT':       'port',
         'SRC-PORT':       None,
         'PROCESS-NAME':   None,
-        'AND':            None,
         'OR':             None,
         'NOT':            None,
     }
+
+    # AND,((NETWORK,proto),(DST-PORT,port)),target → type=port
+    if rtype == 'AND':
+        m = re.match(
+            r'\(\(NETWORK,[^)]+\),\(DST-PORT,([^)]+)\)\),(.+)',
+            ','.join(parts[1:]))
+        if m:
+            return {'type': 'port', 'value': m.group(1).strip(),
+                    'target': m.group(2).strip()}
+        return None
 
     uci_type = type_map.get(rtype)
     if uci_type is None:
@@ -540,8 +549,7 @@ def _parse_clash_rule(rule_str: str) -> dict | None:
     else:
         return None
 
-    # Нормализовать target: убрать спецсимволы
-    target = re.sub(r'[^\w\-_. ]', '', target).strip()
+    target = target.strip()
     if not target:
         return None
 
