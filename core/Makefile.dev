@@ -15,7 +15,8 @@ ifeq ($(PROFILE),micro)
     -DCONFIG_EBURNET_PROXY_PROVIDERS=0 \
     -DCONFIG_EBURNET_SNIFFER=1  \
     -DCONFIG_EBURNET_DPI=1      \
-    -DCONFIG_EBURNET_STLS=0
+    -DCONFIG_EBURNET_STLS=0     \
+    -DCONFIG_EBURNET_DOQ=0
 else ifeq ($(PROFILE),normal)
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
@@ -28,7 +29,8 @@ else ifeq ($(PROFILE),normal)
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
     -DCONFIG_EBURNET_SNIFFER=1  \
     -DCONFIG_EBURNET_DPI=1      \
-    -DCONFIG_EBURNET_STLS=1
+    -DCONFIG_EBURNET_STLS=1     \
+    -DCONFIG_EBURNET_DOQ=0
 else  # full — все функции включены
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
@@ -41,7 +43,8 @@ else  # full — все функции включены
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
     -DCONFIG_EBURNET_SNIFFER=1  \
     -DCONFIG_EBURNET_DPI=1      \
-    -DCONFIG_EBURNET_STLS=1
+    -DCONFIG_EBURNET_STLS=1     \
+    -DCONFIG_EBURNET_DOQ=0
 endif
 
 CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
