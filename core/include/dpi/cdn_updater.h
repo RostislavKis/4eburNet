@@ -35,11 +35,14 @@ int cdn_updater_check(const struct EburNetConfig *cfg);
  */
 int cdn_updater_update(const struct EburNetConfig *cfg);
 
+/* Размер одной ячейки CIDR (включая NUL). Фиксирован для qsort-совместимости. */
+#define CDN_CIDR_SIZE 64
+
 /* ── Внутренние функции (экспортируются для тестирования) ─────────── */
 
 /*
  * Проверить устаревший ли stamp.
- * interval_days == 0 → возвращает -1 (обновление выключено).
+ * interval_days <= 0 → возвращает -1 (обновление выключено).
  * Возвращает: 1 устарел/нет файла, 0 свежий, -1 выключено.
  */
 int  cdn_is_stale(const char *stamp_path, int interval_days);
@@ -53,11 +56,11 @@ long cdn_stamp_read(const char *stamp_path);
 /*
  * Парсинг текстового формата (Cloudflare): один CIDR на строку,
  * строки начинающиеся с '#' и пустые игнорируются.
- * cidrs[][cidr_size] — выходной массив.
+ * cidrs[][CDN_CIDR_SIZE] — выходной массив.
  * Возвращает количество CIDR или -1.
  */
 int cdn_parse_text(const char *text,
-                   char cidrs[][64], int max_count, int cidr_size);
+                   char cidrs[][CDN_CIDR_SIZE], int max_count);
 
 /*
  * Парсинг JSON Fastly: {"addresses":[...],"ipv6_addresses":[...]}.
@@ -65,14 +68,14 @@ int cdn_parse_text(const char *text,
  * Возвращает количество CIDR или -1.
  */
 int cdn_parse_fastly_json(const char *json,
-                           char cidrs[][64], int max_count, int cidr_size);
+                           char cidrs[][CDN_CIDR_SIZE], int max_count);
 
 /*
  * Дедупликация и атомарная запись CIDR в out_path.
  * Сортирует → убирает дубли → пишет в .tmp → rename().
  * Возвращает 0 или -1.
  */
-int cdn_merge_write(char cidrs[][64], int count, const char *out_path);
+int cdn_merge_write(char cidrs[][CDN_CIDR_SIZE], int count, const char *out_path);
 
 #endif /* CONFIG_EBURNET_DPI */
 #endif /* EBURNET_CDN_UPDATER_H */
