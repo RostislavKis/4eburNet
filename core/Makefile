@@ -27,7 +27,7 @@ define Package/4eburnet-core/config
 endef
 
 define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)
+	mkdir -p $(PKG_BUILD_DIR)/src
 	$(CP) ./src/* $(PKG_BUILD_DIR)/src/
 	$(CP) ./include $(PKG_BUILD_DIR)/
 endef
