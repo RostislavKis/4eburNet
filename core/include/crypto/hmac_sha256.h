@@ -19,6 +19,16 @@ int hmac_sha256(const uint8_t *key, size_t keylen,
                 uint8_t out[32]);
 
 /*
+ * Двухшаговый HMAC-SHA256: HMAC(key, data1 || data2).
+ * Не требует буфера конкатенации — два wc_HmacUpdate подряд.
+ * Возвращает 0 или -1.
+ */
+int hmac_sha256_2(const uint8_t *key, size_t keylen,
+                  const uint8_t *data1, size_t len1,
+                  const uint8_t *data2, size_t len2,
+                  uint8_t out[32]);
+
+/*
  * Вычислить HMAC-SHA256 и сравнить первые cmplen байт с expected.
  * Constant-time compare (M-11: без short-circuit).
  * Возвращает 1 если равны, 0 если нет.
