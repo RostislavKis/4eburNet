@@ -204,7 +204,68 @@ static void test_write_atomic(void)
           "write_atomic: .tmp файл удалён после rename");
 }
 
-/* Тест 13: cdn_updater_update — несуществующие URL → -1, файлы не создаются */
+/* Тест 13: cdn_is_stale — timestamp из будущего → stale=1 */
+static void test_stale_future_timestamp(void)
+{
+    const char *path = TMP_DIR "/future.stamp";
+    long future_ts = (long)time(NULL) + 7 * 86400;
+    FILE *f = fopen(path, "w");
+    if (f) { fprintf(f, "%ld\n", future_ts); fclose(f); }
+    CHECK(cdn_is_stale(path, 7) == 1,
+          "is_stale: timestamp из будущего → stale=1");
+}
+
+/* Тест 14: cdn_parse_text — граничные длины CIDR */
+static void test_parse_text_boundary(void)
+{
+    /* CIDR 63 символа — принимается (len < 64) */
+    char long_cidr[70];
+    memset(long_cidr, '1', 63); long_cidr[63] = '\0';
+    char text[80];
+    snprintf(text, sizeof(text), "%s\n", long_cidr);
+    char cidrs[4][64];
+    int n = cdn_parse_text(text, cidrs, 4, 64);
+    CHECK(n == 1, "parse_text: CIDR длиной 63 → принимается");
+
+    /* CIDR 64 символа — отбрасывается (len >= 64) */
+    char too_long[70];
+    memset(too_long, '1', 64); too_long[64] = '\0';
+    snprintf(text, sizeof(text), "%s\n", too_long);
+    n = cdn_parse_text(text, cidrs, 4, 64);
+    CHECK(n == 0, "parse_text: CIDR длиной 64 → отбрасывается");
+}
+
+/* Тест 15: cdn_parse_fastly_json — CIDR с backslash → отброшен */
+static void test_parse_json_escape(void)
+{
+    /* Нормальный CIDR без escape — парсится */
+    const char *mock = "{\"addresses\":[\"1.2.3.0/24\"]}";
+    char cidrs[4][64];
+    int n = cdn_parse_fastly_json(mock, cidrs, 4, 64);
+    CHECK(n == 1, "parse_fastly: нормальный CIDR → 1");
+
+    /* CIDR с backslash: невалидный символ '\\' → отбрасывается (A.8.5) */
+    const char *bad = "{\"addresses\":[\"bad\\\\cidr\"]}";
+    n = cdn_parse_fastly_json(bad, cidrs, 4, 64);
+    CHECK(n == 0, "parse_fastly: CIDR с backslash → отброшен валидацией");
+}
+
+/* Тест 16: cdn_merge_write — count=0 → -1 */
+static void test_merge_write_empty(void)
+{
+    char cidrs[1][64];
+    CHECK(cdn_merge_write(cidrs, 0, TMP_DIR "/empty.txt") == -1,
+          "merge_write: count=0 → -1");
+}
+
+/* Тест 17: cdn_stamp_write — несуществующий путь → -1 */
+static void test_stamp_write_badpath(void)
+{
+    int rc = cdn_stamp_write("/tmp/no_such_dir_4eburnet/stamp.txt");
+    CHECK(rc == -1, "stamp_write: несуществующий путь → -1");
+}
+
+/* Тест 18: cdn_updater_update — несуществующие URL → -1, файлы не создаются */
 static void test_updater_no_network(void)
 {
     /* Минимальный конфиг: URL на заведомо недоступный хост */
@@ -257,6 +318,11 @@ int main(void)
     test_parse_fastly_empty();
     test_merge_dedup();
     test_write_atomic();
+    test_stale_future_timestamp();
+    test_parse_text_boundary();
+    test_parse_json_escape();
+    test_merge_write_empty();
+    test_stamp_write_badpath();
     test_updater_no_network();
 
     cleanup();
