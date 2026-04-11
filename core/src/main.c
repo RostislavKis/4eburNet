@@ -210,10 +210,8 @@ static int handle_client_command(const char *cmd)
         { "stop",            IPC_CMD_STOP            },
         { "stats",           IPC_CMD_STATS           },
         { "groups",          IPC_CMD_GROUP_LIST      },
-        { "group-select",    IPC_CMD_GROUP_SELECT    },
         { "group-test",      IPC_CMD_GROUP_TEST      },
         { "providers",       IPC_CMD_PROVIDER_LIST   },
-        { "provider-update", IPC_CMD_PROVIDER_UPDATE },
         { "rules",           IPC_CMD_RULES_LIST      },
         { "geo-status",      IPC_CMD_GEO_STATUS      },
 #if CONFIG_EBURNET_DPI
@@ -316,6 +314,12 @@ int main(int argc, char *argv[])
             return 1;
         }
         const char *payload = (optind + 2 < argc) ? argv[optind + 2] : NULL;
+        /* stdin fallback: для payload через < редирект из .uc */
+        static char stdin_buf[4096];
+        if (!payload && !isatty(STDIN_FILENO)) {
+            ssize_t sn = read(STDIN_FILENO, stdin_buf, sizeof(stdin_buf) - 1);
+            if (sn > 0) { stdin_buf[sn] = '\0'; payload = stdin_buf; }
+        }
         return handle_ipc_with_payload(argv[optind + 1], payload);
     }
 
