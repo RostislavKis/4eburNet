@@ -233,12 +233,10 @@ int tls_connect_start(tls_conn_t *conn, int fd,
     if (config->io_send && config->io_recv) {
         /* ShadowTLS: custom I/O callbacks, fd хранится в stls_io_ctx_t.
          * Не вызываем wolfSSL_set_fd — он установил бы стандартные callbacks. */
-        CallbackIORecv recv_cb;
-        CallbackIOSend send_cb;
-        memcpy(&recv_cb, &config->io_recv, sizeof(recv_cb));
-        memcpy(&send_cb, &config->io_send, sizeof(send_cb));
-        wolfSSL_SSLSetIORecv(ssl, recv_cb);
-        wolfSSL_SSLSetIOSend(ssl, send_cb);
+        /* tls_config_t: int(*)(void*,...) — ABI-совместим с
+         * CallbackIORecv/Send: int(*)(WOLFSSL*,...) */
+        wolfSSL_SSLSetIORecv(ssl, (CallbackIORecv)config->io_recv);
+        wolfSSL_SSLSetIOSend(ssl, (CallbackIOSend)config->io_send);
         wolfSSL_SetIOReadCtx(ssl, config->io_ctx);
         wolfSSL_SetIOWriteCtx(ssl, config->io_ctx);
     } else {
