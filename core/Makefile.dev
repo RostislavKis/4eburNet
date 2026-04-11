@@ -137,7 +137,7 @@ test-cc:
 	/tmp/test_hysteria2_cc
 
 test-dpi-filter:
-	$(TEST_CC) -std=c11 -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_DPI=1 \
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_DPI=1 \
 	  $(INCLUDES) \
 	  src/dpi/dpi_filter.c \
 	  tests/test_dpi_filter.c \
@@ -146,4 +146,4 @@ test-dpi-filter:
 
 test: test-uri test-udp test-cc test-dpi-filter
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc
+.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter

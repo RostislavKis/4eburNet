@@ -37,6 +37,8 @@ config EBURNET_DOH
     default y
 endmenu
 
+menu "Features"
+
 config EBURNET_PROXY_PROVIDERS
     bool "Proxy providers (subscription URLs)"
     default y
@@ -53,3 +55,5 @@ config EBURNET_DPI
       Loads /etc/4eburnet/dpi/ipset.txt, whitelist.txt, autohosts.txt
       at startup. Used by DPI bypass strategies (C.2+).
       RAM: ~220 KB. Safe to enable on MICRO.
+
+endmenu
