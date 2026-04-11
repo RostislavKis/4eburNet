@@ -17,8 +17,6 @@
 #include <errno.h>
 #include <unistd.h>
 
-/* Максимум CIDR от одного источника */
-#define CDN_MAX_CIDRS_PER_SOURCE  2048
 /* Максимум CIDR суммарно (CF IPv4 ~15 + IPv6 ~6 + Fastly ~40 = ~60, запас ×30) */
 #define CDN_MAX_CIDRS_TOTAL       2048
 /* Макс. размер скачанного файла (защита от unbounded read) */
@@ -31,7 +29,7 @@ int cdn_stamp_write(const char *stamp_path)
     if (!stamp_path) return -1;
     FILE *f = fopen(stamp_path, "w");
     if (!f) {
-        log_msg(LOG_WARN, "cdn_updater: не удалось записать stamp %s: %s",
+        log_msg(LOG_WARN, "cdn_stamp_write: не удалось открыть %s: %s",
                 stamp_path, strerror(errno));
         return -1;
     }
@@ -39,11 +37,13 @@ int cdn_stamp_write(const char *stamp_path)
         log_msg(LOG_WARN, "cdn_stamp_write: ошибка записи %s: %s",
                 stamp_path, strerror(errno));
         fclose(f);
+        unlink(stamp_path);  /* удалить частично записанный файл */
         return -1;
     }
     if (fclose(f) != 0) {
         log_msg(LOG_WARN, "cdn_stamp_write: fclose %s: %s",
                 stamp_path, strerror(errno));
+        unlink(stamp_path);
         return -1;
     }
     return 0;
@@ -66,7 +66,19 @@ int cdn_is_stale(const char *stamp_path, int interval_days)
     if (interval_days == 0) return -1;  /* обновление выключено */
     long ts = cdn_stamp_read(stamp_path);
     if (ts < 0) return 1;               /* нет файла или ошибка чтения = устарел */
-    long age_sec = (long)time(NULL) - ts;
+
+    long now = (long)time(NULL);
+    long age_sec = now - ts;
+
+    /* Timestamp из будущего (NTP не синхронизирован при записи):
+     * считаем устаревшим чтобы гарантировать обновление */
+    if (age_sec < 0) {
+        log_msg(LOG_WARN,
+                "cdn_is_stale: stamp timestamp (%ld) в будущем "
+                "(сейчас %ld), считаем устаревшим", ts, now);
+        return 1;
+    }
+
     return (age_sec > (long)interval_days * 86400) ? 1 : 0;
 }
 
@@ -110,6 +122,7 @@ int cdn_parse_text(const char *text,
 /*
  * Извлечь строки из JSON массива по ключу.
  * Ищет "key":[ и извлекает строки до закрывающей ].
+ * Строки с невалидными символами (не [0-9a-fA-F:.\/]) отбрасываются.
  */
 static int extract_json_array(const char *json, const char *key,
                                char cidrs[][64], int start,
@@ -135,7 +148,15 @@ static int extract_json_array(const char *json, const char *key,
         if (len > 0 && len < cidr_size) {
             memcpy(cidrs[n], val_start, (size_t)len);
             cidrs[n][len] = '\0';
-            n++;
+            /* Базовая валидация: CIDR содержит только [0-9a-fA-F:.\/] */
+            int valid = 1;
+            for (int ci = 0; ci < len && valid; ci++) {
+                char c = cidrs[n][ci];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                      (c >= 'A' && c <= 'F') || c == ':' || c == '.' || c == '/'))
+                    valid = 0;
+            }
+            if (valid) n++;
         }
         if (*arr == '"') arr++;  /* пропустить закрывающую кавычку */
     }
@@ -158,7 +179,8 @@ int cdn_parse_fastly_json(const char *json,
 
 static int cmp_cidr_str(const void *a, const void *b)
 {
-    return strcmp((const char *)a, (const char *)b);
+    /* Корректное приведение для char[64]: избегаем UB strict aliasing */
+    return strcmp(*(const char (*)[64])a, *(const char (*)[64])b);
 }
 
 int cdn_merge_write(char cidrs[][64], int count, const char *out_path)
@@ -179,18 +201,33 @@ int cdn_merge_write(char cidrs[][64], int count, const char *out_path)
         return -1;
     }
 
-    fprintf(f, "# 4eburNet CDN ipset — обновлено %ld\n", (long)time(NULL));
+    int write_err = 0;
+    if (fprintf(f, "# 4eburNet CDN ipset — обновлено %ld\n",
+                (long)time(NULL)) < 0)
+        write_err = 1;
 
     int written = 0;
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count && !write_err; i++) {
         /* Пропустить дубли */
         if (i > 0 && strcmp(cidrs[i], cidrs[i-1]) == 0) continue;
         /* Пропустить пустые строки */
         if (cidrs[i][0] == '\0') continue;
-        fprintf(f, "%s\n", cidrs[i]);
+        if (fprintf(f, "%s\n", cidrs[i]) < 0) {
+            write_err = 1;
+            break;
+        }
         written++;
     }
-    fclose(f);
+
+    if (!write_err && ferror(f)) write_err = 1;
+    if (fclose(f) != 0)         write_err = 1;
+
+    if (write_err) {
+        log_msg(LOG_WARN, "cdn_merge_write: ошибка записи %s: %s",
+                tmp_path, strerror(errno));
+        unlink(tmp_path);
+        return -1;
+    }
 
     /* Атомарная замена через rename */
     if (rename(tmp_path, out_path) < 0) {
@@ -223,6 +260,14 @@ static int fetch_and_parse(const char *url, const char *tmp_file,
     if (!buf) { fclose(f); unlink(tmp_file); return 0; }
 
     size_t total = fread(buf, 1, CDN_MAX_DOWNLOAD_BYTES - 1, f);
+    if (ferror(f)) {
+        log_msg(LOG_WARN, "cdn_updater: ошибка чтения %s: %s",
+                tmp_file, strerror(errno));
+        fclose(f);
+        free(buf);
+        unlink(tmp_file);
+        return 0;
+    }
     buf[total] = '\0';
     fclose(f);
     unlink(tmp_file);
@@ -255,6 +300,13 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
                              ? cfg->cdn_fastly_url
                              : "https://api.fastly.com/public-ip-list";
 
+    /* PID в именах временных файлов — защита от параллельных вызовов */
+    char tmp_v4[64], tmp_v6[64], tmp_fst[64];
+    int pid = (int)getpid();
+    snprintf(tmp_v4,  sizeof(tmp_v4),  "/tmp/cdn_cf_v4_%d.txt",   pid);
+    snprintf(tmp_v6,  sizeof(tmp_v6),  "/tmp/cdn_cf_v6_%d.txt",   pid);
+    snprintf(tmp_fst, sizeof(tmp_fst), "/tmp/cdn_fastly_%d.json",  pid);
+
     log_msg(LOG_INFO, "cdn_updater: начинаю обновление CDN IP...");
 
     char (*all)[64] = calloc(CDN_MAX_CIDRS_TOTAL, 64);
@@ -267,19 +319,19 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
     int n;
 
     /* Cloudflare IPv4 */
-    n = fetch_and_parse(cf_v4_url, "/tmp/cdn_cf_v4.txt",
+    n = fetch_and_parse(cf_v4_url, tmp_v4,
                         all + total, CDN_MAX_CIDRS_TOTAL - total, 64, 0);
     log_msg(LOG_INFO, "cdn_updater: Cloudflare IPv4: %d CIDR", n);
     total += n;
 
     /* Cloudflare IPv6 */
-    n = fetch_and_parse(cf_v6_url, "/tmp/cdn_cf_v6.txt",
+    n = fetch_and_parse(cf_v6_url, tmp_v6,
                         all + total, CDN_MAX_CIDRS_TOTAL - total, 64, 0);
     log_msg(LOG_INFO, "cdn_updater: Cloudflare IPv6: %d CIDR", n);
     total += n;
 
     /* Fastly */
-    n = fetch_and_parse(fastly_url, "/tmp/cdn_fastly.json",
+    n = fetch_and_parse(fastly_url, tmp_fst,
                         all + total, CDN_MAX_CIDRS_TOTAL - total, 64, 1);
     log_msg(LOG_INFO, "cdn_updater: Fastly: %d CIDR", n);
     total += n;
@@ -302,7 +354,12 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
     /* Записать stamp */
     char stamp_path[512];
     snprintf(stamp_path, sizeof(stamp_path), "%s/ipset.stamp", dpi_dir);
-    cdn_stamp_write(stamp_path);
+    if (cdn_stamp_write(stamp_path) < 0) {
+        log_msg(LOG_WARN,
+                "cdn_updater: не удалось записать stamp %s, "
+                "следующий старт повторит обновление", stamp_path);
+        /* Обновление само по себе успешно — не возвращаем ошибку */
+    }
 
     /* Горячая перезагрузка dpi_filter без рестарта демона */
     dpi_filter_init(dpi_dir);
@@ -315,7 +372,19 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
 int cdn_updater_check(const struct EburNetConfig *cfg)
 {
     if (!cfg) return -1;
-    if (cfg->cdn_update_interval_days == 0) return 0;  /* выключено */
+
+    if (cfg->cdn_update_interval_days == 0) {
+        /* Проверить что ipset.txt существует, иначе предупредить */
+        const char *ddir = cfg->dpi_dir[0] ? cfg->dpi_dir
+                                            : "/etc/4eburnet/dpi";
+        char ipset_path[512];
+        snprintf(ipset_path, sizeof(ipset_path), "%s/ipset.txt", ddir);
+        if (access(ipset_path, F_OK) != 0)
+            log_msg(LOG_WARN,
+                    "cdn_updater: cdn_update_interval_days=0 и %s "
+                    "не найден — DPI фильтрация IP отключена", ipset_path);
+        return 0;
+    }
 
     const char *dpi_dir = cfg->dpi_dir[0] ? cfg->dpi_dir
                                            : "/etc/4eburnet/dpi";

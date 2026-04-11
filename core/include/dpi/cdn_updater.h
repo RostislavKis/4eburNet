@@ -29,6 +29,8 @@ int cdn_updater_check(const struct EburNetConfig *cfg);
 
 /*
  * Принудительное обновление (IPC команда "update-ipset").
+ * NOT reentrant: использует PID-именованные /tmp файлы.
+ * Вызывать только из однопоточного event loop.
  * Возвращает: 0 успех, -1 ошибка.
  */
 int cdn_updater_update(const struct EburNetConfig *cfg);
