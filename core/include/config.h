@@ -232,6 +232,13 @@ typedef struct EburNetConfig {
     char                  geo_region[8];   /* "ru","cn","us","" — явный конфиг региона */
     char                  geo_dir[256];    /* директория с geo-файлами, "" = /etc/4eburnet/geo */
     char                  dpi_dir[256];    /* директория с dpi-файлами, "" = /etc/4eburnet/dpi */
+    /* DPI bypass стратегия */
+    bool                  dpi_enabled;      /* включить DPI bypass */
+    int                   dpi_split_pos;    /* позиция TCP split (bytes) */
+    int                   dpi_fake_ttl;     /* TTL fake пакета */
+    int                   dpi_fake_repeats; /* кол-во fake пакетов */
+    char                  dpi_fake_sni[256];/* SNI для fake TLS */
+    /* dpi_fooling_ts: добавляется в C.4 (требует raw TCP) */
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
 } EburNetConfig;
 
