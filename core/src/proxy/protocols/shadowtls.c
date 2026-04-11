@@ -152,19 +152,25 @@ int stls_recv_handshake(int fd, shadowtls_ctx_t *ctx)
                 ctx->state = STLS_SKIP_HS;
             }
         } else if (ctx->state == STLS_SKIP_HS) {
-            /* Ждём ChangeCipherSpec (0x14) → переход к Finished */
+            ctx->skip_hs_count++;
             if (rtype == 0x14) {
+                /* ChangeCipherSpec → переход к Finished */
                 ctx->state = STLS_WAIT_FINISHED;
                 log_msg(LOG_DEBUG, "stls: ChangeCipherSpec получен");
+            } else if (ctx->skip_hs_count >= 10) {
+                /* Fallback: сервер не прислал CCS (TLS 1.3 без compat mode) */
+                log_msg(LOG_WARN,
+                        "stls: CCS не получен после %d records, ACTIVE",
+                        ctx->skip_hs_count);
+                ctx->state = STLS_ACTIVE;
+                ctx->recv_len = 0;
+                return 1;
             }
             /* Остальные records (Certificate, etc.) пропускаем */
         } else if (ctx->state == STLS_WAIT_FINISHED) {
             /* Record после CCS = Finished → переходим в ACTIVE */
             ctx->state = STLS_ACTIVE;
-            int remaining = ctx->recv_len - pos;
-            if (remaining > 0 && pos > 0)
-                memmove(ctx->recv_buf, ctx->recv_buf + pos, (size_t)remaining);
-            ctx->recv_len = remaining;
+            ctx->recv_len = 0;  /* Finished record не нужен после handshake */
             log_msg(LOG_DEBUG, "stls: Finished получен, ACTIVE");
             return 1;
         }
