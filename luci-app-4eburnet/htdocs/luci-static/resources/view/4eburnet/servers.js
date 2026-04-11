@@ -9,7 +9,8 @@ var callServerAdd    = rpc.declare({
              'transport', 'uuid', 'password',
              'reality_pbk', 'reality_sid',
              'hy2_obfs_password', 'hy2_sni', 'hy2_insecure',
-             'hy2_up_mbps', 'hy2_down_mbps']
+             'hy2_up_mbps', 'hy2_down_mbps',
+             'stls_password', 'stls_sni']
 });
 var callServerDelete = rpc.declare({
     object: '4eburnet', method: 'server_delete',
@@ -23,7 +24,8 @@ var TD = 'padding:7px 10px;border-bottom:1px solid #21262d;font-size:11px';
 
 var PROTO_COLORS = {
     vless: '#bc8cff', trojan: '#4aa8f0',
-    shadowsocks: '#f0b429', awg: '#3ecf6a', hysteria2: '#ff7b54'
+    shadowsocks: '#f0b429', awg: '#3ecf6a', hysteria2: '#ff7b54',
+    shadowtls: '#e08c5a'
 };
 
 function mkInp(id, placeholder, mono) {
@@ -135,7 +137,8 @@ return view.extend({
             E('option', {value: 'trojan'},       ['Trojan']),
             E('option', {value: 'shadowsocks'},  ['Shadowsocks']),
             E('option', {value: 'awg'},          ['AmneziaWG']),
-            E('option', {value: 'hysteria2'},    ['Hysteria2'])
+            E('option', {value: 'hysteria2'},    ['Hysteria2']),
+            E('option', {value: 'shadowtls'},    ['ShadowTLS v3'])
         ]);
 
         var transportSel = E('select', {
@@ -192,6 +195,14 @@ return view.extend({
             ])
         ]);
 
+        /* ShadowTLS v3 поля */
+        var rowStlsPassword = E('div', {id: 'row-stls-password', style: 'display:none'}, [
+            mkInp('add-stls-password', 'PSK (пароль ShadowTLS)', true)
+        ]);
+        var rowStlsSni = E('div', {id: 'row-stls-sni', style: 'display:none'}, [
+            mkInp('add-stls-sni', 'SNI реального сервера (www.microsoft.com)', false)
+        ]);
+
         function updateFields() {
             var p = protoSel.value;
             var t = transportSel.value;
@@ -215,9 +226,18 @@ return view.extend({
             var hy2Wrap = document.getElementById('hy2-wrap');
             if (hy2Wrap) hy2Wrap.style.display = isHy2 ? '' : 'none';
 
-            /* Скрыть transport для Hysteria2 — QUIC, выбор не нужен */
+            /* ShadowTLS поля */
+            var isStls = (p === 'shadowtls');
+            ['row-stls-password', 'row-stls-sni'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.style.display = isStls ? '' : 'none';
+            });
+            var stlsWrap = document.getElementById('stls-wrap');
+            if (stlsWrap) stlsWrap.style.display = isStls ? '' : 'none';
+
+            /* Скрыть transport для Hysteria2/ShadowTLS */
             var transportRow = document.getElementById('row-transport');
-            if (transportRow) transportRow.style.display = isHy2 ? 'none' : '';
+            if (transportRow) transportRow.style.display = (isHy2 || isStls) ? 'none' : '';
         }
 
         transportSel.addEventListener('change', function() { updateFields(); });
@@ -302,6 +322,13 @@ return view.extend({
                     rowHy2Bw
                 ]),
 
+                E('div', {id: 'stls-wrap', style: 'display:none;margin-bottom:10px'}, [
+                    E('div', {style: 'font-size:10px;color:#545d68;margin-bottom:3px'}, [_('ShadowTLS PSK')]),
+                    rowStlsPassword,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('SNI реального сервера')]),
+                    rowStlsSni
+                ]),
+
                 E('div', {style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, [
                     E('button', {
                         class: 'btn cbi-button',
@@ -316,7 +343,11 @@ return view.extend({
                                 return;
                             }
                             if (proto === 'hysteria2' && !gv('add-hy2-password')) {
-                                showStatus('✕ ' + _('Для Hysteria2 обязателен пароль'), false);
+                                showStatus('\u2715 ' + _('Для Hysteria2 обязателен пароль'), false);
+                                return;
+                            }
+                            if (proto === 'shadowtls' && (!gv('add-stls-password') || !gv('add-stls-sni'))) {
+                                showStatus('\u2715 ' + _('Для ShadowTLS обязательны PSK и SNI'), false);
                                 return;
                             }
 
@@ -340,13 +371,18 @@ return view.extend({
                             var authUuid = (proto === 'hysteria2') ? '' : (uuid || password);
                             var authPwd  = (proto === 'hysteria2') ? hy2Pass : password;
 
+                            /* ShadowTLS параметры */
+                            var stlsPass = gv('add-stls-password');
+                            var stlsSni  = gv('add-stls-sni');
+
                             showStatus(_('Добавление…'), true);
 
                             callServerAdd(
                                 name, proto, addr, port,
                                 transport, authUuid, authPwd,
                                 pbk, sid,
-                                hy2Obfs, hy2Sni, hy2Insec, hy2Up, hy2Down
+                                hy2Obfs, hy2Sni, hy2Insec, hy2Up, hy2Down,
+                                stlsPass, stlsSni
                             ).then(function(r) {
                                 if (r && r.ok) {
                                     showStatus('✓ ' + _('Сервер добавлен'), true);
@@ -354,7 +390,8 @@ return view.extend({
                                     ['add-name','add-address','add-port',
                                      'add-uuid','add-password','add-pbk','add-sid',
                                      'add-hy2-password','add-hy2-obfs-password',
-                                     'add-hy2-sni','add-hy2-up','add-hy2-down'
+                                     'add-hy2-sni','add-hy2-up','add-hy2-down',
+                                     'add-stls-password','add-stls-sni'
                                     ].forEach(function(id) {
                                         var el = document.getElementById(id);
                                         if (el) el.value = '';

@@ -47,3 +47,13 @@ config traffic_rule
 #	option value ''
 #	option target 'MAIN-PROXY'
 #	option priority '9999'
+
+# Пример: ShadowTLS v3 wrapper
+# config server
+#	option name 'vless-stls'
+#	option protocol 'shadowtls'
+#	option address '1.2.3.4'
+#	option port '443'
+#	option stls_password 'your-psk-here'
+#	option stls_sni 'www.microsoft.com'
+#	option enabled '1'
