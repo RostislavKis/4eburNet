@@ -7,7 +7,7 @@
 #include <signal.h>
 #include <time.h>
 
-#define EBURNET_VERSION "0.1.0"
+#define EBURNET_VERSION "1.0.0"
 #define EBURNET_NAME    "4eburnetd"
 
 /* Профили устройств — выбираются автоматически по объёму RAM */
