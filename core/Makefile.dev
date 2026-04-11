@@ -13,7 +13,8 @@ ifeq ($(PROFILE),micro)
     -DCONFIG_EBURNET_DOH=1      \
     -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=0 \
-    -DCONFIG_EBURNET_SNIFFER=1
+    -DCONFIG_EBURNET_SNIFFER=1  \
+    -DCONFIG_EBURNET_DPI=1
 else ifeq ($(PROFILE),normal)
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
@@ -24,7 +25,8 @@ else ifeq ($(PROFILE),normal)
     -DCONFIG_EBURNET_DOH=1      \
     -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
-    -DCONFIG_EBURNET_SNIFFER=1
+    -DCONFIG_EBURNET_SNIFFER=1  \
+    -DCONFIG_EBURNET_DPI=1
 else  # full — все функции включены
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
@@ -35,7 +37,8 @@ else  # full — все функции включены
     -DCONFIG_EBURNET_DOH=1      \
     -DCONFIG_EBURNET_QUIC=1     \
     -DCONFIG_EBURNET_PROXY_PROVIDERS=1 \
-    -DCONFIG_EBURNET_SNIFFER=1
+    -DCONFIG_EBURNET_SNIFFER=1  \
+    -DCONFIG_EBURNET_DPI=1
 endif
 
 CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
@@ -77,7 +80,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dns/fake_ip.c \
           $(SRCDIR)/dns/dns_upstream_doq.c \
           $(SRCDIR)/crypto/quic.c \
-          $(SRCDIR)/geo/geo_loader.c
+          $(SRCDIR)/geo/geo_loader.c \
+          $(SRCDIR)/dpi/dpi_filter.c
 TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
@@ -132,6 +136,14 @@ test-cc:
 	  -o /tmp/test_hysteria2_cc
 	/tmp/test_hysteria2_cc
 
-test: test-uri test-udp test-cc
+test-dpi-filter:
+	$(TEST_CC) -std=c11 -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_DPI=1 \
+	  $(INCLUDES) \
+	  src/dpi/dpi_filter.c \
+	  tests/test_dpi_filter.c \
+	  -o /tmp/test_dpi_filter
+	/tmp/test_dpi_filter
+
+test: test-uri test-udp test-cc test-dpi-filter
 
 .PHONY: all clean run install-vm test test-uri test-udp test-cc

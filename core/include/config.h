@@ -231,6 +231,7 @@ typedef struct EburNetConfig {
     int                   traffic_rule_count;
     char                  geo_region[8];   /* "ru","cn","us","" — явный конфиг региона */
     char                  geo_dir[256];    /* директория с geo-файлами, "" = /etc/4eburnet/geo */
+    char                  dpi_dir[256];   /* директория с dpi-файлами, "" = /etc/4eburnet/dpi */
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
 } EburNetConfig;
 
