@@ -378,6 +378,16 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         char *endp; long v = strtol(value, &endp, 10);
         if (endp == value || *endp != '\0') v = 0;  /* нечисловой ввод */
         srv->hy2_down_mbps = (v > 0 && v <= 100000) ? (uint32_t)v : 0;
+#if CONFIG_EBURNET_STLS
+    } else if (strcmp(key, "stls_password") == 0) {
+        snprintf(srv->stls_password, sizeof(srv->stls_password), "%s", value);
+    } else if (strcmp(key, "stls_sni") == 0) {
+        if (!strchr(value, '.') || value[0] == '.' || value[0] == '\0') {
+            log_msg(LOG_WARN, "config: stls_sni '%s' не FQDN", value);
+        } else {
+            snprintf(srv->stls_sni, sizeof(srv->stls_sni), "%s", value);
+        }
+#endif
     } else {
         log_msg(LOG_WARN, "Неизвестная опция server: %s", key);
     }
