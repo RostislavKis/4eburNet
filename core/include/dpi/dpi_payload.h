@@ -59,4 +59,22 @@ int dpi_make_tls_clienthello(uint8_t *buf, int buf_size, const char *sni);
 int dpi_make_quic_initial(uint8_t *buf, int buf_size);
 
 #endif /* CONFIG_EBURNET_DPI */
+
+/*
+ * Расширенная версия ClientHello для ShadowTLS v3 (D.2).
+ * Доступна при CONFIG_EBURNET_DPI=1 ИЛИ CONFIG_EBURNET_STLS=1.
+ *
+ * client_random[32]: если NULL — генерируется из /dev/urandom.
+ * session_id[32]:    если NULL — генерируется случайно.
+ * out_random[32]:    если != NULL — записывается использованный client_random.
+ * Возвращает длину пакета или -1.
+ */
+#if CONFIG_EBURNET_DPI || CONFIG_EBURNET_STLS
+int dpi_make_tls_clienthello_ex(uint8_t *buf, int buf_size,
+                                 const char *sni,
+                                 const uint8_t *client_random,
+                                 const uint8_t *session_id,
+                                 uint8_t *out_random);
+#endif
+
 #endif /* EBURNET_DPI_PAYLOAD_H */

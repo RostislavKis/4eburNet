@@ -43,28 +43,31 @@ static void test_rfc4231_case1(void)
     uint8_t out[32];
 
     int rc = hmac_sha256(key, 20, data, 8, out);
-    ASSERT(rc == 0, "rfc4231_case1: hmac_sha256 вернул 0");
+    ASSERT(rc == 0, "case1: hmac_sha256 вернул 0");
 
     uint8_t expected[32];
-    hex2bin("b0344c61d8db38535ca8afceaf0bf12b"
-            "881dc200c9833da726e9376c2e32cff7", expected, 32);
-    ASSERT(memcmp(out, expected, 32) == 0, "rfc4231_case1: результат совпадает");
+    ASSERT(hex2bin("b0344c61d8db38535ca8afceaf0bf12b"
+                   "881dc200c9833da726e9376c2e32cff7", expected, 32) == 32,
+           "case1: hex2bin 32 байт");
+    ASSERT(memcmp(out, expected, 32) == 0, "case1: результат совпадает");
 }
 
-/* RFC 4231 Case 2: key = "Jefe", data = "what do ya want for nothing?" */
-static void test_rfc4231_case2(void)
+/* Case 2: key = "Jefe" (4 байта), data = "what do ya want for nothing?" (28 байт)
+ * Вектор вычислен: HMAC-SHA-256(key, data), проверен через openssl dgst */
+static void test_case2_jefe(void)
 {
     const uint8_t *key = (const uint8_t *)"Jefe";
     const uint8_t *data = (const uint8_t *)"what do ya want for nothing?";
     uint8_t out[32];
 
     int rc = hmac_sha256(key, 4, data, 28, out);
-    ASSERT(rc == 0, "rfc4231_case2: hmac_sha256 вернул 0");
+    ASSERT(rc == 0, "case2: hmac_sha256 вернул 0");
 
     uint8_t expected[32];
-    hex2bin("5bdcc146bf60754e6a042426089575c7"
-            "5a003f089d2739839dec58b964ec3843", expected, 32);
-    ASSERT(memcmp(out, expected, 32) == 0, "rfc4231_case2: результат совпадает");
+    ASSERT(hex2bin("5bdcc146bf60754e6a042426089575c7"
+                   "5a003f089d2739839dec58b964ec3843", expected, 32) == 32,
+           "case2: hex2bin 32 байт");
+    ASSERT(memcmp(out, expected, 32) == 0, "case2: результат совпадает");
 }
 
 /* Пустые данные (datalen=0) */
@@ -88,8 +91,9 @@ static void test_verify_ok(void)
     const uint8_t *data = (const uint8_t *)"Hi There";
 
     uint8_t expected[32];
-    hex2bin("b0344c61d8db38535ca8afceaf0bf12b"
-            "881dc200c9833da726e9376c2e32cff7", expected, 32);
+    ASSERT(hex2bin("b0344c61d8db38535ca8afceaf0bf12b"
+                   "881dc200c9833da726e9376c2e32cff7", expected, 32) == 32,
+           "verify_ok: hex2bin 32 байт");
 
     int ok = hmac_sha256_verify(key, 20, data, 8, expected, 32);
     ASSERT(ok == 1, "verify_ok: полное совпадение 32 байт");
@@ -121,7 +125,7 @@ int main(void)
     printf("=== test_hmac_sha256 ===\n\n");
 
     test_rfc4231_case1();
-    test_rfc4231_case2();
+    test_case2_jefe();
     test_empty_data();
     test_verify_ok();
     test_verify_fail();

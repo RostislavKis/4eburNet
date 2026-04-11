@@ -5,7 +5,7 @@
  * QUIC: Long Header v1 + random DCID + PADDING payload.
  */
 
-#if CONFIG_EBURNET_DPI
+#if CONFIG_EBURNET_DPI || CONFIG_EBURNET_STLS
 
 #include "dpi/dpi_payload.h"
 
@@ -55,7 +55,11 @@ static void fill_random(uint8_t *buf, int len)
 
 /* ── TLS ClientHello ────────────────────────────────────────────── */
 
-int dpi_make_tls_clienthello(uint8_t *buf, int buf_size, const char *sni)
+int dpi_make_tls_clienthello_ex(uint8_t *buf, int buf_size,
+                                 const char *sni,
+                                 const uint8_t *client_random,
+                                 const uint8_t *session_id,
+                                 uint8_t *out_random)
 {
     if (!buf || buf_size < 300) return -1;
     if (!sni || sni[0] == '\0') sni = "www.google.com";
@@ -82,12 +86,20 @@ int dpi_make_tls_clienthello(uint8_t *buf, int buf_size, const char *sni)
     /* ── [3] ClientVersion ── */
     W1(p, 0x03); W1(p, 0x03);  /* TLS 1.2 */
 
-    /* ── [4] Random (32 байта из /dev/urandom) ── */
-    fill_random(p, 32); p += 32;
+    /* ── [4] Random (32 байта) ── */
+    if (client_random)
+        WN(p, client_random, 32);
+    else
+        { fill_random(p, 32); p += 32; }
+    if (out_random)
+        memcpy(out_random, p - 32, 32);
 
-    /* ── [5] SessionID (32 random байта, Chrome-стиль) ── */
+    /* ── [5] SessionID (32 байта) ── */
     W1(p, 32);
-    fill_random(p, 32); p += 32;
+    if (session_id)
+        WN(p, session_id, 32);
+    else
+        { fill_random(p, 32); p += 32; }
 
     /* ── [6] CipherSuites: 17 Chrome суитов ── */
     static const uint8_t ciphers[] = {
@@ -206,8 +218,16 @@ int dpi_make_tls_clienthello(uint8_t *buf, int buf_size, const char *sni)
     return total;
 }
 
+#if CONFIG_EBURNET_DPI
+int dpi_make_tls_clienthello(uint8_t *buf, int buf_size, const char *sni)
+{
+    return dpi_make_tls_clienthello_ex(buf, buf_size, sni, NULL, NULL, NULL);
+}
+#endif
+
 /* ── QUIC Initial ───────────────────────────────────────────────── */
 
+#if CONFIG_EBURNET_DPI
 int dpi_make_quic_initial(uint8_t *buf, int buf_size)
 {
     if (!buf || buf_size < 1200) return -1;
@@ -247,5 +267,6 @@ int dpi_make_quic_initial(uint8_t *buf, int buf_size)
 
     return 1200;
 }
-
 #endif /* CONFIG_EBURNET_DPI */
+
+#endif /* CONFIG_EBURNET_DPI || CONFIG_EBURNET_STLS */
