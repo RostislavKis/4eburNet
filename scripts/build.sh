@@ -62,22 +62,15 @@ build_target() {
 
     echo "=== Сборка 4eburnet для $arch ==="
 
-    # Маппинг arch → cross target
-    local cross_arch=""
-    case "$arch" in
-        mipsel)  cross_arch="mipsel_24kc" ;;
-        aarch64) cross_arch="aarch64" ;;
-    esac
-
     # Шаг 1: cross-compile бинарника если нет prebuilt
-    local prebuilt="$PROJECT_DIR/prebuilt/${cross_arch}/4eburnetd"
+    local prebuilt="$PROJECT_DIR/prebuilt/${arch}/4eburnetd"
     if [ ! -f "$prebuilt" ]; then
-        msg_warn "prebuilt/${cross_arch}/4eburnetd не найден — cross-compile..."
+        msg_warn "prebuilt/${arch}/4eburnetd не найден — cross-compile..."
         cd "$PROJECT_DIR/core"
-        make -f Makefile.dev "cross-${cross_arch}"
+        make -f Makefile.dev "cross-${arch}"
         cd "$PROJECT_DIR"
     else
-        msg_ok "prebuilt/${cross_arch}/4eburnetd найден ($(du -h "$prebuilt" | cut -f1))"
+        msg_ok "prebuilt/${arch}/4eburnetd найден ($(du -h "$prebuilt" | cut -f1))"
     fi
 
     # Симлинки пакетов в SDK
