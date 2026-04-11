@@ -206,4 +206,32 @@ test-shadowtls:
 
 test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls
+# ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
+SDK_BASE         ?= $(HOME)/phoenix-router-dev/sdk
+TC_MIPSEL        ?= $(SDK_BASE)/mipsel/sdk-mipsel/staging_dir/toolchain-mipsel_24kc_gcc-12.3.0_musl/bin
+TC_AARCH64       ?= $(SDK_BASE)/aarch64/sdk-aarch64/staging_dir/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/bin
+WOLFSSL_MIPSEL   ?= /usr/local/musl-wolfssl-mipsel
+WOLFSSL_AARCH64  ?= /usr/local/musl-wolfssl-aarch64
+PREBUILT_DIR     ?= ../prebuilt
+
+cross-mipsel_24kc:
+	@echo "=== Cross-compile 4eburnetd для mipsel_24kc ==="
+	$(MAKE) -f Makefile.dev PROFILE=full \
+		CC=$(TC_MIPSEL)/mipsel-openwrt-linux-musl-gcc \
+		WOLFSSL_PREFIX=$(WOLFSSL_MIPSEL) \
+		TARGET=$(BUILDDIR)/4eburnetd-mipsel clean all
+	mkdir -p $(PREBUILT_DIR)/mipsel_24kc
+	cp $(BUILDDIR)/4eburnetd-mipsel $(PREBUILT_DIR)/mipsel_24kc/4eburnetd
+	ls -lh $(PREBUILT_DIR)/mipsel_24kc/4eburnetd
+
+cross-aarch64:
+	@echo "=== Cross-compile 4eburnetd для aarch64 ==="
+	$(MAKE) -f Makefile.dev PROFILE=full \
+		CC=$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
+		WOLFSSL_PREFIX=$(WOLFSSL_AARCH64) \
+		TARGET=$(BUILDDIR)/4eburnetd-aarch64 clean all
+	mkdir -p $(PREBUILT_DIR)/aarch64
+	cp $(BUILDDIR)/4eburnetd-aarch64 $(PREBUILT_DIR)/aarch64/4eburnetd
+	ls -lh $(PREBUILT_DIR)/aarch64/4eburnetd
+
+.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls cross-mipsel_24kc cross-aarch64
