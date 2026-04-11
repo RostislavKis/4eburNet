@@ -1,0 +1,55 @@
+mainmenu "4eburNet Configuration"
+
+menu "Protocols"
+config EBURNET_VLESS
+    bool "VLESS + Reality"
+    default y
+    help
+      VLESS protocol with XTLS-Vision and Reality transport.
+      Disable to save ~3KB text.
+
+config EBURNET_TROJAN
+    bool "Trojan"
+    default y
+
+config EBURNET_SS
+    bool "Shadowsocks 2022"
+    default y
+    help
+      Shadowsocks with AEAD-2022 ciphers.
+      Disable to save ~4KB text.
+
+config EBURNET_AWG
+    bool "AmneziaWG"
+    default y
+    help
+      AmneziaWG (WireGuard obfuscation).
+      Disable to save ~6KB text.
+endmenu
+
+menu "DNS"
+config EBURNET_FAKE_IP
+    bool "Fake-IP DNS mode"
+    default y
+
+config EBURNET_DOH
+    bool "DNS over HTTPS / DNS over TLS"
+    default y
+endmenu
+
+config EBURNET_PROXY_PROVIDERS
+    bool "Proxy providers (subscription URLs)"
+    default y
+
+config EBURNET_SNIFFER
+    bool "TLS SNI sniffer"
+    default y
+
+config EBURNET_DPI
+    bool "DPI bypass filter (ipset/whitelist/autohosts)"
+    default y
+    depends on EBURNET_SNIFFER
+    help
+      Loads /etc/4eburnet/dpi/ipset.txt, whitelist.txt, autohosts.txt
+      at startup. Used by DPI bypass strategies (C.2+).
+      RAM: ~220 KB. Safe to enable on MICRO.
