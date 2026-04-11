@@ -16,6 +16,8 @@
 #include <time.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/wait.h>
 
 /* Максимум CIDR суммарно (CF IPv4 ~15 + IPv6 ~6 + Fastly ~40 = ~60, запас ×30) */
 #define CDN_MAX_CIDRS_TOTAL       2048
@@ -282,7 +284,12 @@ static int fetch_and_parse(const char *url, const char *tmp_file,
 
 /* ── Публичный API ───────────────────────────────────────────────── */
 
-int cdn_updater_update(const struct EburNetConfig *cfg)
+/*
+ * Внутренняя реализация обновления CDN IP.
+ * reload_filter=true → вызвать dpi_filter_init() после записи.
+ * reload_filter=false → только скачать + записать (для fork child).
+ */
+static int cdn_do_update(const struct EburNetConfig *cfg, bool reload_filter)
 {
     if (!cfg) return -1;
 
@@ -358,15 +365,47 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
         log_msg(LOG_WARN,
                 "cdn_updater: не удалось записать stamp %s, "
                 "следующий старт повторит обновление", stamp_path);
-        /* Обновление само по себе успешно — не возвращаем ошибку */
     }
 
-    /* Горячая перезагрузка dpi_filter без рестарта демона */
-    dpi_filter_init(dpi_dir);
+    /* Горячая перезагрузка dpi_filter (только в родительском процессе) */
+    if (reload_filter)
+        dpi_filter_init(dpi_dir);
 
     log_msg(LOG_INFO, "cdn_updater: обновление завершено (%d CIDR суммарно)",
             total);
     return 0;
+}
+
+int cdn_updater_update(const struct EburNetConfig *cfg)
+{
+    return cdn_do_update(cfg, true);
+}
+
+int cdn_updater_update_async(const struct EburNetConfig *cfg)
+{
+    if (!cfg) return -1;
+
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]); close(fds[1]); return -1;
+    }
+    if (pid == 0) {
+        /* Дочерний процесс: скачать + записать (без dpi_filter_init) */
+        close(fds[0]);
+        fcntl(fds[1], F_SETFD, 0);
+        int rc = cdn_do_update(cfg, false);
+        const char *msg = (rc == 0) ? "OK\n" : "ERR\n";
+        (void)write(fds[1], msg, strlen(msg));
+        close(fds[1]);
+        _exit(0);
+    }
+    /* Родитель: закрыть write-end, вернуть read-end nonblocking */
+    close(fds[1]);
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    return fds[0];
 }
 
 int cdn_updater_check(const struct EburNetConfig *cfg)
