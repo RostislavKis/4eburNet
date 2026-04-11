@@ -125,16 +125,26 @@ function ipc_json(cmd_name, payload) {
     if (!IPC_CMDS[cmd_name]) return { error: 'unknown command: ' + cmd_name };
 
     let cmdline = EBURNETD + ' --ipc ' + cmd_name;
+    let tmp = null;
+
     if (payload) {
-        // Экранировать одинарные кавычки в payload
-        let safe = replace('' + payload, /'/g, '');
-        cmdline += " '" + safe + "'";
+        // Payload через tmp файл + stdin redirect (нет shell injection)
+        tmp = '/tmp/.4eburnet-ipc-' + time() + '.json';
+        let wf = fs.open(tmp, 'w');
+        if (!wf) return { error: 'write tmp failed' };
+        wf.write('' + payload);
+        wf.close();
+        cmdline += ' < ' + tmp;
     }
 
     let f = fs.popen(cmdline + ' 2>/dev/null');
-    if (!f) return { error: 'popen failed' };
+    if (!f) {
+        if (tmp) fs.unlink(tmp);
+        return { error: 'popen failed' };
+    }
     let out = f.read('all');
     f.close();
+    if (tmp) fs.unlink(tmp);
 
     if (!out || length(trim(out)) == 0)
         return { error: 'empty response' };
