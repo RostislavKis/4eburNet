@@ -26,6 +26,12 @@ import urllib.request
 import urllib.parse
 from urllib.error import URLError, HTTPError
 
+try:
+    import yaml as _yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
 
 # ── URI парсеры ────────────────────────────────────────────────────────
 
@@ -208,11 +214,76 @@ def parse_base64_subscription(data: str,
     return servers
 
 
+def _parse_clash_yaml_native(doc: dict, max_servers: int = 500) -> tuple:
+    """Парсить Clash YAML через PyYAML dict (anchors развёрнуты)."""
+    servers, providers, groups, rules = [], [], [], []
+
+    # proxies → servers
+    for p in (doc.get('proxies') or [])[:max_servers]:
+        _clash_proxy_to_server(p, servers)
+
+    # proxy-providers → UCI proxy_provider секции
+    for name, pd in (doc.get('proxy-providers') or {}).items():
+        if not isinstance(pd, dict):
+            continue
+        hc = pd.get('health-check') or {}
+        providers.append({
+            'name':            name,
+            'url':             pd.get('url', ''),
+            'interval':        str(pd.get('interval', 3600)),
+            'health_url':      hc.get('url', ''),
+            'health_interval': str(hc.get('interval', 300)),
+            'enabled':         '1',
+        })
+
+    # proxy-groups
+    for g in (doc.get('proxy-groups') or []):
+        if not isinstance(g, dict) or not g.get('name'):
+            continue
+        grp = {
+            'name':    g.get('name', ''),
+            'type':    g.get('type', 'select').replace('-', '_'),
+            'enabled': '1',
+        }
+        if g.get('proxies'):
+            grp['proxies'] = [str(x) for x in g['proxies']]
+        if g.get('use'):
+            grp['providers'] = ' '.join(str(x) for x in g['use'])
+        if g.get('url'):
+            grp['url'] = str(g['url'])
+        if g.get('interval'):
+            grp['interval'] = str(g['interval'])
+        if g.get('filter'):
+            grp['filter'] = str(g['filter'])
+        groups.append(grp)
+
+    # rules
+    for r in (doc.get('rules') or []):
+        parsed = _parse_clash_rule(str(r))
+        if parsed:
+            rules.append(parsed)
+
+    return servers, providers, groups, rules
+
+
 def parse_clash_yaml(data: str, max_servers: int = 500) -> tuple:
     """Парсить Clash/Mihomo YAML.
-    Возвращает (servers, groups, rules).
-    Не использует PyYAML — простой построчный парсер достаточен
-    для стандартного Clash формата."""
+    Возвращает (servers, providers, groups, rules).
+    PyYAML если доступен (разворачивает anchors), иначе построчный fallback."""
+
+    # PyYAML: разворачивает anchors, proxy-providers, use:
+    if HAS_YAML:
+        try:
+            doc = _yaml.safe_load(data)
+            if isinstance(doc, dict) and (
+                    'proxies' in doc or 'proxy-groups' in doc or
+                    'proxy-providers' in doc):
+                return _parse_clash_yaml_native(doc, max_servers)
+        except Exception as e:
+            print(f'  [warn] PyYAML: {e}, fallback на построчный',
+                  file=sys.stderr)
+
+    # Fallback: построчный парсер (без anchors/providers)
     servers = []
     groups  = []
     rules   = []
@@ -313,7 +384,7 @@ def parse_clash_yaml(data: str, max_servers: int = 500) -> tuple:
     if in_groups and current:
         groups.append(current)
 
-    return servers, groups, rules
+    return servers, [], groups, rules
 
 
 def _parse_inline_dict(s: str) -> dict:
@@ -410,15 +481,22 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             'down_mbps': str(proxy.get('down', '100')),
         })
     elif ptype == 'wireguard':
-        if 'jc' in proxy or 'Jc' in proxy:
-            servers.append({
-                'protocol':   'awg',
-                'name':       name,
-                'address':    host,
-                'port':       int(port),
-                'private_key': proxy.get('private-key', ''),
-                'public_key':  proxy.get('public-key', ''),
-            })
+        srv = {
+            'protocol':    'awg',
+            'name':        name,
+            'address':     host,
+            'port':        int(port),
+            'private_key': proxy.get('private-key', ''),
+            'public_key':  proxy.get('public-key', ''),
+        }
+        # AWG obfuscation: из amnezia-wg-option dict или top-level
+        awg_opts = proxy.get('amnezia-wg-option') or proxy
+        for src_key, dst_key in [('jc', 'awg_jc'), ('Jc', 'awg_jc'),
+                                  ('jmin', 'awg_jmin'), ('Jmin', 'awg_jmin'),
+                                  ('jmax', 'awg_jmax'), ('Jmax', 'awg_jmax')]:
+            if src_key in awg_opts:
+                srv[dst_key] = str(awg_opts[src_key])
+        servers.append(srv)
     else:
         print(f'  [skip] неподдерживаемый тип: {ptype} ({name})',
               file=sys.stderr)
@@ -615,8 +693,9 @@ def _uci_safe(s) -> str:
 def generate_uci(servers: list,
                  groups:  list,
                  rules:   list,
-                 append:  bool = False) -> str:
-    """Генерировать UCI конфиг для серверов, групп и правил."""
+                 append:  bool = False,
+                 providers: list = None) -> str:
+    """Генерировать UCI конфиг для серверов, провайдеров, групп и правил."""
     lines = []
 
     if not append:
@@ -630,6 +709,15 @@ def generate_uci(servers: list,
                 lines.append(f"\toption {key}\t'{_uci_safe(val)}'")
         lines.append("")
 
+    for prov in (providers or []):
+        lines.append("config proxy_provider")
+        for key in ('name', 'url', 'interval', 'health_url',
+                     'health_interval', 'enabled'):
+            val = prov.get(key, '')
+            if val:
+                lines.append(f"\toption {key}\t'{_uci_safe(str(val))}'")
+        lines.append("")
+
     for grp in groups:
         lines.append("config proxy_group")
         lines.append(f"\toption name\t'{_uci_safe(grp.get('name', ''))}'")
@@ -640,8 +728,15 @@ def generate_uci(servers: list,
         if grp.get('interval'):
             lines.append(f"\toption interval\t'{_uci_safe(grp['interval'])}'")
         if grp.get('proxies'):
-            servers_str = ' '.join(_uci_safe(p) for p in grp['proxies'])
+            if isinstance(grp['proxies'], list):
+                servers_str = ' '.join(_uci_safe(str(p)) for p in grp['proxies'])
+            else:
+                servers_str = _uci_safe(str(grp['proxies']))
             lines.append(f"\toption servers\t'{servers_str}'")
+        if grp.get('providers'):
+            lines.append(f"\toption providers\t'{_uci_safe(str(grp['providers']))}'")
+        if grp.get('filter'):
+            lines.append(f"\toption filter\t'{_uci_safe(str(grp['filter']))}'")
         lines.append(f"\toption enabled\t'1'")
         lines.append("")
 
@@ -784,8 +879,10 @@ def main():
 
     max_srv = args.max_servers
 
+    providers = []
+
     if fmt == 'clash':
-        servers, groups, rules = parse_clash_yaml(data, max_srv)
+        servers, providers, groups, rules = parse_clash_yaml(data, max_srv)
     elif fmt in ('base64', 'urilist'):
         servers = parse_base64_subscription(data, max_srv)
     elif fmt == 'singbox':
@@ -801,15 +898,17 @@ def main():
               file=sys.stderr)
         rules = rules[:args.max_rules]
 
-    print(f'Серверов:  {len(servers)}', file=sys.stderr)
-    print(f'Групп:     {len(groups)}',  file=sys.stderr)
-    print(f'Правил:    {len(rules)}',   file=sys.stderr)
+    print(f'Серверов:    {len(servers)}',   file=sys.stderr)
+    print(f'Провайдеров: {len(providers)}', file=sys.stderr)
+    print(f'Групп:       {len(groups)}',    file=sys.stderr)
+    print(f'Правил:      {len(rules)}',     file=sys.stderr)
 
     if not servers and not groups and not rules:
         print('Ничего не найдено для импорта', file=sys.stderr)
         sys.exit(1)
 
-    uci_output = generate_uci(servers, groups, rules, args.append)
+    uci_output = generate_uci(servers, groups, rules, args.append,
+                              providers=providers)
 
     if args.output:
         mode = 'a' if args.append else 'w'
