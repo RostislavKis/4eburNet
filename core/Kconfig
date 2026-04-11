@@ -25,6 +25,13 @@ config EBURNET_AWG
     help
       AmneziaWG (WireGuard obfuscation).
       Disable to save ~6KB text.
+
+config EBURNET_STLS
+    bool "ShadowTLS v3 transport"
+    default y
+    help
+      ShadowTLS v3 transport wrapper over Trojan/SS/VLESS.
+      HMAC-SHA256 session ID + AppData framing.
 endmenu
 
 menu "DNS"
@@ -35,6 +42,18 @@ config EBURNET_FAKE_IP
 config EBURNET_DOH
     bool "DNS over HTTPS / DNS over TLS"
     default y
+
+config EBURNET_QUIC
+    bool "QUIC transport (Hysteria2)"
+    default y
+
+config EBURNET_DOQ
+    bool "DNS over QUIC (RFC 9250)"
+    default n
+    depends on EBURNET_QUIC
+    help
+      DNS over QUIC upstream. Requires wolfSSL --enable-quic.
+      Not supported on MICRO profile.
 endmenu
 
 menu "Features"
