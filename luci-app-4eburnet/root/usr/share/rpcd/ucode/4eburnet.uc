@@ -24,6 +24,7 @@ const IPC_CMD_PROVIDER_LIST   = 23;
 const IPC_CMD_PROVIDER_UPDATE = 24;
 const IPC_CMD_RULES_LIST      = 25;
 const IPC_CMD_GEO_STATUS      = 26;
+const IPC_CMD_CDN_UPDATE      = 30;
 
 // ── Утилиты ────────────────────────────────────────────────────────
 
@@ -383,9 +384,8 @@ const methods = {
                     if (length(parts) >= 4) {
                         let mac = uc(parts[1]), ip = parts[2], name = parts[3];
                         let found = false;
-                        let _tmp0 = devs;
-                        for (let i = 0; i < length(_tmp0); i++) {
-                            let d = _tmp0[i];
+                        for (let i = 0; i < length(devs); i++) {
+                            let d = devs[i];
                             if (d.mac == mac) {
                                 if (name != '*') d.hostname = name;
                                 found = true; break;
@@ -402,13 +402,11 @@ const methods = {
 
             // UCI политика устройств
             let policies = uci_get_sections_of_type('4eburnet', 'device');
-            let _tmp1 = devs;
-            for (let i = 0; i < length(_tmp1); i++) {
-                let d = _tmp1[i];
+            for (let i = 0; i < length(devs); i++) {
+                let d = devs[i];
                 d.policy = 'default';
-                let _tmp2 = policies;
-                for (let j = 0; j < length(_tmp2); j++) {
-                    let ps = _tmp2[j];
+                for (let j = 0; j < length(policies); j++) {
+                    let ps = policies[j];
                     if (ps.mac && uc(ps.mac) == d.mac) {
                         d.policy = ps.policy ?? 'default';
                         d.group  = ps.server_group ?? '';
@@ -438,9 +436,9 @@ const methods = {
             let umac  = uc(mac);
 
             let existing = null;
-            let _tmp3 = uci_get_sections_of_type('4eburnet', 'device');
-            for (let i = 0; i < length(_tmp3); i++) {
-                let s = _tmp3[i];
+            let dev_sections = uci_get_sections_of_type('4eburnet', 'device');
+            for (let i = 0; i < length(dev_sections); i++) {
+                let s = dev_sections[i];
                 if (s.mac && uc(s.mac) == umac) { existing = s['.name']; break; }
             }
 
@@ -477,9 +475,9 @@ const methods = {
                 hy2_insecure: 0, hy2_up_mbps: 0, hy2_down_mbps: 0 },
         call: function(req) {
             let a = req.args ?? {};
-            let _tmp4 = ['name', 'protocol', 'address', 'port'];
-            for (let i = 0; i < length(_tmp4); i++) {
-                let f = _tmp4[i];
+            let required_fields = ['name', 'protocol', 'address', 'port'];
+            for (let i = 0; i < length(required_fields); i++) {
+                let f = required_fields[i];
                 if (!a[f]) return { ok: false, error: 'field required: ' + f };
             }
 
@@ -598,10 +596,17 @@ const methods = {
     },
 
     group_select: {
-        args: { group: '', idx: 0 },
+        args: { group: '', server: '' },
         call: function(req) {
             if (!is_running()) return { ok: false, error: 'not running' };
-            return { ok: true };
+            let group  = replace(req.args?.group  ?? '', /"/g, '');
+            let server = replace(req.args?.server ?? '', /"/g, '');
+            if (!group || !server)
+                return { ok: false, error: 'group and server required' };
+            let r = ipc_json(IPC_CMD_GROUP_SELECT,
+                        '{"group":"' + group + '","server":"' + server + '"}');
+            return r.error ? { ok: false, error: r.error }
+                           : { ok: r.status === 'ok' };
         }
     },
 
@@ -617,16 +622,77 @@ const methods = {
     provider_update: {
         args: { name: '' },
         call: function(req) {
-            return { ok: false, error: 'not running' };
+            if (!is_running()) return { ok: false, error: 'not running' };
+            let name = replace(req.args?.name ?? '', /"/g, '');
+            if (!name) return { ok: false, error: 'name required' };
+            let r = ipc_json(IPC_CMD_PROVIDER_UPDATE,
+                        '{"name":"' + name + '"}');
+            return r.error ? { ok: false, error: r.error }
+                           : { ok: r.status === 'ok' };
         }
     },
 
     geo_status: {
         call: function(req) {
-            let f = fs.open('/etc/4eburnet/geo/geoip.dat', 'r');
-            let loaded = (f != null);
-            if (f) f.close();
-            return { loaded };
+            if (!is_running()) {
+                let f = fs.open('/etc/4eburnet/geo/geoip.dat', 'r');
+                let loaded = (f != null);
+                if (f) f.close();
+                return { loaded, categories: [] };
+            }
+            let d = ipc_json(IPC_CMD_GEO_STATUS);
+            if (d.error) return { loaded: false, categories: [], error: d.error };
+            return d;
+        }
+    },
+
+    dpi_get: {
+        call: function(req) {
+            let main = uci_get_section('4eburnet', 'main');
+            return {
+                dpi_enabled:              main.dpi_enabled              ?? '0',
+                dpi_split_pos:            main.dpi_split_pos            ?? '1',
+                dpi_fake_ttl:             main.dpi_fake_ttl             ?? '5',
+                dpi_fake_repeats:         main.dpi_fake_repeats         ?? '8',
+                dpi_fake_sni:             main.dpi_fake_sni             ?? 'www.google.com',
+                dpi_dir:                  main.dpi_dir                  ?? '/etc/4eburnet/dpi',
+                cdn_update_interval_days: main.cdn_update_interval_days ?? '7',
+                cdn_cf_v4_url:            main.cdn_cf_v4_url            ?? '',
+                cdn_cf_v6_url:            main.cdn_cf_v6_url            ?? '',
+                cdn_fastly_url:           main.cdn_fastly_url           ?? ''
+            };
+        }
+    },
+
+    dpi_set: {
+        args: {},
+        call: function(req) {
+            let a = req.args ?? {};
+            let allowed = {
+                dpi_enabled:1, dpi_split_pos:1, dpi_fake_ttl:1,
+                dpi_fake_repeats:1, dpi_fake_sni:1, dpi_dir:1,
+                cdn_update_interval_days:1, cdn_cf_v4_url:1,
+                cdn_cf_v6_url:1, cdn_fastly_url:1
+            };
+            let c = uci.cursor();
+            let updated = [];
+            for (let k in a) {
+                if (allowed[k]) {
+                    c.set('4eburnet', 'main', k, '' + a[k]);
+                    push(updated, k);
+                }
+            }
+            c.commit('4eburnet');
+            return { ok: true, updated };
+        }
+    },
+
+    cdn_update: {
+        call: function(req) {
+            if (!is_running()) return { ok: false, error: 'daemon not running' };
+            let r = ipc_json(IPC_CMD_CDN_UPDATE);
+            if (r.error) return { ok: false, error: r.error };
+            return { ok: true, msg: r.msg ?? 'cdn update scheduled' };
         }
     },
 
@@ -728,9 +794,9 @@ const methods = {
         call: function(req) {
             system('mkdir -p /etc/4eburnet 2>/dev/null');
             let files = [];
-            let _tmp5 = ['/etc/config/4eburnet', '/etc/4eburnet/geo'];
-            for (let i = 0; i < length(_tmp5); i++) {
-                let p = _tmp5[i];
+            let backup_paths = ['/etc/config/4eburnet', '/etc/4eburnet/geo'];
+            for (let i = 0; i < length(backup_paths); i++) {
+                let p = backup_paths[i];
                 let f = fs.open(p, 'r');
                 if (f) { f.close(); push(files, p); }
             }

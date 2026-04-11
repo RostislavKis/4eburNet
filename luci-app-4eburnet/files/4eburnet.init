@@ -24,13 +24,19 @@ start_service() {
 }
 
 stop_service() {
-	[ -f "$PIDFILE" ] && kill $(cat $PIDFILE) 2>/dev/null
+	start-stop-daemon --stop --quiet --pidfile "$PIDFILE" \
+		--exec "$PROG" --retry TERM/5/KILL/5 2>/dev/null
 	rm -f "$PIDFILE"
 }
 
 reload_service() {
-	[ -f "$PIDFILE" ] && kill -HUP $(cat $PIDFILE) 2>/dev/null \
-	  && echo "4eburnetd: конфиг перечитан" || start
+	local pid
+	pid=$(cat "$PIDFILE" 2>/dev/null)
+	if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+		kill -HUP "$pid" 2>/dev/null && echo "4eburnetd: конфиг перечитан"
+	else
+		start
+	fi
 }
 
 service_triggers() {

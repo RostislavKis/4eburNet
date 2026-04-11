@@ -225,7 +225,7 @@ void ipc_process(int server_fd, EburNetState *state)
 
     case IPC_CMD_STATS:
         snprintf(buf, sizeof(buf),
-                 "{\"connections\":%lu,\"bytes_in\":0,\"bytes_out\":0}",
+                 "{\"connections_total\":%lu}",
                  (unsigned long)state->connections_total);
         ipc_respond(client_fd, buf);
         break;
@@ -413,6 +413,15 @@ void ipc_process(int server_fd, EburNetState *state)
         }
         break;
 
+#if CONFIG_EBURNET_DPI
+    case IPC_CMD_CDN_UPDATE:
+        state->cdn_update_requested = true;
+        ipc_respond(client_fd,
+            "{\"status\":\"ok\",\"msg\":\"cdn update scheduled\"}");
+        log_msg(LOG_INFO, "IPC: запрошено обновление CDN IP");
+        break;
+#endif
+
     default:
         log_msg(LOG_WARN, "IPC: неизвестная команда %u", hdr.command);
         ipc_respond(client_fd, "{\"error\":\"unknown command\"}");
@@ -436,6 +445,11 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0)
         return -1;
+
+    /* Таймаут 3с на connect/read/write — защита от зависшего демона */
+    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
