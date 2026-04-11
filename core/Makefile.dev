@@ -81,7 +81,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dns/dns_upstream_doq.c \
           $(SRCDIR)/crypto/quic.c \
           $(SRCDIR)/geo/geo_loader.c \
-          $(SRCDIR)/dpi/dpi_filter.c
+          $(SRCDIR)/dpi/dpi_filter.c \
+          $(SRCDIR)/dpi/dpi_payload.c
 TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
@@ -144,6 +145,14 @@ test-dpi-filter:
 	  -o /tmp/test_dpi_filter
 	/tmp/test_dpi_filter
 
-test: test-uri test-udp test-cc test-dpi-filter
+test-dpi-payload:
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_DPI=1 \
+	  $(INCLUDES) \
+	  src/dpi/dpi_payload.c \
+	  tests/test_dpi_payload.c \
+	  -o /tmp/test_dpi_payload
+	/tmp/test_dpi_payload
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload
+
+.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload
