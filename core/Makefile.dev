@@ -83,7 +83,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/geo/geo_loader.c \
           $(SRCDIR)/dpi/dpi_filter.c \
           $(SRCDIR)/dpi/dpi_payload.c \
-          $(SRCDIR)/dpi/dpi_strategy.c
+          $(SRCDIR)/dpi/dpi_strategy.c \
+          $(SRCDIR)/dpi/cdn_updater.c
 TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
@@ -164,6 +165,18 @@ test-dpi-strategy:
 	  -o /tmp/test_dpi_strategy
 	/tmp/test_dpi_strategy
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy
+test-cdn-updater:
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_DPI=1 \
+	  $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  src/net_utils.c \
+	  src/crypto/tls.c \
+	  src/dpi/dpi_filter.c \
+	  src/dpi/dpi_payload.c \
+	  src/dpi/cdn_updater.c \
+	  tests/test_cdn_updater.c \
+	  -o /tmp/test_cdn_updater $(WOLFSSL_LIBS)
+	/tmp/test_cdn_updater
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater
+
+.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater
