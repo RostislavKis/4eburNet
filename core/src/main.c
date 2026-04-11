@@ -20,6 +20,7 @@
 #include "geo/geo_loader.h"
 #if CONFIG_EBURNET_DPI
 #include "dpi/cdn_updater.h"
+#include "dpi/dpi_filter.h"
 #endif
 
 #include <stdio.h>
@@ -31,6 +32,7 @@
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/wait.h>
 #include <limits.h>
 
 /* Параметры master epoll */
@@ -551,6 +553,7 @@ int main(int argc, char *argv[])
     state.reload     = false;
     state.start_time = time(NULL);
     state.connections_total = 0;
+    state.cdn_pipe_fd = -1;
 
     log_msg(LOG_INFO, "Главный цикл запущен (master epoll)");
 
@@ -590,6 +593,29 @@ int main(int argc, char *argv[])
                 /* Результат async fetch proxy-провайдера */
                 epoll_ctl(master_epoll, EPOLL_CTL_DEL, fd, NULL);
                 proxy_provider_handle_fetch(&ppm_state, fd, events[i].events);
+#if CONFIG_EBURNET_DPI
+            } else if (state.cdn_pipe_fd >= 0 && fd == state.cdn_pipe_fd) {
+                /* Результат async CDN update */
+                char rbuf[8] = {0};
+                ssize_t rn = read(state.cdn_pipe_fd, rbuf, sizeof(rbuf) - 1);
+                epoll_ctl(master_epoll, EPOLL_CTL_DEL,
+                          state.cdn_pipe_fd, NULL);
+                close(state.cdn_pipe_fd);
+                state.cdn_pipe_fd = -1;
+                /* waitpid — не копить зомби */
+                while (waitpid(-1, NULL, WNOHANG) > 0) {}
+                if (rn > 0 && rbuf[0] == 'O') {
+                    const char *ddir = (cfg_ptr && cfg_ptr->dpi_dir[0])
+                                       ? cfg_ptr->dpi_dir
+                                       : "/etc/4eburnet/dpi";
+                    dpi_filter_init(ddir);
+                    log_msg(LOG_INFO,
+                            "CDN IP обновлены, dpi_filter перезагружен");
+                } else {
+                    log_msg(LOG_WARN,
+                            "CDN update завершился с ошибкой");
+                }
+#endif
             } else {
                 /* Проверить proxy_group health-check pipe */
                 bool hc_done = false;
@@ -743,12 +769,22 @@ int main(int argc, char *argv[])
             state.reload = false;
         }
 
-        /* Принудительное обновление CDN IP по запросу IPC (C.6) */
+        /* Async обновление CDN IP по запросу IPC (C.6) */
 #if CONFIG_EBURNET_DPI
-        if (state.cdn_update_requested) {
+        if (state.cdn_update_requested && state.cdn_pipe_fd < 0) {
             state.cdn_update_requested = false;
-            log_msg(LOG_INFO, "Принудительное обновление CDN IP...");
-            cdn_updater_update(cfg_ptr);
+            log_msg(LOG_INFO, "Запуск async CDN update...");
+            int cfd = cdn_updater_update_async(cfg_ptr);
+            if (cfd >= 0) {
+                state.cdn_pipe_fd = cfd;
+                struct epoll_event pev = {
+                    .events  = EPOLLIN | EPOLLHUP,
+                    .data.fd = cfd,
+                };
+                epoll_ctl(master_epoll, EPOLL_CTL_ADD, cfd, &pev);
+            } else {
+                log_msg(LOG_WARN, "CDN update: fork не удался");
+            }
         }
 #endif
     }

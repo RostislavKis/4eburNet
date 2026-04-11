@@ -10,6 +10,11 @@ var callReload    = rpc.declare({ object: '4eburnet', method: 'reload' });
 
 function sel(id) { return document.getElementById(id); }
 
+function numVal(id, def) {
+    var v = parseInt(sel(id).value, 10);
+    return isNaN(v) ? def : '' + v;
+}
+
 function mkInput(id, val, mono) {
     return E('input', {
         id: id, type: 'text', value: val || '',
@@ -40,13 +45,13 @@ function mkRow(label, content) {
     ]);
 }
 
-function mkStatRow(label, value) {
+function mkStatRow(label, value, valueId) {
     return E('div', {
         style: 'display:flex;justify-content:space-between;padding:6px 0;'
              + 'border-bottom:1px solid #21262d'
     }, [
         E('span', {style: 'font-size:12px;color:#8d96a0'}, [label]),
-        E('span', {style: 'font-size:12px;color:#e6edf3;font-family:monospace'}, [value])
+        E('span', {id: valueId || null, style: 'font-size:12px;color:#e6edf3;font-family:monospace'}, [value])
     ]);
 }
 
@@ -116,9 +121,9 @@ return view.extend({
                         click: function() {
                             callDpiSet({
                                 dpi_enabled:      sel('dpi-enabled') && sel('dpi-enabled').checked ? '1' : '0',
-                                dpi_split_pos:    sel('dpi-split-pos').value,
-                                dpi_fake_ttl:     sel('dpi-ttl').value,
-                                dpi_fake_repeats: sel('dpi-repeats').value,
+                                dpi_split_pos:    numVal('dpi-split-pos', '1'),
+                                dpi_fake_ttl:     numVal('dpi-ttl', '5'),
+                                dpi_fake_repeats: numVal('dpi-repeats', '8'),
                                 dpi_fake_sni:     sel('dpi-sni').value,
                                 dpi_dir:          sel('dpi-dir').value
                             }).then(function(r) {
@@ -174,7 +179,7 @@ return view.extend({
                         class: 'btn cbi-button',
                         click: function() {
                             callDpiSet({
-                                cdn_update_interval_days: sel('cdn-interval').value,
+                                cdn_update_interval_days: numVal('cdn-interval', '7'),
                                 cdn_cf_v4_url:            sel('cdn-cf-v4').value,
                                 cdn_cf_v6_url:            sel('cdn-cf-v6').value,
                                 cdn_fastly_url:           sel('cdn-fastly').value
@@ -199,6 +204,20 @@ return view.extend({
                                 if (btn) btn.disabled = false;
                                 if (r && r.ok) {
                                     if (st) { st.textContent = '\u2713 ' + (r.msg || _('Запущено')); st.style.color = '#3ecf6a'; }
+                                    /* Обновить статистику через 5 сек (дождаться fork) */
+                                    setTimeout(function() {
+                                        callDpiGet().then(function(data) {
+                                            if (!data) return;
+                                            var ipset = sel('stat-ipset');
+                                            var wl    = sel('stat-wl');
+                                            var ah    = sel('stat-ah');
+                                            var upd   = sel('stat-updated');
+                                            if (ipset) ipset.textContent = data.ipset_lines != null ? '' + data.ipset_lines : '\u2014';
+                                            if (wl)    wl.textContent    = data.whitelist_count != null ? '' + data.whitelist_count : '\u2014';
+                                            if (ah)    ah.textContent    = data.autohosts_count != null ? '' + data.autohosts_count : '\u2014';
+                                            if (upd)   upd.textContent   = formatTimestamp(data.ipset_updated);
+                                        });
+                                    }, 5000);
                                 } else {
                                     if (st) { st.textContent = '\u2715 ' + (r && r.error || _('Ошибка')); st.style.color = '#f85149'; }
                                 }
@@ -212,13 +231,13 @@ return view.extend({
             /* Карточка 3: Статистика DPI фильтра */
             card('\uD83D\uDCCA Статистика DPI фильтра', [
                 mkStatRow(_('Строк в ipset.txt (CDN IP)'),
-                    cfg.ipset_lines != null ? '' + cfg.ipset_lines : '\u2014'),
+                    cfg.ipset_lines != null ? '' + cfg.ipset_lines : '\u2014', 'stat-ipset'),
                 mkStatRow(_('Доменов в whitelist'),
-                    cfg.whitelist_count != null ? '' + cfg.whitelist_count : '\u2014'),
+                    cfg.whitelist_count != null ? '' + cfg.whitelist_count : '\u2014', 'stat-wl'),
                 mkStatRow(_('Доменов в autohosts'),
-                    cfg.autohosts_count != null ? '' + cfg.autohosts_count : '\u2014'),
+                    cfg.autohosts_count != null ? '' + cfg.autohosts_count : '\u2014', 'stat-ah'),
                 mkStatRow(_('Последнее обновление CDN IP'),
-                    formatTimestamp(cfg.ipset_updated))
+                    formatTimestamp(cfg.ipset_updated), 'stat-updated')
             ])
         ]);
 

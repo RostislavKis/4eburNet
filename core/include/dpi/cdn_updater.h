@@ -35,6 +35,17 @@ int cdn_updater_check(const struct EburNetConfig *cfg);
  */
 int cdn_updater_update(const struct EburNetConfig *cfg);
 
+/*
+ * Async вариант: fork + pipe.
+ * Дочерний процесс скачивает и записывает ipset.txt (без dpi_filter_init).
+ * Возвращает read-end fd (nonblocking) или -1.
+ * Родитель: регистрирует fd в epoll (EPOLLIN).
+ * При EPOLLIN: прочитать "OK\n"/"ERR\n",
+ *   OK → вызвать dpi_filter_init(dpi_dir) в родителе.
+ * NOT reentrant: один вызов за раз.
+ */
+int cdn_updater_update_async(const struct EburNetConfig *cfg);
+
 /* Размер одной ячейки CIDR (включая NUL). Фиксирован для qsort-совместимости. */
 #define CDN_CIDR_SIZE 64
 

@@ -94,6 +94,7 @@ typedef struct {
     volatile sig_atomic_t running;      /* флаг главного цикла */
     volatile sig_atomic_t reload;      /* флаг перечитки конфига */
     volatile sig_atomic_t cdn_update_requested; /* запрос обновления CDN IP (C.6) */
+    int                  cdn_pipe_fd;    /* read-end pipe от async CDN update, -1 = нет */
     int                  ipc_fd;
     time_t               start_time;
     uint64_t             connections_total;
