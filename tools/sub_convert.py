@@ -748,10 +748,11 @@ def generate_uci(servers: list,
             lines.append(f"\toption interval\t'{_uci_safe(grp['interval'])}'")
         if grp.get('proxies'):
             if isinstance(grp['proxies'], list):
-                servers_str = ' '.join(_uci_safe(str(p)) for p in grp['proxies'])
+                for s in grp['proxies']:
+                    lines.append(f"\tlist servers\t'{_uci_safe(str(s))}'")
             else:
-                servers_str = _uci_safe(str(grp['proxies']))
-            lines.append(f"\toption servers\t'{servers_str}'")
+                val = _uci_safe(str(grp['proxies']))
+                lines.append(f"\toption servers\t'{val}'")
         if grp.get('providers'):
             lines.append(f"\toption providers\t'{_uci_safe(str(grp['providers']))}'")
         if grp.get('filter'):
