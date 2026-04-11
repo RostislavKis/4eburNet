@@ -19,8 +19,8 @@
 
 /* Максимум CIDR от одного источника */
 #define CDN_MAX_CIDRS_PER_SOURCE  2048
-/* Максимум CIDR суммарно */
-#define CDN_MAX_CIDRS_TOTAL       8192
+/* Максимум CIDR суммарно (CF IPv4 ~15 + IPv6 ~6 + Fastly ~40 = ~60, запас ×30) */
+#define CDN_MAX_CIDRS_TOTAL       2048
 /* Макс. размер скачанного файла (защита от unbounded read) */
 #define CDN_MAX_DOWNLOAD_BYTES   (512 * 1024)
 
@@ -35,8 +35,17 @@ int cdn_stamp_write(const char *stamp_path)
                 stamp_path, strerror(errno));
         return -1;
     }
-    fprintf(f, "%ld\n", (long)time(NULL));
-    fclose(f);
+    if (fprintf(f, "%ld\n", (long)time(NULL)) < 0) {
+        log_msg(LOG_WARN, "cdn_stamp_write: ошибка записи %s: %s",
+                stamp_path, strerror(errno));
+        fclose(f);
+        return -1;
+    }
+    if (fclose(f) != 0) {
+        log_msg(LOG_WARN, "cdn_stamp_write: fclose %s: %s",
+                stamp_path, strerror(errno));
+        return -1;
+    }
     return 0;
 }
 
