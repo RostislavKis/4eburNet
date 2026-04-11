@@ -125,7 +125,9 @@ static int parse_int_uci(const char *value, const char *field_name,
 static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char *value)
 {
     if (strcmp(key, "enabled") == 0) {
-        cfg->enabled = (strcmp(value, "1") == 0);
+        if (strcmp(value, "1") == 0)      cfg->enabled = true;
+        else if (strcmp(value, "0") == 0) cfg->enabled = false;
+        else log_msg(LOG_WARN, "enabled: невалидное '%s', ожидается '0'/'1'", value);
     } else if (strcmp(key, "log_level") == 0) {
         strncpy(cfg->log_level, value, sizeof(cfg->log_level) - 1);
         cfg->log_level[sizeof(cfg->log_level) - 1] = '\0';
@@ -135,8 +137,11 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
     } else if (strcmp(key, "lan_interface") == 0) {
         snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
     } else if (strcmp(key, "tai_utc_offset") == 0) {
-        long v = strtol(value, NULL, 10);
-        cfg->tai_utc_offset = (v >= 0 && v <= 200) ? (int)v : 37;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 200)
+            cfg->tai_utc_offset = (int)v;
+        else
+            log_msg(LOG_WARN, "tai_utc_offset: невалидное '%s'", value);
     } else if (strcmp(key, "region") == 0) {
         snprintf(cfg->geo_region, sizeof(cfg->geo_region), "%s", value);
     } else if (strcmp(key, "geo_dir") == 0) {
@@ -144,7 +149,9 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
     } else if (strcmp(key, "dpi_dir") == 0) {
         snprintf(cfg->dpi_dir, sizeof(cfg->dpi_dir), "%s", value);
     } else if (strcmp(key, "dpi_enabled") == 0) {
-        cfg->dpi_enabled = (strcmp(value, "1") == 0);
+        if (strcmp(value, "1") == 0)      cfg->dpi_enabled = true;
+        else if (strcmp(value, "0") == 0) cfg->dpi_enabled = false;
+        else log_msg(LOG_WARN, "dpi_enabled: невалидное '%s', ожидается '0'/'1'", value);
     } else if (strcmp(key, "dpi_split_pos") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 1 && v <= 1400)
@@ -188,7 +195,9 @@ static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
 static void apply_server_option(ServerConfig *srv, const char *key, const char *value)
 {
     if (strcmp(key, "enabled") == 0) {
-        srv->enabled = (strcmp(value, "1") == 0);
+        if (strcmp(value, "1") == 0)      srv->enabled = true;
+        else if (strcmp(value, "0") == 0) srv->enabled = false;
+        else log_msg(LOG_WARN, "server.enabled: невалидное '%s', ожидается '0'/'1'", value);
     } else if (strcmp(key, "protocol") == 0) {
         strncpy(srv->protocol, value, sizeof(srv->protocol) - 1);
         srv->protocol[sizeof(srv->protocol) - 1] = '\0';
@@ -241,26 +250,33 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "awg_h4") == 0) {
         snprintf(srv->awg_h4, sizeof(srv->awg_h4), "%s", value);
     } else if (strcmp(key, "awg_s1") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_s1 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 1500)
+            srv->awg_s1 = (uint16_t)v;
     } else if (strcmp(key, "awg_s2") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_s2 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 1500)
+            srv->awg_s2 = (uint16_t)v;
     } else if (strcmp(key, "awg_s3") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_s3 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 1500)
+            srv->awg_s3 = (uint16_t)v;
     } else if (strcmp(key, "awg_s4") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_s4 = (v >= 0 && v <= 1500) ? (uint16_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 1500)
+            srv->awg_s4 = (uint16_t)v;
     } else if (strcmp(key, "awg_jc") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_jc = (v >= 0 && v <= 255) ? (uint8_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 255)
+            srv->awg_jc = (uint8_t)v;
     } else if (strcmp(key, "awg_jmin") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_jmin = (v >= 0 && v <= 65535) ? (uint16_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 65535)
+            srv->awg_jmin = (uint16_t)v;
     } else if (strcmp(key, "awg_jmax") == 0) {
-        long v = strtol(value, NULL, 10);
-        srv->awg_jmax = (v >= 0 && v <= 65535) ? (uint16_t)v : 0;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 65535)
+            srv->awg_jmax = (uint16_t)v;
     } else if (strcmp(key, "awg_i1") == 0) {
         snprintf(srv->awg_i1, sizeof(srv->awg_i1), "%s", value);
     } else if (strcmp(key, "awg_i2") == 0) {
@@ -272,9 +288,11 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
     } else if (strcmp(key, "awg_i5") == 0) {
         snprintf(srv->awg_i5, sizeof(srv->awg_i5), "%s", value);
     } else if (strcmp(key, "awg_keepalive") == 0) {
-        /* M-17: range validation */
-        long v = strtol(value, NULL, 10);
-        srv->awg_keepalive = (v >= 0 && v <= 65535) ? (uint16_t)v : 25;
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 0 && v <= 65535)
+            srv->awg_keepalive = (uint16_t)v;
+        else
+            log_msg(LOG_WARN, "awg_keepalive: невалидное '%s'", value);
     /* Hysteria2-специфичные опции */
     } else if (strcmp(key, "hy2_obfs_password") == 0) {
         strncpy(srv->hy2_obfs_password, value,
@@ -286,7 +304,9 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         strncpy(srv->hy2_sni, value, sizeof(srv->hy2_sni) - 1);
         srv->hy2_sni[sizeof(srv->hy2_sni) - 1] = '\0';
     } else if (strcmp(key, "hy2_insecure") == 0) {
-        srv->hy2_insecure = (strcmp(value, "1") == 0);
+        if (strcmp(value, "1") == 0)      srv->hy2_insecure = true;
+        else if (strcmp(value, "0") == 0) srv->hy2_insecure = false;
+        else log_msg(LOG_WARN, "hy2_insecure: невалидное '%s', ожидается '0'/'1'", value);
     } else if (strcmp(key, "hy2_up_mbps") == 0) {
         char *endp; long v = strtol(value, &endp, 10);
         if (endp == value || *endp != '\0') v = 0;  /* нечисловой ввод */
@@ -484,9 +504,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                 break;
             case SECTION_DNS: {
                 DnsConfig *d = &cfg->dns;
-                if (strcmp(key, "enabled") == 0)
-                    d->enabled = (strcmp(value, "1") == 0);
-                else if (strcmp(key, "listen_port") == 0)
+                if (strcmp(key, "enabled") == 0) {
+                    if (strcmp(value, "1") == 0)      d->enabled = true;
+                    else if (strcmp(value, "0") == 0) d->enabled = false;
+                    else log_msg(LOG_WARN, "dns.enabled: невалидное '%s'", value);
+                } else if (strcmp(key, "listen_port") == 0)
                     d->listen_port = (uint16_t)parse_int_uci(
                         value, "listen_port", 53, 1, 65535);
                 else if (strcmp(key, "upstream_bypass") == 0)
@@ -504,9 +526,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                 else if (strcmp(key, "cache_ttl_max") == 0)
                     d->cache_ttl_max = parse_int_uci(
                         value, "cache_ttl_max", 3600, 0, 86400);
-                else if (strcmp(key, "doh_enabled") == 0)
-                    d->doh_enabled = (strcmp(value, "1") == 0);
-                else if (strcmp(key, "doh_url") == 0)
+                else if (strcmp(key, "doh_enabled") == 0) {
+                    if (strcmp(value, "1") == 0)      d->doh_enabled = true;
+                    else if (strcmp(value, "0") == 0) d->doh_enabled = false;
+                    else log_msg(LOG_WARN, "doh_enabled: невалидное '%s'", value);
+                } else if (strcmp(key, "doh_url") == 0)
                     snprintf(d->doh_url, sizeof(d->doh_url), "%s", value);
                 else if (strcmp(key, "doh_sni") == 0)
                     snprintf(d->doh_sni, sizeof(d->doh_sni), "%s", value);
@@ -515,9 +539,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                 else if (strcmp(key, "doh_port") == 0)
                     d->doh_port = (uint16_t)parse_int_uci(
                         value, "doh_port", 443, 1, 65535);
-                else if (strcmp(key, "dot_enabled") == 0)
-                    d->dot_enabled = (strcmp(value, "1") == 0);
-                else if (strcmp(key, "dot_server_ip") == 0)
+                else if (strcmp(key, "dot_enabled") == 0) {
+                    if (strcmp(value, "1") == 0)      d->dot_enabled = true;
+                    else if (strcmp(value, "0") == 0) d->dot_enabled = false;
+                    else log_msg(LOG_WARN, "dot_enabled: невалидное '%s'", value);
+                } else if (strcmp(key, "dot_server_ip") == 0)
                     snprintf(d->dot_server_ip, sizeof(d->dot_server_ip), "%s", value);
                 else if (strcmp(key, "dot_port") == 0)
                     d->dot_port = (uint16_t)parse_int_uci(
@@ -536,11 +562,15 @@ int config_load(const char *path, EburNetConfig *cfg)
                 else if (strcmp(key, "cache_ttl_min") == 0)
                     d->cache_ttl_min = parse_int_uci(
                         value, "cache_ttl_min", 0, 0, 3600);
-                else if (strcmp(key, "parallel_query") == 0)
-                    d->parallel_query = (strcmp(value, "1") == 0);
-                else if (strcmp(key, "fake_ip_enabled") == 0)
-                    d->fake_ip_enabled = (strcmp(value, "1") == 0);
-                else if (strcmp(key, "fake_ip_range") == 0)
+                else if (strcmp(key, "parallel_query") == 0) {
+                    if (strcmp(value, "1") == 0)      d->parallel_query = true;
+                    else if (strcmp(value, "0") == 0) d->parallel_query = false;
+                    else log_msg(LOG_WARN, "parallel_query: невалидное '%s'", value);
+                } else if (strcmp(key, "fake_ip_enabled") == 0) {
+                    if (strcmp(value, "1") == 0)      d->fake_ip_enabled = true;
+                    else if (strcmp(value, "0") == 0) d->fake_ip_enabled = false;
+                    else log_msg(LOG_WARN, "fake_ip_enabled: невалидное '%s'", value);
+                } else if (strcmp(key, "fake_ip_range") == 0)
                     snprintf(d->fake_ip_range, sizeof(d->fake_ip_range), "%s", value);
                 else if (strcmp(key, "fake_ip_pool_size") == 0)
                     d->fake_ip_pool_size = parse_int_uci(
@@ -567,8 +597,9 @@ int config_load(const char *path, EburNetConfig *cfg)
                     else if (strcmp(key, "upstream") == 0)
                         snprintf(dp->upstream, sizeof(dp->upstream), "%s", value);
                     else if (strcmp(key, "port") == 0) {
-                        long v = strtol(value, NULL, 10);
-                        dp->port = (v > 0 && v <= 65535) ? (uint16_t)v : 0;
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0' && v > 0 && v <= 65535)
+                            dp->port = (uint16_t)v;
                     } else if (strcmp(key, "type") == 0) {
                         if (strcmp(value, "dot") == 0)
                             dp->type = DNS_UPSTREAM_DOT;
@@ -578,8 +609,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                             dp->type = DNS_UPSTREAM_UDP;
                     } else if (strcmp(key, "sni") == 0)
                         snprintf(dp->sni, sizeof(dp->sni), "%s", value);
-                    else if (strcmp(key, "priority") == 0)
-                        dp->priority = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "priority") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0')
+                            dp->priority = (int)v;
+                    }
                 }
                 break;
             case SECTION_PROXY_GROUP:
@@ -595,14 +629,20 @@ int config_load(const char *path, EburNetConfig *cfg)
                         snprintf(g->servers, sizeof(g->servers), "%s", value);
                     else if (strcmp(key, "url") == 0)
                         snprintf(g->url, sizeof(g->url), "%s", value);
-                    else if (strcmp(key, "interval") == 0)
-                        g->interval = (int)strtol(value, NULL, 10);
-                    else if (strcmp(key, "timeout_ms") == 0)
-                        g->timeout_ms = (int)strtol(value, NULL, 10);
-                    else if (strcmp(key, "tolerance_ms") == 0)
-                        g->tolerance_ms = (int)strtol(value, NULL, 10);
-                    else if (strcmp(key, "enabled") == 0)
-                        g->enabled = (strcmp(value, "1") == 0);
+                    else if (strcmp(key, "interval") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') g->interval = (int)v;
+                    } else if (strcmp(key, "timeout_ms") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') g->timeout_ms = (int)v;
+                    } else if (strcmp(key, "tolerance_ms") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') g->tolerance_ms = (int)v;
+                    } else if (strcmp(key, "enabled") == 0) {
+                        if (strcmp(value, "1") == 0)      g->enabled = true;
+                        else if (strcmp(value, "0") == 0) g->enabled = false;
+                        else log_msg(LOG_WARN, "proxy_group.enabled: невалидное '%s'", value);
+                    }
                 }
                 break;
             case SECTION_RULE_PROVIDER:
@@ -621,11 +661,14 @@ int config_load(const char *path, EburNetConfig *cfg)
                         else if (strcmp(value, "ipcidr") == 0) rp->format = RULE_FORMAT_IPCIDR;
                         else rp->format = RULE_FORMAT_CLASSICAL;
                     }
-                    else if (strcmp(key, "interval") == 0)
-                        rp->interval = (int)strtol(value, NULL, 10);
-                    else if (strcmp(key, "enabled") == 0)
-                        rp->enabled = (strcmp(value, "1") == 0);
-                    else if (strcmp(key, "region") == 0)
+                    else if (strcmp(key, "interval") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') rp->interval = (int)v;
+                    } else if (strcmp(key, "enabled") == 0) {
+                        if (strcmp(value, "1") == 0)      rp->enabled = true;
+                        else if (strcmp(value, "0") == 0) rp->enabled = false;
+                        else log_msg(LOG_WARN, "rule_provider.enabled: невалидное '%s'", value);
+                    } else if (strcmp(key, "region") == 0)
                         snprintf(rp->region, sizeof(rp->region), "%s", value);
                 }
                 break;
@@ -642,12 +685,17 @@ int config_load(const char *path, EburNetConfig *cfg)
                         snprintf(pp->url, sizeof(pp->url), "%s", value);
                     else if (strcmp(key, "path") == 0)
                         snprintf(pp->path, sizeof(pp->path), "%s", value);
-                    else if (strcmp(key, "interval") == 0)
-                        pp->interval = (int)strtol(value, NULL, 10);
-                    else if (strcmp(key, "enabled") == 0)
-                        pp->enabled = (strcmp(value, "1") == 0);
-                    else if (strcmp(key, "max_servers") == 0)
-                        pp->max_servers = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "interval") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') pp->interval = (int)v;
+                    } else if (strcmp(key, "enabled") == 0) {
+                        if (strcmp(value, "1") == 0)      pp->enabled = true;
+                        else if (strcmp(value, "0") == 0) pp->enabled = false;
+                        else log_msg(LOG_WARN, "proxy_provider.enabled: невалидное '%s'", value);
+                    } else if (strcmp(key, "max_servers") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') pp->max_servers = (int)v;
+                    }
                 }
                 break;
             case SECTION_TRAFFIC_RULE:
@@ -667,8 +715,10 @@ int config_load(const char *path, EburNetConfig *cfg)
                         snprintf(tr->value, sizeof(tr->value), "%s", value);
                     else if (strcmp(key, "target") == 0)
                         snprintf(tr->target, sizeof(tr->target), "%s", value);
-                    else if (strcmp(key, "priority") == 0)
-                        tr->priority = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "priority") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') tr->priority = (int)v;
+                    }
                 }
                 break;
             case SECTION_DEVICE_POLICY:
@@ -686,10 +736,14 @@ int config_load(const char *path, EburNetConfig *cfg)
                     }
                     else if (strcmp(key, "server_group") == 0)
                         snprintf(d->server_group, sizeof(d->server_group), "%s", value);
-                    else if (strcmp(key, "enabled") == 0)
-                        d->enabled = (strcmp(value, "1") == 0);
-                    else if (strcmp(key, "priority") == 0)
-                        d->priority = (int)strtol(value, NULL, 10);
+                    else if (strcmp(key, "enabled") == 0) {
+                        if (strcmp(value, "1") == 0)      d->enabled = true;
+                        else if (strcmp(value, "0") == 0) d->enabled = false;
+                        else log_msg(LOG_WARN, "device.enabled: невалидное '%s'", value);
+                    } else if (strcmp(key, "priority") == 0) {
+                        char *ep; long v = strtol(value, &ep, 10);
+                        if (ep != value && *ep == '\0') d->priority = (int)v;
+                    }
                     else if (strcmp(key, "comment") == 0)
                         snprintf(d->comment, sizeof(d->comment), "%s", value);
                 }
