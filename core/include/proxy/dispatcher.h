@@ -86,6 +86,7 @@ struct relay_conn {
     struct awg_state       *awg;             /* NULL если не AWG */
 #if CONFIG_EBURNET_STLS
     shadowtls_ctx_t        *stls;           /* NULL если не ShadowTLS transport */
+    void                   *stls_io;        /* stls_io_ctx_t*, wolfSSL I/O context */
 #endif
     int                     download_fd;       /* XHTTP GET fd (-1 если нет) */
     relay_ep_t              ep_download;       /* epoll тег для download_fd */
@@ -100,6 +101,9 @@ typedef struct {
     /* splice удалён: shared pipe = data corruption (H-12, C-05) */
     uint8_t        *relay_buf;         /* буфер для read/write relay */
     size_t          relay_buf_size;    /* размер буфера (по профилю) */
+#if CONFIG_EBURNET_STLS
+    uint8_t        *stls_buf;         /* буфер для stls_wrap/unwrap (relay_buf_size+9) */
+#endif
     int             next_free;          /* clock-hand подсказка (H-05) */
     uint64_t        total_accepted;
     uint64_t        total_closed;

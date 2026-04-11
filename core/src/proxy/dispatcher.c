@@ -64,6 +64,75 @@
 
 /* TODO: передавать контекст явно через параметр вместо глобальных указателей.
  * Сейчас безопасно — однопоточная архитектура, один экземпляр (M-09). */
+#if CONFIG_EBURNET_STLS
+#include <wolfssl/options.h>
+#include <wolfssl/wolfio.h>
+#include <wolfssl/error-ssl.h>
+
+/* wolfSSL I/O context для ShadowTLS transport */
+typedef struct {
+    shadowtls_ctx_t *stls;
+    int              fd;
+    uint8_t          rbuf[4096]; /* буфер для partial TLS records от upstream */
+    int              rbuf_len;
+} stls_io_ctx_t;
+
+/* wolfSSL send callback: wrap через ShadowTLS */
+static int stls_ssl_send(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+{
+    (void)ssl;
+    stls_io_ctx_t *io = (stls_io_ctx_t *)ctx;
+    uint8_t *tmp = malloc((size_t)sz + 9);
+    if (!tmp) return WOLFSSL_CBIO_ERR_GENERAL;
+    int wlen = stls_wrap(io->stls, (const uint8_t *)buf, sz, tmp, sz + 9);
+    if (wlen < 0) { free(tmp); return WOLFSSL_CBIO_ERR_GENERAL; }
+    ssize_t s = send(io->fd, tmp, (size_t)wlen, MSG_NOSIGNAL);
+    free(tmp);
+    if (s < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return WOLFSSL_CBIO_ERR_WANT_WRITE;
+        return WOLFSSL_CBIO_ERR_CONN_RST;
+    }
+    return sz;
+}
+
+/* wolfSSL recv callback: unwrap ShadowTLS record */
+static int stls_ssl_recv(WOLFSSL *ssl, char *buf, int sz, void *ctx)
+{
+    (void)ssl;
+    stls_io_ctx_t *io = (stls_io_ctx_t *)ctx;
+
+    /* Читаем данные в rbuf если есть место */
+    int space = (int)sizeof(io->rbuf) - io->rbuf_len;
+    if (space > 0) {
+        ssize_t n = recv(io->fd, io->rbuf + io->rbuf_len,
+                         (size_t)space, MSG_DONTWAIT);
+        if (n > 0) {
+            io->rbuf_len += (int)n;
+        } else if (n == 0) {
+            return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            return WOLFSSL_CBIO_ERR_CONN_RST;
+        }
+    }
+
+    /* Полная STLS запись? */
+    int rec_sz = stls_record_size(io->rbuf, io->rbuf_len);
+    if (rec_sz < 0) return WOLFSSL_CBIO_ERR_WANT_READ;
+
+    /* Unwrap */
+    int ulen = stls_unwrap(io->stls, io->rbuf, rec_sz,
+                            (uint8_t *)buf, sz);
+    /* Убрать запись из rbuf */
+    io->rbuf_len -= rec_sz;
+    if (io->rbuf_len > 0)
+        memmove(io->rbuf, io->rbuf + rec_sz, (size_t)io->rbuf_len);
+
+    if (ulen < 0) return WOLFSSL_CBIO_ERR_GENERAL;
+    return (ulen > 0) ? ulen : WOLFSSL_CBIO_ERR_WANT_READ;
+}
+#endif /* CONFIG_EBURNET_STLS */
+
 static dispatcher_state_t *g_dispatcher   = NULL;
 static const EburNetConfig *g_config      = NULL;
 static rules_engine_t     *g_rules_engine = NULL;
@@ -133,6 +202,14 @@ static int vless_protocol_start(relay_conn_t *relay,
     /* DEC-025: передаём shortId для диагностики после handshake */
     if (server->reality_short_id[0])
         cfg.reality_short_id = server->reality_short_id;
+#if CONFIG_EBURNET_STLS
+    /* ShadowTLS I/O callbacks: wolfSSL ↔ stls_wrap/unwrap ↔ upstream_fd */
+    if (relay->stls_io) {
+        cfg.io_send = (int(*)(void*,char*,int,void*))stls_ssl_send;
+        cfg.io_recv = (int(*)(void*,char*,int,void*))stls_ssl_recv;
+        cfg.io_ctx  = relay->stls_io;
+    }
+#endif
 
     if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
         return -1;
@@ -272,6 +349,13 @@ static int trojan_protocol_start(relay_conn_t *relay,
     snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
+#if CONFIG_EBURNET_STLS
+    if (relay->stls_io) {
+        cfg.io_send = (int(*)(void*,char*,int,void*))stls_ssl_send;
+        cfg.io_recv = (int(*)(void*,char*,int,void*))stls_ssl_recv;
+        cfg.io_ctx  = relay->stls_io;
+    }
+#endif
 
     if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
         return -1;
@@ -425,6 +509,7 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             r->awg         = NULL;
 #if CONFIG_EBURNET_STLS
             r->stls        = NULL;
+            r->stls_io     = NULL;
 #endif
             r->state       = RELAY_CONNECTING;
             r->last_active = time(NULL);
@@ -485,10 +570,8 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
     }
 #endif
 #if CONFIG_EBURNET_STLS
-    if (r->stls) {
-        free(r->stls);
-        r->stls = NULL;
-    }
+    if (r->stls_io) { free(r->stls_io); r->stls_io = NULL; }
+    if (r->stls)    { free(r->stls);    r->stls = NULL; }
 #endif
 
     if (r->state != RELAY_DONE) {
@@ -783,15 +866,12 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 #if CONFIG_EBURNET_STLS
         /* ShadowTLS transport: обернуть данные перед отправкой */
         if (r->stls && r->stls->state == STLS_ACTIVE && !r->use_tls) {
-            int wrap_size = (int)n + 9;  /* TLS hdr(5) + tag(4) + data */
-            uint8_t *wrap_buf = malloc((size_t)wrap_size);
-            if (!wrap_buf) return -1;
             int wlen = stls_wrap(r->stls, ds->relay_buf, (int)n,
-                                 wrap_buf, wrap_size);
-            if (wlen < 0) { free(wrap_buf); return -1; }
-            ssize_t sent = send(r->upstream_fd, wrap_buf, (size_t)wlen,
+                                 ds->stls_buf,
+                                 (int)(ds->relay_buf_size + 9));
+            if (wlen < 0) return -1;
+            ssize_t sent = send(r->upstream_fd, ds->stls_buf, (size_t)wlen,
                                 MSG_NOSIGNAL);
-            free(wrap_buf);
             return (sent == wlen) ? n : (ssize_t)-1;
         }
 #endif
@@ -821,23 +901,20 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
         if (r->stls && r->stls->state == STLS_ACTIVE && !r->use_tls) {
             n = read(r->upstream_fd, ds->relay_buf, ds->relay_buf_size);
             if (n <= 0) return n;
-            uint8_t *unwrap_buf = malloc((size_t)n);
-            if (!unwrap_buf) return -1;
             int ulen = stls_unwrap(r->stls, ds->relay_buf, (int)n,
-                                   unwrap_buf, (int)n);
-            if (ulen <= 0) { free(unwrap_buf); return (ulen == 0) ? 0 : -1; }
+                                   ds->stls_buf,
+                                   (int)(ds->relay_buf_size + 9));
+            if (ulen <= 0) return (ulen == 0) ? 0 : -1;
             ssize_t wr = 0;
             while (wr < ulen) {
-                ssize_t w = write(r->client_fd, unwrap_buf + wr,
+                ssize_t w = write(r->client_fd, ds->stls_buf + wr,
                                   (size_t)(ulen - wr));
                 if (w < 0) {
                     if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-                    free(unwrap_buf);
                     return -1;
                 }
                 wr += w;
             }
-            free(unwrap_buf);
             return wr;
         }
 #endif
@@ -898,6 +975,15 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
         ds->conns = NULL;
         return -1;
     }
+
+#if CONFIG_EBURNET_STLS
+    ds->stls_buf = malloc(ds->relay_buf_size + 9);
+    if (!ds->stls_buf) {
+        log_msg(LOG_ERROR, "relay: не удалось выделить stls_buf");
+        free(ds->relay_buf); free(ds->conns);
+        ds->conns = NULL; return -1;
+    }
+#endif
 
     /* epoll */
     ds->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -1637,6 +1723,17 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     r->server_idx < g_config->server_count)
                     server = &g_config->servers[r->server_idx];
                 if (server) {
+                    /* Для TLS inner protocols: I/O callbacks через STLS */
+                    const char *pn = server->protocol;
+                    if (r->stls &&
+                        (strcmp(pn, "vless") == 0 ||
+                         strcmp(pn, "trojan") == 0)) {
+                        stls_io_ctx_t *io = calloc(1, sizeof(stls_io_ctx_t));
+                        if (!io) { relay_free(ds, r); continue; }
+                        io->stls = r->stls;
+                        io->fd   = r->upstream_fd;
+                        r->stls_io = io;
+                    }
                     const proxy_protocol_t *proto =
                         protocol_find_for_server(server);
                     if (proto->start(r, &r->dst, server) < 0) {
@@ -1734,6 +1831,12 @@ void dispatcher_cleanup(dispatcher_state_t *ds)
         free(ds->relay_buf);
         ds->relay_buf = NULL;
     }
+#if CONFIG_EBURNET_STLS
+    if (ds->stls_buf) {
+        free(ds->stls_buf);
+        ds->stls_buf = NULL;
+    }
+#endif
 
     if (ds->epoll_fd >= 0) { close(ds->epoll_fd); ds->epoll_fd = -1; }
 
