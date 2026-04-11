@@ -711,8 +711,18 @@ int config_load(const char *path, EburNetConfig *cfg)
                         else if (strcmp(value, "fallback") == 0) g->type = PROXY_GROUP_FALLBACK;
                         else if (strcmp(value, "load-balance") == 0) g->type = PROXY_GROUP_LOAD_BALANCE;
                     }
-                    else if (strcmp(key, "servers") == 0)
-                        snprintf(g->servers, sizeof(g->servers), "%s", value);
+                    else if (strcmp(key, "servers") == 0) {
+                        /* option servers 'a b c' → split по пробелу (legacy) */
+                        char *tmp = strdup(value);
+                        char *tok = strtok(tmp, " ");
+                        while (tok) {
+                            g->servers = realloc(g->servers,
+                                (size_t)(g->server_count + 1) * sizeof(char *));
+                            g->servers[g->server_count++] = strdup(tok);
+                            tok = strtok(NULL, " ");
+                        }
+                        free(tmp);
+                    }
                     else if (strcmp(key, "url") == 0)
                         snprintf(g->url, sizeof(g->url), "%s", value);
                     else if (strcmp(key, "interval") == 0) {
@@ -839,8 +849,19 @@ int config_load(const char *path, EburNetConfig *cfg)
                 break;
             }
         } else if (strcmp(keyword, "list") == 0) {
-            /* Списки пока не поддержаны */
-            log_msg(LOG_WARN, "Строка %d: 'list' не поддерживается", line_num);
+            char *lkey = next_token(&cursor);
+            char *lval = next_token(&cursor);
+            if (!lkey || !lval) continue;
+            if (section == SECTION_PROXY_GROUP && pg_count > 0 &&
+                strcmp(lkey, "servers") == 0) {
+                ProxyGroupConfig *g = &pg_tmp[pg_count - 1];
+                g->servers = realloc(g->servers,
+                    (size_t)(g->server_count + 1) * sizeof(char *));
+                g->servers[g->server_count++] = strdup(lval);
+            } else {
+                log_msg(LOG_DEBUG, "Строка %d: list '%s' пропущена",
+                        line_num, lkey);
+            }
         } else {
             log_msg(LOG_WARN, "Строка %d: неизвестное ключевое слово '%s'",
                     line_num, keyword);
@@ -975,6 +996,12 @@ void config_free(EburNetConfig *cfg)
             free(cfg->servers[s].awg_i[i]);
             cfg->servers[s].awg_i[i] = NULL;
         }
+    for (int gi = 0; gi < cfg->proxy_group_count; gi++) {
+        ProxyGroupConfig *g = &cfg->proxy_groups[gi];
+        for (int si = 0; si < g->server_count; si++)
+            free(g->servers[si]);
+        free(g->servers);
+    }
     free(cfg->proxy_groups);        cfg->proxy_groups = NULL;
     free(cfg->proxy_providers);     cfg->proxy_providers = NULL;
     cfg->proxy_provider_count = 0;
