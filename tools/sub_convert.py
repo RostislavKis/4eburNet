@@ -491,11 +491,22 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
         }
         # AWG obfuscation: из amnezia-wg-option dict или top-level
         awg_opts = proxy.get('amnezia-wg-option') or proxy
+        # jc/jmin/jmax
         for src_key, dst_key in [('jc', 'awg_jc'), ('Jc', 'awg_jc'),
                                   ('jmin', 'awg_jmin'), ('Jmin', 'awg_jmin'),
                                   ('jmax', 'awg_jmax'), ('Jmax', 'awg_jmax')]:
             if src_key in awg_opts:
                 srv[dst_key] = str(awg_opts[src_key])
+        # s1-s4, h1-h4
+        for src, dst in [('s1','awg_s1'),('s2','awg_s2'),('s3','awg_s3'),('s4','awg_s4'),
+                          ('h1','awg_h1'),('h2','awg_h2'),('h3','awg_h3'),('h4','awg_h4')]:
+            if src in awg_opts:
+                srv[dst] = str(awg_opts[src])
+        # i1-i5 (hex blob строки)
+        for n in range(1, 6):
+            key = f'i{n}'
+            if key in awg_opts and awg_opts[key]:
+                srv[f'awg_i{n}'] = str(awg_opts[key])
         servers.append(srv)
     else:
         print(f'  [skip] неподдерживаемый тип: {ptype} ({name})',
