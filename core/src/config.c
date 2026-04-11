@@ -156,17 +156,40 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 1 && v <= 1400)
             cfg->dpi_split_pos = (int)v;
+        else
+            log_msg(LOG_WARN,
+                    "dpi_split_pos: невалидное '%s' (диапазон 1..1400), "
+                    "используется %d", value, cfg->dpi_split_pos);
     } else if (strcmp(key, "dpi_fake_ttl") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 1 && v <= 64)
             cfg->dpi_fake_ttl = (int)v;
+        else
+            log_msg(LOG_WARN,
+                    "dpi_fake_ttl: невалидное '%s' (диапазон 1..64), "
+                    "используется %d", value, cfg->dpi_fake_ttl);
     } else if (strcmp(key, "dpi_fake_repeats") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 1 && v <= 20)
             cfg->dpi_fake_repeats = (int)v;
+        else
+            log_msg(LOG_WARN,
+                    "dpi_fake_repeats: невалидное '%s' (диапазон 1..20), "
+                    "используется %d", value, cfg->dpi_fake_repeats);
     } else if (strcmp(key, "dpi_fake_sni") == 0) {
-        if (value[0] != '\0')
+        size_t vlen = strlen(value);
+        /* Базовая проверка: не пустой, нет пробелов/управляющих символов, ≤ 253 */
+        int valid = (vlen > 0 && vlen <= 253);
+        for (size_t i = 0; i < vlen && valid; i++)
+            if (value[i] == ' ' || value[i] == '\t' ||
+                value[i] == '\n' || value[i] == '\r')
+                valid = 0;
+        if (valid)
             snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "%s", value);
+        else
+            log_msg(LOG_WARN,
+                    "dpi_fake_sni: невалидный hostname '%s', "
+                    "используется '%s'", value, cfg->dpi_fake_sni);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
@@ -578,6 +601,20 @@ int config_load(const char *path, EburNetConfig *cfg)
                 else if (strcmp(key, "fake_ip_ttl") == 0)
                     d->fake_ip_ttl = parse_int_uci(
                         value, "fake_ip_ttl", 60, 1, 3600);
+                else if (strcmp(key, "doq_enabled") == 0) {
+                    if (strcmp(value, "1") == 0)      d->doq_enabled = true;
+                    else if (strcmp(value, "0") == 0) d->doq_enabled = false;
+                    else log_msg(LOG_WARN,
+                                 "doq_enabled: невалидное '%s', ожидается '0'/'1'",
+                                 value);
+                } else if (strcmp(key, "doq_server_ip") == 0)
+                    snprintf(d->doq_server_ip, sizeof(d->doq_server_ip),
+                             "%s", value);
+                else if (strcmp(key, "doq_server_port") == 0)
+                    d->doq_server_port = (uint16_t)parse_int_uci(
+                        value, "doq_server_port", 853, 1, 65535);
+                else if (strcmp(key, "doq_sni") == 0)
+                    snprintf(d->doq_sni, sizeof(d->doq_sni), "%s", value);
                 break;
             }
             case SECTION_DNS_RULE:
