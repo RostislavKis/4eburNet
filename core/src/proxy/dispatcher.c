@@ -736,20 +736,19 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
         if (!r->use_tls && r->dpi_bypass && !r->dpi_first_done) {
             r->dpi_first_done = true;
 
+            /* Инициализация стратегии из g_config (один проход) */
             dpi_strategy_config_t strat;
-            dpi_strategy_config_init(&strat);
-            /* Применить UCI конфиг поверх defaults */
-            if (g_config) {
-                if (g_config->dpi_split_pos    > 0)
-                    strat.split_pos    = g_config->dpi_split_pos;
-                if (g_config->dpi_fake_ttl     > 0)
-                    strat.fake_ttl     = g_config->dpi_fake_ttl;
-                if (g_config->dpi_fake_repeats > 0)
-                    strat.fake_repeats = g_config->dpi_fake_repeats;
-                if (g_config->dpi_fake_sni[0])
-                    snprintf(strat.fake_sni, sizeof(strat.fake_sni),
-                             "%s", g_config->dpi_fake_sni);
-            }
+            memset(&strat, 0, sizeof(strat));
+            strat.enabled      = true;
+            strat.split_pos    = (g_config && g_config->dpi_split_pos > 0)
+                                 ? g_config->dpi_split_pos    : 1;
+            strat.fake_ttl     = (g_config && g_config->dpi_fake_ttl > 0)
+                                 ? g_config->dpi_fake_ttl     : 5;
+            strat.fake_repeats = (g_config && g_config->dpi_fake_repeats > 0)
+                                 ? g_config->dpi_fake_repeats : 8;
+            snprintf(strat.fake_sni, sizeof(strat.fake_sni), "%s",
+                     (g_config && g_config->dpi_fake_sni[0])
+                     ? g_config->dpi_fake_sni : "www.google.com");
 
             /* fake+TTL: malloc чтобы не переполнять стек MIPS (8KB) */
             uint8_t *fake_buf = malloc(1300);
@@ -757,9 +756,12 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
                 int fake_len = dpi_make_fake_payload(fake_buf, 1300,
                                                       DPI_PROTO_TCP,
                                                       strat.fake_sni);
-                if (fake_len > 0)
-                    dpi_send_fake(r->upstream_fd, fake_buf, fake_len,
-                                  strat.fake_ttl, strat.fake_repeats);
+                if (fake_len > 0) {
+                    if (dpi_send_fake(r->upstream_fd, fake_buf, fake_len,
+                                      strat.fake_ttl, strat.fake_repeats) < 0)
+                        log_msg(LOG_DEBUG,
+                                "dpi: fake+TTL упал, продолжаем фрагментацию");
+                }
                 free(fake_buf);
             }
 
@@ -912,15 +914,23 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
 #if CONFIG_EBURNET_DPI
         dpi_match_t dpi_match = DPI_MATCH_NONE;
         if (cfg->dpi_enabled && dpi_filter_is_ready()) {
-            uint32_t dst4    = 0;
-            uint16_t dst_port = 0;
+            uint32_t  dst4     = 0;
+            uint16_t  dst_port = 0;
+            uint8_t   dst6[16];
+            uint8_t  *ip6_ptr  = NULL;
             if (conn->dst.ss_family == AF_INET) {
                 const struct sockaddr_in *s4 =
                     (const struct sockaddr_in *)&conn->dst;
                 dst4     = ntohl(s4->sin_addr.s_addr);
                 dst_port = ntohs(s4->sin_port);
+            } else if (conn->dst.ss_family == AF_INET6) {
+                const struct sockaddr_in6 *s6 =
+                    (const struct sockaddr_in6 *)&conn->dst;
+                memcpy(dst6, &s6->sin6_addr, 16);
+                ip6_ptr  = dst6;
+                dst_port = ntohs(s6->sin6_port);
             }
-            dpi_match = dpi_filter_match(domain, dst4, NULL, dst_port);
+            dpi_match = dpi_filter_match(domain, dst4, ip6_ptr, dst_port);
         }
 #endif
 
