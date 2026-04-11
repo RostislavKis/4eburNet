@@ -63,31 +63,31 @@ long cdn_stamp_read(const char *stamp_path)
 
 int cdn_is_stale(const char *stamp_path, int interval_days)
 {
-    if (interval_days == 0) return -1;  /* обновление выключено */
+    if (interval_days <= 0) return -1;  /* обновление выключено */
     long ts = cdn_stamp_read(stamp_path);
     if (ts < 0) return 1;               /* нет файла или ошибка чтения = устарел */
 
     long now = (long)time(NULL);
-    long age_sec = now - ts;
 
     /* Timestamp из будущего (NTP не синхронизирован при записи):
-     * считаем устаревшим чтобы гарантировать обновление */
-    if (age_sec < 0) {
+     * сравниваем до вычитания — иначе знаковое переполнение UB */
+    if (ts > now) {
         log_msg(LOG_WARN,
                 "cdn_is_stale: stamp timestamp (%ld) в будущем "
                 "(сейчас %ld), считаем устаревшим", ts, now);
         return 1;
     }
 
+    long age_sec = now - ts;
     return (age_sec > (long)interval_days * 86400) ? 1 : 0;
 }
 
 /* ── Парсинг текста (Cloudflare) ─────────────────────────────────── */
 
 int cdn_parse_text(const char *text,
-                   char cidrs[][64], int max_count, int cidr_size)
+                   char cidrs[][CDN_CIDR_SIZE], int max_count)
 {
-    if (!text || !cidrs || max_count <= 0 || cidr_size <= 0) return -1;
+    if (!text || !cidrs || max_count <= 0) return -1;
     int n = 0;
     const char *p = text;
     while (*p && n < max_count) {
@@ -107,7 +107,7 @@ int cdn_parse_text(const char *text,
         /* Убрать trailing пробелы */
         while (len > 0 && (start[len-1] == ' ' || start[len-1] == '\t'))
             len--;
-        if (len > 0 && len < cidr_size) {
+        if (len > 0 && len < CDN_CIDR_SIZE) {
             memcpy(cidrs[n], start, (size_t)len);
             cidrs[n][len] = '\0';
             n++;
@@ -125,8 +125,8 @@ int cdn_parse_text(const char *text,
  * Строки с невалидными символами (не [0-9a-fA-F:.\/]) отбрасываются.
  */
 static int extract_json_array(const char *json, const char *key,
-                               char cidrs[][64], int start,
-                               int max_count, int cidr_size)
+                               char cidrs[][CDN_CIDR_SIZE], int start,
+                               int max_count)
 {
     /* Найти "key":[ */
     char search[96];
@@ -145,7 +145,7 @@ static int extract_json_array(const char *json, const char *key,
         const char *val_start = arr;
         while (*arr && *arr != '"') arr++;
         int len = (int)(arr - val_start);
-        if (len > 0 && len < cidr_size) {
+        if (len > 0 && len < CDN_CIDR_SIZE) {
             memcpy(cidrs[n], val_start, (size_t)len);
             cidrs[n][len] = '\0';
             /* Базовая валидация: CIDR содержит только [0-9a-fA-F:.\/] */
@@ -164,14 +164,14 @@ static int extract_json_array(const char *json, const char *key,
 }
 
 int cdn_parse_fastly_json(const char *json,
-                           char cidrs[][64], int max_count, int cidr_size)
+                           char cidrs[][CDN_CIDR_SIZE], int max_count)
 {
-    if (!json || !cidrs || max_count <= 0 || cidr_size <= 0) return -1;
+    if (!json || !cidrs || max_count <= 0) return -1;
     int n = 0;
     n += extract_json_array(json, "addresses",
-                             cidrs, n, max_count, cidr_size);
+                             cidrs, n, max_count);
     n += extract_json_array(json, "ipv6_addresses",
-                             cidrs, n, max_count, cidr_size);
+                             cidrs, n, max_count);
     return n;
 }
 
@@ -245,7 +245,7 @@ int cdn_merge_write(char cidrs[][64], int count, const char *out_path)
 /* ── Скачать и распарсить источник ───────────────────────────────── */
 
 static int fetch_and_parse(const char *url, const char *tmp_file,
-                            char cidrs[][64], int max, int cidr_size,
+                            char cidrs[][CDN_CIDR_SIZE], int max,
                             int is_json)
 {
     if (net_http_fetch(url, tmp_file) < 0) {
@@ -273,8 +273,8 @@ static int fetch_and_parse(const char *url, const char *tmp_file,
     unlink(tmp_file);
 
     int n = is_json
-            ? cdn_parse_fastly_json(buf, cidrs, max, cidr_size)
-            : cdn_parse_text(buf, cidrs, max, cidr_size);
+            ? cdn_parse_fastly_json(buf, cidrs, max)
+            : cdn_parse_text(buf, cidrs, max);
     free(buf);
 
     return (n > 0) ? n : 0;
@@ -320,19 +320,19 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
 
     /* Cloudflare IPv4 */
     n = fetch_and_parse(cf_v4_url, tmp_v4,
-                        all + total, CDN_MAX_CIDRS_TOTAL - total, 64, 0);
+                        all + total, CDN_MAX_CIDRS_TOTAL - total, 0);
     log_msg(LOG_INFO, "cdn_updater: Cloudflare IPv4: %d CIDR", n);
     total += n;
 
     /* Cloudflare IPv6 */
     n = fetch_and_parse(cf_v6_url, tmp_v6,
-                        all + total, CDN_MAX_CIDRS_TOTAL - total, 64, 0);
+                        all + total, CDN_MAX_CIDRS_TOTAL - total, 0);
     log_msg(LOG_INFO, "cdn_updater: Cloudflare IPv6: %d CIDR", n);
     total += n;
 
     /* Fastly */
     n = fetch_and_parse(fastly_url, tmp_fst,
-                        all + total, CDN_MAX_CIDRS_TOTAL - total, 64, 1);
+                        all + total, CDN_MAX_CIDRS_TOTAL - total, 1);
     log_msg(LOG_INFO, "cdn_updater: Fastly: %d CIDR", n);
     total += n;
 
@@ -373,7 +373,7 @@ int cdn_updater_check(const struct EburNetConfig *cfg)
 {
     if (!cfg) return -1;
 
-    if (cfg->cdn_update_interval_days == 0) {
+    if (cfg->cdn_update_interval_days <= 0) {
         /* Проверить что ipset.txt существует, иначе предупредить */
         const char *ddir = cfg->dpi_dir[0] ? cfg->dpi_dir
                                             : "/etc/4eburnet/dpi";
@@ -392,7 +392,7 @@ int cdn_updater_check(const struct EburNetConfig *cfg)
     snprintf(stamp_path, sizeof(stamp_path), "%s/ipset.stamp", dpi_dir);
 
     int stale = cdn_is_stale(stamp_path, cfg->cdn_update_interval_days);
-    if (stale <= 0) return 0;  /* актуально или выключено */
+    if (stale <= 0) return 0;  /* stale=0: актуально */
 
     return (cdn_updater_update(cfg) == 0) ? 1 : -1;
 }
