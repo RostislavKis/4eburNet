@@ -92,7 +92,7 @@ static void test_parse_text_cf(void)
         "104.24.0.0/14\n";
 
     char cidrs[16][64];
-    int n = cdn_parse_text(mock, cidrs, 16, 64);
+    int n = cdn_parse_text(mock, cidrs, 16);
     CHECK(n == 5,
           "parse_text: 5 CIDR из 6 строк (1 коммент + 1 пустая)");
     CHECK(strcmp(cidrs[0], "103.21.244.0/22") == 0,
@@ -110,7 +110,7 @@ static void test_parse_text_ipv6(void)
         "2803:f800::/32\n";
 
     char cidrs[8][64];
-    int n = cdn_parse_text(mock, cidrs, 8, 64);
+    int n = cdn_parse_text(mock, cidrs, 8);
     CHECK(n == 3, "parse_text IPv6: n == 3");
     CHECK(strchr(cidrs[0], ':') != NULL,
           "parse_text IPv6: первый содержит ':'");
@@ -120,9 +120,9 @@ static void test_parse_text_ipv6(void)
 static void test_parse_text_empty(void)
 {
     char cidrs[8][64];
-    CHECK(cdn_parse_text("", cidrs, 8, 64) == 0,
+    CHECK(cdn_parse_text("", cidrs, 8) == 0,
           "parse_text: пустая строка → 0");
-    CHECK(cdn_parse_text("# only comments\n# another\n", cidrs, 8, 64) == 0,
+    CHECK(cdn_parse_text("# only comments\n# another\n", cidrs, 8) == 0,
           "parse_text: только комментарии → 0");
 }
 
@@ -135,7 +135,7 @@ static void test_parse_fastly_json(void)
         "[\"2a04:4e40::/32\",\"2a04:4e42::/32\"]}";
 
     char cidrs[16][64];
-    int n = cdn_parse_fastly_json(mock_json, cidrs, 16, 64);
+    int n = cdn_parse_fastly_json(mock_json, cidrs, 16);
     CHECK(n == 5,
           "parse_fastly: 3 IPv4 + 2 IPv6 = 5");
     CHECK(strcmp(cidrs[0], "23.235.32.0/20") == 0,
@@ -149,7 +149,7 @@ static void test_parse_fastly_empty(void)
 {
     const char *mock = "{\"addresses\":[],\"ipv6_addresses\":[]}";
     char cidrs[8][64];
-    int n = cdn_parse_fastly_json(mock, cidrs, 8, 64);
+    int n = cdn_parse_fastly_json(mock, cidrs, 8);
     CHECK(n == 0, "parse_fastly: пустые массивы → 0");
 }
 
@@ -224,14 +224,14 @@ static void test_parse_text_boundary(void)
     char text[80];
     snprintf(text, sizeof(text), "%s\n", long_cidr);
     char cidrs[4][64];
-    int n = cdn_parse_text(text, cidrs, 4, 64);
+    int n = cdn_parse_text(text, cidrs, 4);
     CHECK(n == 1, "parse_text: CIDR длиной 63 → принимается");
 
     /* CIDR 64 символа — отбрасывается (len >= 64) */
     char too_long[70];
     memset(too_long, '1', 64); too_long[64] = '\0';
     snprintf(text, sizeof(text), "%s\n", too_long);
-    n = cdn_parse_text(text, cidrs, 4, 64);
+    n = cdn_parse_text(text, cidrs, 4);
     CHECK(n == 0, "parse_text: CIDR длиной 64 → отбрасывается");
 }
 
@@ -241,12 +241,12 @@ static void test_parse_json_escape(void)
     /* Нормальный CIDR без escape — парсится */
     const char *mock = "{\"addresses\":[\"1.2.3.0/24\"]}";
     char cidrs[4][64];
-    int n = cdn_parse_fastly_json(mock, cidrs, 4, 64);
+    int n = cdn_parse_fastly_json(mock, cidrs, 4);
     CHECK(n == 1, "parse_fastly: нормальный CIDR → 1");
 
     /* CIDR с backslash: невалидный символ '\\' → отбрасывается (A.8.5) */
     const char *bad = "{\"addresses\":[\"bad\\\\cidr\"]}";
-    n = cdn_parse_fastly_json(bad, cidrs, 4, 64);
+    n = cdn_parse_fastly_json(bad, cidrs, 4);
     CHECK(n == 0, "parse_fastly: CIDR с backslash → отброшен валидацией");
 }
 
