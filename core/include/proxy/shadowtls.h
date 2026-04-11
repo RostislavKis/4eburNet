@@ -35,6 +35,7 @@ typedef struct {
     uint8_t       server_random[32];
     uint64_t      send_counter;
     uint64_t      recv_counter;
+    int           skip_hs_count;    /* счётчик records в STLS_SKIP_HS (CCS fallback) */
     /* Буфер для частичного чтения TLS records */
     uint8_t       recv_buf[4096];
     int           recv_len;
@@ -75,7 +76,8 @@ int stls_wrap(shadowtls_ctx_t *ctx,
 /*
  * Развернуть TLS AppData record, проверить HMAC тег.
  * record: [type, ver_hi, ver_lo, lenhi, lenlo, hmac[4], data...]
- * Возвращает длину данных (без header + hmac) или -1.
+ * Возвращает длину данных (без header + hmac), 0 если payload пуст, -1 при ошибке.
+ * 0 означает пустой AppData record, не EOF.
  */
 int stls_unwrap(shadowtls_ctx_t *ctx,
                 const uint8_t *record, int record_len,
