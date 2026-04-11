@@ -269,4 +269,12 @@ int stls_unwrap(shadowtls_ctx_t *ctx,
     return data_len;
 }
 
+int stls_record_size(const uint8_t *buf, int len)
+{
+    if (!buf || len < TLS_RECORD_HDR) return -1;
+    int payload = (buf[3] << 8) | buf[4];
+    int total   = TLS_RECORD_HDR + payload;
+    return (len >= total) ? total : -1;
+}
+
 #endif /* CONFIG_EBURNET_STLS */
