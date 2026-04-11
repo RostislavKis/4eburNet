@@ -59,6 +59,13 @@ static void setup_test_files(void)
         "8.8.8.8\n"
         "# OVH\n"
         "51.75.0.0/16\n"
+        "# Тест алгоритма: широкий /8 с 6 вложенными подсетями\n"
+        "10.0.0.0/8\n"
+        "10.1.0.0/24\n"
+        "10.2.0.0/24\n"
+        "10.3.0.0/24\n"
+        "10.4.0.0/24\n"
+        "10.5.0.0/24\n"
     );
 
     /* whitelist.txt: домены-исключения */
@@ -148,6 +155,16 @@ static void test_ipv4_match(void)
     /* 192.168.1.1 → локальный → NONE */
     CHECK(dpi_filter_match_ipv4(ip4("192.168.1.1"), 443) == DPI_MATCH_NONE,
           "ipv4: 192.168.1.1 локальный → NONE");
+
+    /* Алгоритм поиска: охватывающий /8 с 6 вложенными /24
+     * ip=10.6.0.1: bsearch → hi указывает на 10.5.0.0 (или ближе),
+     * нужно пройти назад до 10.0.0.0/8 (позиция hi-5 или далее) */
+    CHECK(dpi_filter_match_ipv4(ip4("10.6.0.1"), 443) == DPI_MATCH_BYPASS,
+          "ipv4: 10.6.0.1 в 10.0.0.0/8 (hi-5) → BYPASS");
+    CHECK(dpi_filter_match_ipv4(ip4("10.1.0.1"), 443) == DPI_MATCH_BYPASS,
+          "ipv4: 10.1.0.1 в 10.1.0.0/24 → BYPASS");
+    CHECK(dpi_filter_match_ipv4(ip4("11.0.0.1"), 443) == DPI_MATCH_NONE,
+          "ipv4: 11.0.0.1 вне 10.0.0.0/8 → NONE");
 }
 
 /* ── Тест 3: IPv6 match ──────────────────────────────────────────── */
@@ -228,7 +245,7 @@ static void test_combined_match(void)
           "combined: неизвестный домен + CDN IP → BYPASS");
 
     /* Неизвестный домен + НЕ CDN IP → NONE */
-    CHECK(dpi_filter_match("unknown.site", ip4("10.0.0.1"), NULL, 443) == DPI_MATCH_NONE,
+    CHECK(dpi_filter_match("unknown.site", ip4("172.31.0.1"), NULL, 443) == DPI_MATCH_NONE,
           "combined: неизвестный домен + не CDN IP → NONE");
 
     /* NULL домен + CDN IP → BYPASS */
