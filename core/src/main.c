@@ -602,8 +602,6 @@ int main(int argc, char *argv[])
                           state.cdn_pipe_fd, NULL);
                 close(state.cdn_pipe_fd);
                 state.cdn_pipe_fd = -1;
-                /* waitpid — не копить зомби */
-                while (waitpid(-1, NULL, WNOHANG) > 0) {}
                 if (rn > 0 && rbuf[0] == 'O') {
                     const char *ddir = (cfg_ptr && cfg_ptr->dpi_dir[0])
                                        ? cfg_ptr->dpi_dir
@@ -790,6 +788,12 @@ int main(int argc, char *argv[])
     }
 
 cleanup:
+#if CONFIG_EBURNET_DPI
+    if (state.cdn_pipe_fd >= 0) {
+        close(state.cdn_pipe_fd);
+        state.cdn_pipe_fd = -1;
+    }
+#endif
     if (master_epoll >= 0) close(master_epoll);
 
     /* Завершение работы */
