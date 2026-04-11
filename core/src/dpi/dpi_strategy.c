@@ -83,9 +83,13 @@ int dpi_send_fake(int fd,
     if (repeats  <= 0 || repeats  > 20)          return -1;
 
     /* Сохранить текущий TTL для восстановления */
-    int saved_ttl = 64;
+    int saved_ttl = 64;   /* разумный fallback если getsockopt провалится */
     socklen_t slen = sizeof(saved_ttl);
-    getsockopt(fd, IPPROTO_IP, IP_TTL, &saved_ttl, &slen);
+    if (getsockopt(fd, IPPROTO_IP, IP_TTL, &saved_ttl, &slen) < 0) {
+        log_msg(LOG_DEBUG,
+                "dpi_send_fake: getsockopt IP_TTL: %s, используем %d",
+                strerror(errno), saved_ttl);
+    }
 
     /* Установить fake TTL */
     if (setsockopt(fd, IPPROTO_IP, IP_TTL, &fake_ttl, sizeof(fake_ttl)) < 0) {
@@ -122,27 +126,53 @@ int dpi_send_fragment(int fd,
     int p1, p2;
     dpi_fragment_sizes(data_len, split_pos, &p1, &p2);
 
-    /* TCP_NODELAY: запретить Nagle — иначе два send() сольются в один сегмент */
-    dpi_set_nodelay(fd, 1);
-
-    /* Первый фрагмент */
-    ssize_t n1 = send(fd, data, (size_t)p1, MSG_NOSIGNAL);
-    if (n1 < 0) {
-        log_msg(LOG_WARN, "dpi_send_fragment: send part1: %s", strerror(errno));
-        return -1;
-    }
-
-    /* Второй фрагмент (если есть) */
-    ssize_t n2 = 0;
     if (p2 > 0) {
-        n2 = send(fd, data + p1, (size_t)p2, MSG_NOSIGNAL);
-        if (n2 < 0) {
-            log_msg(LOG_WARN, "dpi_send_fragment: send part2: %s", strerror(errno));
+        /* Реальный split: сохранить TCP_NODELAY, запретить Nagle */
+        int saved_nodelay = 0;
+        socklen_t slen = sizeof(saved_nodelay);
+        getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &saved_nodelay, &slen);
+        dpi_set_nodelay(fd, 1);
+
+        /* Первый фрагмент */
+        ssize_t n1 = send(fd, data, (size_t)p1, MSG_NOSIGNAL);
+        if (n1 < 0) {
+            log_msg(LOG_WARN, "dpi_send_fragment: send part1: %s",
+                    strerror(errno));
+            dpi_set_nodelay(fd, saved_nodelay);
             return -1;
         }
+        if (n1 < (ssize_t)p1) {
+            log_msg(LOG_WARN,
+                    "dpi_send_fragment: partial send part1: %zd < %d",
+                    n1, p1);
+            dpi_set_nodelay(fd, saved_nodelay);
+            return -1;
+        }
+
+        /* Второй фрагмент */
+        ssize_t n2 = send(fd, data + p1, (size_t)p2, MSG_NOSIGNAL);
+        dpi_set_nodelay(fd, saved_nodelay);   /* восстановить в любом случае */
+        if (n2 < 0) {
+            log_msg(LOG_WARN, "dpi_send_fragment: send part2: %s",
+                    strerror(errno));
+            return -1;
+        }
+        if (n2 < (ssize_t)p2) {
+            log_msg(LOG_WARN,
+                    "dpi_send_fragment: partial send part2: %zd < %d",
+                    n2, p2);
+            return -1;
+        }
+        return (int)(n1 + n2);
     }
 
-    return (int)(n1 + n2);
+    /* p2 == 0: split_pos >= data_len, отправляем всё одним send() без TCP_NODELAY */
+    ssize_t n1 = send(fd, data, (size_t)p1, MSG_NOSIGNAL);
+    if (n1 < 0) {
+        log_msg(LOG_WARN, "dpi_send_fragment: send: %s", strerror(errno));
+        return -1;
+    }
+    return (int)n1;
 }
 
 #endif /* CONFIG_EBURNET_DPI */
