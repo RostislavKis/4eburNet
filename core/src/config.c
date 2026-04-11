@@ -141,6 +141,25 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         snprintf(cfg->geo_region, sizeof(cfg->geo_region), "%s", value);
     } else if (strcmp(key, "geo_dir") == 0) {
         snprintf(cfg->geo_dir, sizeof(cfg->geo_dir), "%s", value);
+    } else if (strcmp(key, "dpi_dir") == 0) {
+        snprintf(cfg->dpi_dir, sizeof(cfg->dpi_dir), "%s", value);
+    } else if (strcmp(key, "dpi_enabled") == 0) {
+        cfg->dpi_enabled = (strcmp(value, "1") == 0);
+    } else if (strcmp(key, "dpi_split_pos") == 0) {
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 1 && v <= 1400)
+            cfg->dpi_split_pos = (int)v;
+    } else if (strcmp(key, "dpi_fake_ttl") == 0) {
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 1 && v <= 64)
+            cfg->dpi_fake_ttl = (int)v;
+    } else if (strcmp(key, "dpi_fake_repeats") == 0) {
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 1 && v <= 20)
+            cfg->dpi_fake_repeats = (int)v;
+    } else if (strcmp(key, "dpi_fake_sni") == 0) {
+        if (value[0] != '\0')
+            snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "%s", value);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
@@ -304,7 +323,13 @@ int config_load(const char *path, EburNetConfig *cfg)
     cfg->enabled = false;
     snprintf(cfg->log_level, sizeof(cfg->log_level), "%s", "info");
     snprintf(cfg->mode, sizeof(cfg->mode), "%s", "rules");
-    cfg->tai_utc_offset = 37;  /* с 2017-01-01, https://www.ietf.org/timezones/data/leap-seconds.list */
+    cfg->tai_utc_offset   = 37;  /* с 2017-01-01, https://www.ietf.org/timezones/data/leap-seconds.list */
+    /* DPI bypass defaults */
+    cfg->dpi_enabled      = true;
+    cfg->dpi_split_pos    = 1;
+    cfg->dpi_fake_ttl     = 5;
+    cfg->dpi_fake_repeats = 8;
+    snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "www.google.com");
 
     /* Временные массивы на heap (H-11: ~191KB на стеке → calloc) */
     ServerConfig *servers = calloc(MAX_SERVERS, sizeof(ServerConfig));
