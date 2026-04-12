@@ -486,8 +486,8 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             'name':        name,
             'address':     host,
             'port':        int(port),
-            'private_key': proxy.get('private-key', ''),
-            'public_key':  proxy.get('public-key', ''),
+            'awg_private_key': proxy.get('private-key', ''),
+            'awg_public_key':  proxy.get('public-key', ''),
         }
         # AWG obfuscation: из amnezia-wg-option dict или top-level
         awg_opts = proxy.get('amnezia-wg-option') or proxy
