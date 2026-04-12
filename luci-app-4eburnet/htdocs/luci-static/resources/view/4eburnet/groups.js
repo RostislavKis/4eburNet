@@ -15,15 +15,19 @@ return view.extend({
 
         var cards = groups.length > 0
             ? groups.map(function(g) {
+                var srvs = g.servers || [];
+                var avail = srvs.some(function(s) { return s.available; });
+                var sel = srvs[g.selected] || srvs[0] || {};
+                var lat = sel.latency || 0;
                 return E('div', {
                     style: 'background:#161b22;border:1px solid '
-                         + (g.available ? 'rgba(62,207,106,.25)' : '#30363d')
+                         + (avail ? 'rgba(62,207,106,.25)' : '#30363d')
                          + ';border-radius:5px;padding:12px 14px;margin-bottom:8px'
                 }, [
                     E('div', {style: 'display:flex;align-items:center;gap:8px;margin-bottom:6px'}, [
                         E('div', {
                             style: 'width:8px;height:8px;border-radius:50%;'
-                                 + 'background:' + (g.available ? '#3ecf6a' : '#f85149')
+                                 + 'background:' + (avail ? '#3ecf6a' : '#f85149')
                         }),
                         E('div', {style: 'font-size:13px;font-weight:600;color:#e6edf3'}, [g.name || '—']),
                         E('div', {style: 'margin-left:auto;font-size:10px;color:#545d68'}, [g.type || ''])
@@ -31,8 +35,8 @@ return view.extend({
                     E('div', {style: 'font-size:11px;color:#8d96a0'}, [
                         _('Задержка: '),
                         E('span', {
-                            style: 'font-family:monospace;color:' + ((g.latency_ms || 0) < 100 ? '#3ecf6a' : '#f0b429')
-                        }, [g.latency_ms ? g.latency_ms + ' мс' : '—'])
+                            style: 'font-family:monospace;color:' + (lat > 0 && lat < 100 ? '#3ecf6a' : '#f0b429')
+                        }, [lat > 0 ? lat + ' мс' : '—'])
                     ])
                 ]);
             })
