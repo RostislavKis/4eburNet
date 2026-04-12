@@ -175,10 +175,15 @@ static int hy2_tls_init(hysteria2_conn_t *conn)
 
     /* Верификация сертификата */
     if (conn->cfg.insecure) {
+        /* Явный выбор пользователя (insecure=true в конфиге) —
+         * для тестов или серверов с самоподписанным сертификатом */
         wolfSSL_CTX_set_verify(conn->ssl_ctx, WOLFSSL_VERIFY_NONE, NULL);
     } else {
         wolfSSL_CTX_set_verify(conn->ssl_ctx, WOLFSSL_VERIFY_PEER, NULL);
-        wolfSSL_CTX_load_verify_locations(conn->ssl_ctx, EBURNET_CA_BUNDLE, NULL);
+        if (wolfSSL_CTX_load_verify_locations(conn->ssl_ctx,
+                EBURNET_CA_BUNDLE, NULL) != WOLFSSL_SUCCESS)
+            log_msg(LOG_WARN, "Hysteria2: CA bundle не загружен (%s), "
+                    "верификация может не работать", EBURNET_CA_BUNDLE);
     }
 
     /* QUIC method */
@@ -842,7 +847,17 @@ static int hy2_quic_handshake(hysteria2_conn_t *conn)
     }
 
     /* Запустить TLS handshake — callbacks заполнят hs_buf */
-    wolfSSL_quic_do_handshake(conn->ssl);
+    {
+        int hs_ret = wolfSSL_quic_do_handshake(conn->ssl);
+        if (hs_ret != WOLFSSL_SUCCESS) {
+            int err = wolfSSL_get_error(conn->ssl, hs_ret);
+            if (err != WOLFSSL_ERROR_WANT_READ &&
+                err != WOLFSSL_ERROR_WANT_WRITE) {
+                set_error(conn, "hy2: Initial handshake ошибка %d", err);
+                return -1;
+            }
+        }
+    }
     if (conn->hs_buf_len && hy2_flush_hs(conn) < 0) {
         set_error(conn, "hy2: flush Initial handshake провалился");
         return -1;
@@ -875,7 +890,17 @@ static int hy2_quic_handshake(hysteria2_conn_t *conn)
         hy2_process_incoming(conn, quic_pkt, quic_len);
 
         /* Продолжить handshake */
-        wolfSSL_quic_do_handshake(conn->ssl);
+        {
+            int hs_ret = wolfSSL_quic_do_handshake(conn->ssl);
+            if (hs_ret != WOLFSSL_SUCCESS) {
+                int err = wolfSSL_get_error(conn->ssl, hs_ret);
+                if (err != WOLFSSL_ERROR_WANT_READ &&
+                    err != WOLFSSL_ERROR_WANT_WRITE) {
+                    set_error(conn, "hy2: handshake loop ошибка %d", err);
+                    return -1;
+                }
+            }
+        }
         if (conn->hs_buf_len) hy2_flush_hs(conn);
 
         /* Проверить завершение */
