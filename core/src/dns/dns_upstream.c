@@ -102,7 +102,9 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
             log_msg(LOG_WARN, "DoT: SNI обрезан: %s", sni);
     }
     cfg.fingerprint = TLS_FP_NONE;
-    cfg.verify_cert = false;
+    /* DoT серверы имеют валидные CA-сертификаты.
+     * VERIFY_PEER обязателен — иначе ТСПУ может подменить DNS через MitM */
+    cfg.verify_cert = true;
 
     tls_conn_t tls;
     if (tls_connect(&tls, fd, &cfg) < 0) {
@@ -248,7 +250,9 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
             log_msg(LOG_WARN, "DoH: TLS SNI обрезан: %s", host);
     }
     tls_cfg.fingerprint = TLS_FP_NONE;
-    tls_cfg.verify_cert = false;
+    /* DoH серверы имеют валидные CA-сертификаты.
+     * VERIFY_PEER обязателен — иначе ТСПУ может подменить DNS через MitM */
+    tls_cfg.verify_cert = true;
 
     tls_conn_t tls;
     if (tls_connect(&tls, fd, &tls_cfg) < 0) {
