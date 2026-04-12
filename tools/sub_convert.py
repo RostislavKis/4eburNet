@@ -214,9 +214,16 @@ def parse_base64_subscription(data: str,
     return servers
 
 
+def _extract_ip(server_str) -> str:
+    """Извлечь IP из DNS server строки: 'https://dns/q', '8.8.8.8', '8.8.8.8#53'."""
+    import re
+    m = re.search(r'(\d{1,3}\.){3}\d{1,3}', str(server_str))
+    return m.group(0) if m else str(server_str).split('#')[0].split('/')[0]
+
+
 def _parse_clash_yaml_native(doc: dict, max_servers: int = 500) -> tuple:
     """Парсить Clash YAML через PyYAML dict (anchors развёрнуты)."""
-    servers, providers, groups, rules = [], [], [], []
+    servers, providers, groups, rules, dns_opts = [], [], [], [], []
 
     # proxies → servers
     for p in (doc.get('proxies') or [])[:max_servers]:
@@ -263,12 +270,29 @@ def _parse_clash_yaml_native(doc: dict, max_servers: int = 500) -> tuple:
         if parsed:
             rules.append(parsed)
 
-    return servers, providers, groups, rules
+    # dns: секция → UCI dns опции
+    dns = doc.get('dns') or {}
+    if dns and isinstance(dns, dict):
+        nameservers = dns.get('nameserver') or []
+        if nameservers:
+            dns_opts.append(('upstream_default', _extract_ip(nameservers[0])))
+        fallback = dns.get('fallback') or []
+        if fallback:
+            dns_opts.append(('upstream_fallback', _extract_ip(fallback[0])))
+        fip = dns.get('fake-ip-range', '')
+        if fip:
+            dns_opts.append(('fake_ip_cidr', str(fip)))
+        # nameserver-policy → dns_rule
+        for domain, srv_list in (dns.get('nameserver-policy') or {}).items():
+            ip = _extract_ip(srv_list[0] if isinstance(srv_list, list) else srv_list)
+            dns_opts.append(('dns_rule', f'{domain} {ip}'))
+
+    return servers, providers, groups, rules, dns_opts
 
 
 def parse_clash_yaml(data: str, max_servers: int = 500) -> tuple:
     """Парсить Clash/Mihomo YAML.
-    Возвращает (servers, providers, groups, rules).
+    Возвращает (servers, providers, groups, rules, dns_opts).
     PyYAML если доступен (разворачивает anchors), иначе построчный fallback."""
 
     # PyYAML: разворачивает anchors, proxy-providers, use:
@@ -384,7 +408,7 @@ def parse_clash_yaml(data: str, max_servers: int = 500) -> tuple:
     if in_groups and current:
         groups.append(current)
 
-    return servers, [], groups, rules
+    return servers, [], groups, rules, []  # fallback не парсит dns
 
 
 def _parse_inline_dict(s: str) -> dict:
@@ -507,6 +531,14 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             key = f'i{n}'
             if key in awg_opts and awg_opts[key]:
                 srv[f'awg_i{n}'] = str(awg_opts[key])
+        # psk + keepalive (P-37)
+        psk = proxy.get('pre-shared-key', '') or awg_opts.get('pre-shared-key', '')
+        if psk:
+            srv['awg_psk'] = str(psk)
+        ka = (proxy.get('persistent-keepalive') or proxy.get('keepalive')
+              or awg_opts.get('persistent-keepalive') or awg_opts.get('keepalive'))
+        if ka:
+            srv['awg_keepalive'] = str(int(ka))
         servers.append(srv)
     else:
         print(f'  [skip] неподдерживаемый тип: {ptype} ({name})',
@@ -698,23 +730,32 @@ def detect_format(data: str) -> str:
 # ── UCI генератор ──────────────────────────────────────────────────────
 
 def _uci_safe(s) -> str:
-    """Экранировать строку для UCI значения.
+    """Привести строку к UCI-безопасному виду.
 
     UCI синтаксис: option key 'value'
-    Фильтруем: управляющие символы (<0x20) включая null, CR, tab,
-    и одиночные кавычки (закрывают значение в UCI).
+    Фильтруем: control chars (<0x20), DEL (0x7F), одиночные кавычки,
+    backslash, emoji (U+1F000+), private use, surrogates.
     """
-    s = str(s)
-    s = ''.join(c for c in s if ord(c) >= 0x20 and c != "'")
-    return s.strip()
+    result = []
+    for ch in str(s):
+        cp = ord(ch)
+        if cp < 0x20 or cp == 0x7F:
+            continue  # control chars
+        if ch in ("'", "\\"):
+            continue  # UCI shell-unsafe
+        if cp >= 0x1F000:
+            continue  # emoji и символы выше
+        result.append(ch)
+    return ''.join(result).strip()
 
 
 def generate_uci(servers: list,
                  groups:  list,
                  rules:   list,
                  append:  bool = False,
-                 providers: list = None) -> str:
-    """Генерировать UCI конфиг для серверов, провайдеров, групп и правил."""
+                 providers: list = None,
+                 dns_opts: list = None) -> str:
+    """Генерировать UCI конфиг для серверов, провайдеров, групп, правил и DNS."""
     lines = []
 
     if not append:
@@ -770,6 +811,18 @@ def generate_uci(servers: list,
         lines.append(f"\toption priority\t'{priority}'")
         lines.append("")
         priority += 1
+
+    # DNS опции из Clash dns: секции
+    for key, val in (dns_opts or []):
+        if key == 'dns_rule':
+            lines.append(f"config dns_rule")
+            parts = str(val).split(' ', 1)
+            if len(parts) == 2:
+                lines.append(f"\toption domain\t'{_uci_safe(parts[0])}'")
+                lines.append(f"\toption upstream\t'{_uci_safe(parts[1])}'")
+            lines.append("")
+        else:
+            lines.append(f"# dns: {key} = {_uci_safe(val)}")
 
     return '\n'.join(lines)
 
@@ -901,8 +954,9 @@ def main():
 
     providers = []
 
+    dns_opts = []
     if fmt == 'clash':
-        servers, providers, groups, rules = parse_clash_yaml(data, max_srv)
+        servers, providers, groups, rules, dns_opts = parse_clash_yaml(data, max_srv)
     elif fmt in ('base64', 'urilist'):
         servers = parse_base64_subscription(data, max_srv)
     elif fmt == 'singbox':
@@ -928,7 +982,7 @@ def main():
         sys.exit(1)
 
     uci_output = generate_uci(servers, groups, rules, args.append,
-                              providers=providers)
+                              providers=providers, dns_opts=dns_opts)
 
     if args.output:
         mode = 'a' if args.append else 'w'
