@@ -7,8 +7,9 @@ var callStats  = rpc.declare({ object: '4eburnet', method: 'stats' });
 var callGroups = rpc.declare({ object: '4eburnet', method: 'groups' });
 var callWanIp  = rpc.declare({ object: '4eburnet', method: 'wan_ip' });
 var callTproxy = rpc.declare({ object: '4eburnet', method: 'tproxy_status' });
-var callReload = rpc.declare({ object: '4eburnet', method: 'reload' });
-var callStop   = rpc.declare({ object: '4eburnet', method: 'stop' });
+var callReload  = rpc.declare({ object: '4eburnet', method: 'reload' });
+var callStop    = rpc.declare({ object: '4eburnet', method: 'stop' });
+var callRestart = rpc.declare({ object: '4eburnet', method: 'restart' });
 
 function fmtUptime(sec) {
     sec = sec || 0;
@@ -95,26 +96,36 @@ return view.extend({
                         id: 'hero-uptime',
                         style: 'font-family:monospace;font-size:11px;color:#545d68'
                     }, [status.running ? 'Аптайм: ' + fmtUptime(status.uptime) : '—']),
-                    E('div', {style: 'display:flex;gap:6px;margin-top:8px;justify-content:flex-end'}, [
-                        E('button', {
-                            class: 'btn cbi-button',
-                            style: 'padding:4px 10px;font-size:11px',
-                            click: function() {
-                                callReload().then(function(r) {
-                                    if (r && r.ok)
-                                        ui.addNotification(null, E('p', {}, [_('Конфиг перечитан')]), 'info');
-                                });
-                            }
-                        }, [_('↺ Конфиг')]),
-                        E('button', {
-                            class: 'btn cbi-button-negative',
-                            style: 'padding:4px 10px;font-size:11px',
-                            click: function() {
-                                if (confirm(_('Остановить демон?')))
-                                    callStop().then(function() { location.reload(); });
-                            }
-                        }, [_('⏹ Стоп')])
-                    ])
+                    E('div', {style: 'display:flex;gap:6px;margin-top:8px;justify-content:flex-end'},
+                        status.running ? [
+                            E('button', {
+                                class: 'btn cbi-button',
+                                style: 'padding:4px 10px;font-size:11px',
+                                click: function() {
+                                    callReload().then(function(r) {
+                                        if (r && r.ok)
+                                            ui.addNotification(null, E('p', {}, [_('Конфиг перечитан')]), 'info');
+                                    });
+                                }
+                            }, [_('↺ Конфиг')]),
+                            E('button', {
+                                class: 'btn cbi-button-negative',
+                                style: 'padding:4px 10px;font-size:11px',
+                                click: function() {
+                                    if (confirm(_('Остановить демон?')))
+                                        callStop().then(function() { location.reload(); });
+                                }
+                            }, [_('⏹ Стоп')])
+                        ] : [
+                            E('button', {
+                                class: 'btn cbi-button',
+                                style: 'padding:4px 10px;font-size:11px;background:#238636;color:#fff;border-color:#238636',
+                                click: function() {
+                                    callRestart().then(function() { location.reload(); });
+                                }
+                            }, [_('▶ Старт')])
+                        ]
+                    )
                 ])
             ]),
 
