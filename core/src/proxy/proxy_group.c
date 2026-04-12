@@ -298,6 +298,11 @@ void proxy_group_update_result(proxy_group_manager_t *pgm,
 
 /* H-1: неблокирующий health-check — максимум 1 группа, 1 сервер за tick.
  * При 3 группах × 3 сервера × 5с таймаут = 5с блок вместо 45с. */
+/*
+ * Health-check один сервер за вызов (round-robin cursor).
+ * Почему по одному: fork() для TCP/UDP ping блокирует на timeout_ms,
+ * проверка всех серверов разом создаст N форков одновременно.
+ */
 void proxy_group_tick(proxy_group_manager_t *pgm)
 {
     time_t now = time(NULL);
