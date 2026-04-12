@@ -1272,6 +1272,11 @@ void dispatcher_handle_udp(tproxy_conn_t *conn,
 /*  dispatcher_tick — обработка событий relay                          */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Главный цикл обработки relay соединений. Одна итерация = один epoll_wait.
+ * Почему монолитная: все состояния relay (connect, TLS handshake, relay data,
+ * half-close) обрабатываются в одном месте для O(1) dispatch через epoll data.ptr.
+ */
 void dispatcher_tick(dispatcher_state_t *ds)
 {
     if (ds->epoll_fd < 0)
