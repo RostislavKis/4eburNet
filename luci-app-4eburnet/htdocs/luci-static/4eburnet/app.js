@@ -152,8 +152,8 @@ async function ebLoadGroupsMini() {
     <div class="eb-srow ${g.selected ? 'sel' : ''}">
       <div class="eb-sdot ${g.available ? 'ok' : 'er'}"></div>
       <div>
-        <div class="eb-bold" style="font-size:11px">${g.name || '—'}</div>
-        <div class="eb-xs">${g.type || ''}</div>
+        <div class="eb-bold" style="font-size:11px">${ebEsc(g.name || '—')}</div>
+        <div class="eb-xs">${ebEsc(String(g.type || ''))}</div>
       </div>
       <div class="eb-ml eb-slat ${g.latency_ms < 100 ? 'ok' : g.latency_ms < 250 ? 'wn' : 'er'}">
         ${g.latency_ms ? g.latency_ms + ' мс' : '—'}
@@ -210,7 +210,8 @@ function ebStartLogPolling() {
   ebLogInterval = setInterval(ebFetchLogs, 3000);
 }
 function ebEsc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 // ── Devices page ───────────────────────────────────────────────────
@@ -222,9 +223,9 @@ async function ebLoadDevices() {
   tbody.innerHTML = d.devices.map(dev => `
     <tr>
       <td><div class="eb-sdot ok" style="display:inline-block"></div></td>
-      <td class="eb-mono">${dev.mac}</td>
-      <td class="eb-mono">${dev.ip}</td>
-      <td>${dev.iface || '—'}</td>
+      <td class="eb-mono">${ebEsc(dev.mac || '')}</td>
+      <td class="eb-mono">${ebEsc(dev.ip || '')}</td>
+      <td>${ebEsc(dev.iface || '—')}</td>
       <td>
         <select class="eb-select" style="padding:3px 7px;font-size:11px;width:auto">
           <option>default</option>
@@ -250,25 +251,38 @@ async function ebLoadGroups() {
     <div class="eb-card">
       <div class="eb-card-h">
         <div>
-          <div class="eb-bold">${g.name}</div>
-          <div class="eb-xs">${g.type} · ${g.interval || 60}с</div>
+          <div class="eb-bold">${ebEsc(g.name || '')}</div>
+          <div class="eb-xs">${ebEsc(String(g.type || ''))} · ${g.interval || 60}с</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
-          <span class="eb-badge eb-bin">${g.type}</span>
+          <span class="eb-badge eb-bin">${ebEsc(String(g.type || ''))}</span>
           <button class="eb-btn eb-btn-g" style="padding:3px 7px"
-            onclick="ebPost('/groups',{action:'test',group:'${g.name}'}).then(r=>ebNotify('HC '+r.ok,'ok'))">⟳</button>
+            data-action="test" data-group="${ebEsc(g.name || '')}">⟳</button>
         </div>
       </div>
       <div>${(g.servers || []).map((s, i) => `
         <div class="eb-srow ${s.selected ? 'sel' : ''}"
-             onclick="ebPost('/groups/select',{group:'${g.name}',idx:${i}})
-               .then(()=>{ebNotify('${s.name} выбран','ok');ebLoadGroups()})">
+             data-action="select" data-group="${ebEsc(g.name || '')}" data-idx="${i}"
+             data-sname="${ebEsc(s.name || '')}">
           <div class="eb-sdot ${s.available ? 'ok' : 'er'}"></div>
-          <div class="eb-snm">${s.name}</div>
+          <div class="eb-snm">${ebEsc(s.name || '')}</div>
           <div class="eb-slat ${s.latency_ms < 100 ? 'ok' : s.latency_ms < 250 ? 'wn' : 'er'}">
             ${s.latency_ms ? s.latency_ms + 'мс' : 'timeout'}
           </div>
         </div>`).join('')}
       </div>
     </div>`).join('');
+  box.addEventListener('click', function(e) {
+    const test = e.target.closest('[data-action="test"]');
+    if (test) {
+      ebPost('/groups', {action:'test', group: test.dataset.group})
+        .then(r => ebNotify('HC ' + r.ok, 'ok'));
+      return;
+    }
+    const sel = e.target.closest('[data-action="select"]');
+    if (sel) {
+      ebPost('/groups/select', {group: sel.dataset.group, idx: parseInt(sel.dataset.idx, 10)})
+        .then(() => { ebNotify(sel.dataset.sname + ' выбран', 'ok'); ebLoadGroups(); });
+    }
+  });
 }

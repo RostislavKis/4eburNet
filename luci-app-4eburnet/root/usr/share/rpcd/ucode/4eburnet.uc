@@ -559,12 +559,12 @@ const methods = {
         args: { group: '', server: '' },
         call: function(req) {
             if (!is_running()) return { ok: false, error: 'not running' };
-            let group  = replace(req.args?.group  ?? '', /"/g, '');
-            let server = replace(req.args?.server ?? '', /"/g, '');
+            let group  = req.args?.group  ?? '';
+            let server = req.args?.server ?? '';
             if (!group || !server)
                 return { ok: false, error: 'group and server required' };
             let r = ipc_json('group-select',
-                        '{"group":"' + group + '","server":"' + server + '"}');
+                        json({ group: group, server: server }));
             return r.error ? { ok: false, error: r.error }
                            : { ok: r.status === 'ok' };
         }
@@ -583,10 +583,10 @@ const methods = {
         args: { name: '' },
         call: function(req) {
             if (!is_running()) return { ok: false, error: 'not running' };
-            let name = replace(req.args?.name ?? '', /"/g, '');
+            let name = req.args?.name ?? '';
             if (!name) return { ok: false, error: 'name required' };
             let r = ipc_json('provider-update',
-                        '{"name":"' + name + '"}');
+                        json({ name: name }));
             return r.error ? { ok: false, error: r.error }
                            : { ok: r.status === 'ok' };
         }
