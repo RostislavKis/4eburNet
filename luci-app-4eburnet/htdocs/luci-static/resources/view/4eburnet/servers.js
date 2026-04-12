@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require rpc';
+'require ui';
 
 var callServerList   = rpc.declare({ object: '4eburnet', method: 'server_list' });
 var callServerAdd    = rpc.declare({
@@ -68,7 +69,7 @@ return view.extend({
                 if (!tbody) return;
                 while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
                 buildRows(servers, tbody);
-            });
+            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
         }
 
         function buildRows(list, tbody) {
@@ -114,7 +115,7 @@ return view.extend({
                                     } else {
                                         showStatus('✕ ' + ((res && res.error) || _('ошибка')), false);
                                     }
-                                });
+                                }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                             }
                         }, ['✕']) : E('span')
                     ])
@@ -406,7 +407,7 @@ return view.extend({
                                 } else {
                                     showStatus('✕ ' + ((r && r.error) || _('ошибка')), false);
                                 }
-                            });
+                            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                         }
                     }, [_('+ Добавить')]),
                     statusEl

@@ -132,7 +132,7 @@ return view.extend({
                                     ui.addNotification(null,
                                         E('p', {}, [_('Настройки DPI сохранены')]), 'info');
                                 }
-                            });
+                            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                         }
                     }, [_('\uD83D\uDCBE Сохранить')])
                 ])
@@ -189,7 +189,7 @@ return view.extend({
                                     ui.addNotification(null,
                                         E('p', {}, [_('Настройки CDN сохранены')]), 'info');
                                 }
-                            });
+                            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                         }
                     }, [_('\uD83D\uDCBE Сохранить CDN')]),
                     E('button', {
@@ -216,12 +216,12 @@ return view.extend({
                                             if (wl)    wl.textContent    = data.whitelist_count != null ? '' + data.whitelist_count : '\u2014';
                                             if (ah)    ah.textContent    = data.autohosts_count != null ? '' + data.autohosts_count : '\u2014';
                                             if (upd)   upd.textContent   = formatTimestamp(data.ipset_updated);
-                                        });
+                                        }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                                     }, 5000);
                                 } else {
                                     if (st) { st.textContent = '\u2715 ' + (r && r.error || _('Ошибка')); st.style.color = '#f85149'; }
                                 }
-                            });
+                            }).catch(function(e) { if (btn) btn.disabled = false; ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                         }
                     }, [_('\u21BB Обновить CDN сейчас')])
                 ]),

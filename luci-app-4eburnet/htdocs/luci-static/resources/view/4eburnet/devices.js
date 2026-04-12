@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require rpc';
+'require ui';
 
 var callDevices    = rpc.declare({ object: '4eburnet', method: 'devices' });
 var callDeviceSave = rpc.declare({
@@ -49,7 +50,7 @@ function policySelect(dev) {
                     /* Откатить выбор */
                     sel.value = dev.policy || 'default';
                 }
-            });
+            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
     });
 
     return E('div', {style: 'display:flex;align-items:center'}, [sel, statusSpan]);
@@ -112,7 +113,7 @@ return view.extend({
                     click: function() {
                         callDevices().then(function(r) {
                             if (r) location.reload();
-                        });
+                        }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                     }
                 }, [_('📡 Обновить')])
             ]),
