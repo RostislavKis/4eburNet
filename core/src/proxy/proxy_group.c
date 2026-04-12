@@ -7,6 +7,7 @@
 #include "net_utils.h"
 #include "4eburnet.h"
 #include "resource_manager.h"
+#include <regex.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,6 +94,37 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
             } else {
                 log_msg(LOG_WARN, "Группа %s: сервер '%s' не найден", gs->name, tok);
             }
+        }
+
+        /* Добавить серверы из провайдеров (use: + filter) */
+        if (gc->providers && gc->providers[0]) {
+            regex_t fre;
+            bool has_filter = (gc->filter[0] != '\0');
+            if (has_filter &&
+                regcomp(&fre, gc->filter, REG_EXTENDED | REG_NOSUB) != 0) {
+                log_msg(LOG_WARN, "Группа %s: filter regex ошибка", gc->name);
+                has_filter = false;
+            }
+            char *pcopy = strdup(gc->providers);
+            char *sp = NULL;
+            for (char *pn = strtok_r(pcopy, " ", &sp); pn;
+                 pn = strtok_r(NULL, " ", &sp)) {
+                for (int pi = 0; pi < cfg->provider_server_count; pi++) {
+                    const ServerConfig *ps = &cfg->provider_servers[pi];
+                    if (strcmp(ps->source_provider, pn) != 0) continue;
+                    if (has_filter &&
+                        regexec(&fre, ps->name, 0, NULL, 0) != 0) continue;
+                    if (gs->server_count >= PROXY_GROUP_MAX_SERVERS) break;
+                    /* Unified idx: server_count + pi */
+                    gs->servers[gs->server_count].server_idx =
+                        cfg->server_count + pi;
+                    gs->servers[gs->server_count].available = true;
+                    gs->servers[gs->server_count].latency_ms = 999;
+                    gs->server_count++;
+                }
+            }
+            free(pcopy);
+            if (has_filter) regfree(&fre);
         }
 
         gs->hc_pipe_fd    = -1;
