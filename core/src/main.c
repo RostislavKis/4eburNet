@@ -232,13 +232,16 @@ static int handle_client_command(const char *cmd)
         return 1;
     }
 
-    char buf[4096];
-    if (ipc_send_command(ipc_cmd, buf, sizeof(buf)) < 0) {
+    char *buf = malloc(4096);
+    if (!buf) { fprintf(stderr, "{\"error\":\"OOM\"}\n"); return 1; }
+    if (ipc_send_command(ipc_cmd, buf, 4096) < 0) {
+        free(buf);
         fprintf(stderr, "{\"error\":\"ipc failed\"}\n");
         return 1;
     }
 
     printf("%s\n", buf);
+    free(buf);
     return 0;
 }
 
@@ -263,13 +266,16 @@ static int handle_ipc_with_payload(const char *cmd, const char *payload)
         return handle_client_command(cmd);
     }
 
-    char buf[4096];
-    if (ipc_send_command_payload(ipc_cmd, payload, buf, sizeof(buf)) < 0) {
+    char *buf = malloc(4096);
+    if (!buf) { fprintf(stderr, "{\"error\":\"OOM\"}\n"); return 1; }
+    if (ipc_send_command_payload(ipc_cmd, payload, buf, 4096) < 0) {
+        free(buf);
         fprintf(stderr, "{\"error\":\"ipc failed\"}\n");
         return 1;
     }
 
     printf("%s\n", buf);
+    free(buf);
     return 0;
 }
 

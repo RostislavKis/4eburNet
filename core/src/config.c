@@ -257,7 +257,8 @@ static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
 }
 
 /* Применение опции к текущему серверу */
-static void apply_server_option(ServerConfig *srv, const char *key, const char *value)
+/* Возвращает 0 при успехе, -1 при OOM */
+static int apply_server_option(ServerConfig *srv, const char *key, const char *value)
 {
     if (strcmp(key, "name") == 0) {
         snprintf(srv->name, sizeof(srv->name), "%s", value);
@@ -349,6 +350,10 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         int idx = key[5] - '1';
         free(srv->awg_i[idx]);
         srv->awg_i[idx] = strdup(value);
+        if (!srv->awg_i[idx]) {
+            log_msg(LOG_ERROR, "config: нет памяти для awg_i[%d]", idx);
+            return -1;
+        }
     } else if (strcmp(key, "awg_keepalive") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 65535)
@@ -397,6 +402,7 @@ static void apply_server_option(ServerConfig *srv, const char *key, const char *
         srv->awg_jmin = srv->awg_jmax;
         srv->awg_jmax = tmp;
     }
+    return 0;
 }
 
 int config_load(const char *path, EburNetConfig *cfg)
@@ -583,8 +589,9 @@ int config_load(const char *path, EburNetConfig *cfg)
                 apply_eburnet_option(cfg, key, value);
                 break;
             case SECTION_SERVER:
-                if (srv_count > 0)
-                    apply_server_option(&servers[srv_count - 1], key, value);
+                if (srv_count > 0 &&
+                    apply_server_option(&servers[srv_count - 1], key, value) < 0)
+                    goto cleanup_fail;
                 break;
             case SECTION_DNS: {
                 DnsConfig *d = &cfg->dns;
@@ -756,6 +763,10 @@ int config_load(const char *path, EburNetConfig *cfg)
                     } else if (strcmp(key, "providers") == 0) {
                         free(g->providers);
                         g->providers = strdup(value);
+                        if (!g->providers) {
+                            log_msg(LOG_ERROR, "config: нет памяти для providers");
+                            goto cleanup_fail;
+                        }
                     } else if (strcmp(key, "filter") == 0) {
                         snprintf(g->filter, sizeof(g->filter), "%s", value);
                     } else if (strcmp(key, "enabled") == 0) {
