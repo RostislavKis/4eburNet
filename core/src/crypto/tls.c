@@ -166,8 +166,15 @@ static WOLFSSL_CTX *get_or_create_ctx(tls_fingerprint_t fp,
 
     wolfSSL_CTX_SetMinVersion(ctx, WOLFSSL_TLSV1_2);
 
-    if (!verify_cert)
+    if (verify_cert) {
+        wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, NULL);
+        if (wolfSSL_CTX_load_verify_locations(ctx,
+                EBURNET_CA_BUNDLE, NULL) != WOLFSSL_SUCCESS)
+            log_msg(LOG_WARN, "TLS: CA bundle не загружен (%s), "
+                    "верификация может не работать", EBURNET_CA_BUNDLE);
+    } else {
         wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, NULL);
+    }
 
     apply_ctx_fingerprint(ctx, fp);
 
@@ -221,12 +228,14 @@ int tls_connect_start(tls_conn_t *conn, int fd,
                                          config->verify_cert);
     if (!ctx) {
         log_msg(LOG_ERROR, "TLS: не удалось получить CTX");
+        tls_close(conn);
         return -1;
     }
 
     WOLFSSL *ssl = wolfSSL_new(ctx);
     if (!ssl) {
         log_msg(LOG_ERROR, "TLS: wolfSSL_new провалился");
+        tls_close(conn);
         return -1;
     }
 
