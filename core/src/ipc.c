@@ -139,6 +139,40 @@ int ipc_init(void)
     return fd;
 }
 
+/* Извлечь строковое поле из JSON: {"key":"value"}.
+ * Обрабатывает escaped кавычки \".
+ * Возвращает длину скопированного значения, 0 если не найдено. */
+static size_t json_get_str(const char *json, const char *key,
+                           char *out, size_t out_size)
+{
+    if (!json || !key || !out || out_size == 0) return 0;
+    out[0] = '\0';
+
+    /* Построить шаблон: "key":" */
+    char pattern[80];
+    int pn = snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+    if (pn < 0 || (size_t)pn >= sizeof(pattern)) return 0;
+
+    const char *start = strstr(json, pattern);
+    if (!start) return 0;
+    start += (size_t)pn;
+
+    /* Копировать до закрывающей " с учётом \" */
+    size_t i = 0;
+    for (const char *p = start; *p && i < out_size - 1; p++) {
+        if (*p == '\\' && *(p + 1)) {
+            p++;  /* пропустить escape, скопировать следующий символ */
+            out[i++] = *p;
+        } else if (*p == '"') {
+            break;
+        } else {
+            out[i++] = *p;
+        }
+    }
+    out[i] = '\0';
+    return i;
+}
+
 void ipc_process(int server_fd, EburNetState *state)
 {
     /* Неблокирующий accept + client_fd (H-02) */
@@ -240,8 +274,18 @@ void ipc_process(int server_fd, EburNetState *state)
 
     case IPC_CMD_GROUP_LIST:
         if (g_pgm) {
-            proxy_group_to_json(g_pgm, buf, sizeof(buf));
-            ipc_respond(client_fd, buf);
+            /* Динамический буфер: ~200 на группу + ~80 на сервер */
+            size_t gl_need = 64;
+            for (int gi = 0; gi < g_pgm->count; gi++)
+                gl_need += 200 + (size_t)g_pgm->groups[gi].server_count * 80;
+            char *gbuf = malloc(gl_need);
+            if (!gbuf) {
+                ipc_respond(client_fd, "{\"error\":\"OOM\"}");
+                break;
+            }
+            proxy_group_to_json(g_pgm, gbuf, gl_need);
+            ipc_respond(client_fd, gbuf);
+            free(gbuf);
         } else {
             ipc_respond(client_fd, "{\"groups\":[]}");
         }
@@ -260,20 +304,8 @@ void ipc_process(int server_fd, EburNetState *state)
             payload[pr] = '\0';
         }
         char grp[64] = {0}, srv[64] = {0};
-        const char *gp = strstr(payload, "\"group\":\"");
-        if (gp) {
-            gp += 9;
-            const char *ge = strchr(gp, '"');
-            if (ge && (size_t)(ge - gp) < sizeof(grp))
-                snprintf(grp, sizeof(grp), "%.*s", (int)(ge - gp), gp);
-        }
-        const char *sp = strstr(payload, "\"server\":\"");
-        if (sp) {
-            sp += 10;
-            const char *se = strchr(sp, '"');
-            if (se && (size_t)(se - sp) < sizeof(srv))
-                snprintf(srv, sizeof(srv), "%.*s", (int)(se - sp), sp);
-        }
+        json_get_str(payload, "group",  grp, sizeof(grp));
+        json_get_str(payload, "server", srv, sizeof(srv));
         if (grp[0] && srv[0] && g_pgm) {
             /* Найти server_idx по имени сервера в cfg->servers[] */
             int srv_idx = -1;
@@ -331,13 +363,7 @@ void ipc_process(int server_fd, EburNetState *state)
             payload[pr] = '\0';
         }
         char pname[64] = {0};
-        const char *np = strstr(payload, "\"name\":\"");
-        if (np) {
-            np += 8;
-            const char *ne = strchr(np, '"');
-            if (ne && (size_t)(ne - np) < sizeof(pname))
-                snprintf(pname, sizeof(pname), "%.*s", (int)(ne - np), np);
-        }
+        json_get_str(payload, "name", pname, sizeof(pname));
         if (pname[0] && g_rpm) {
             int r = rule_provider_update(g_rpm, pname);
             if (r == 0)
@@ -366,25 +392,27 @@ void ipc_process(int server_fd, EburNetState *state)
                 break;
             }
             size_t pos = 0;
-            if (pos < need - 1)
-                pos += (size_t)snprintf(rbuf + pos, need - pos, "{\"rules\":[");
+            int w;
+#define IPC_SNPRINTF(fmt, ...) do { \
+    w = snprintf(rbuf + pos, need - pos, fmt, ##__VA_ARGS__); \
+    if (w < 0 || (size_t)w >= need - pos) goto rules_trunc; \
+    pos += (size_t)w; \
+} while(0)
+            IPC_SNPRINTF("{\"rules\":[");
             for (int ri = 0; ri < g_re->rule_count; ri++) {
                 const TrafficRule *tr = &g_re->sorted_rules[ri];
-                if (pos >= need - 256) break;
-                if (ri > 0 && pos < need - 1)
-                    pos += (size_t)snprintf(rbuf + pos, need - pos, ",");
-                /* экранируем value и target для JSON */
                 char esc_val[512], esc_tgt[128];
                 json_escape_str(tr->value,  esc_val, sizeof(esc_val));
                 json_escape_str(tr->target, esc_tgt, sizeof(esc_tgt));
-                if (pos < need - 256)
-                    pos += (size_t)snprintf(rbuf + pos, need - pos,
-                        "{\"type\":%d,\"value\":\"%s\","
-                        "\"target\":\"%s\",\"priority\":%d}",
-                        tr->type, esc_val, esc_tgt, tr->priority);
+                if (ri > 0) IPC_SNPRINTF(",");
+                IPC_SNPRINTF("{\"type\":%d,\"value\":\"%s\","
+                    "\"target\":\"%s\",\"priority\":%d}",
+                    tr->type, esc_val, esc_tgt, tr->priority);
             }
-            if (pos < need - 2)
-                pos += (size_t)snprintf(rbuf + pos, need - pos, "]}");
+            IPC_SNPRINTF("]}");
+rules_trunc:
+#undef IPC_SNPRINTF
+            if (pos > 0 && pos < need) rbuf[pos] = '\0';
             ipc_respond(client_fd, rbuf);
             free(rbuf);
         } else {
