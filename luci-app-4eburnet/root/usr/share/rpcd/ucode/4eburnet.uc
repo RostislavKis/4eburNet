@@ -215,6 +215,33 @@ const methods = {
         }
     },
 
+    start: {
+        call: function(req) {
+            system('/etc/init.d/4eburnet start 2>/dev/null &');
+            return { ok: true };
+        }
+    },
+
+    geo_update: {
+        call: function(req) {
+            let geo_dir = '/etc/4eburnet/geo';
+            system('mkdir -p ' + geo_dir);
+            let base = 'https://raw.githubusercontent.com/RostislavKis/filter/master/geo';
+            let files = ['geoip-ru.lst', 'geosite-ru.lst', 'geosite-ads.lst'];
+            let results = {};
+            for (let i = 0; i < length(files); i++) {
+                let f = files[i];
+                let rc = system('uclient-fetch -q -O ' + geo_dir + '/' + f +
+                                ' ' + base + '/' + f + ' 2>/dev/null');
+                results[f] = (rc == 0) ? 'ok' : 'error';
+            }
+            // Перечитать конфиг чтобы демон подхватил новые geo файлы
+            if (is_running())
+                ipc_json('reload');
+            return { ok: true, files: results };
+        }
+    },
+
     tproxy_status: {
         call: function(req) {
             // Проверяем mark-based routing через /proc (без fork/popen)
