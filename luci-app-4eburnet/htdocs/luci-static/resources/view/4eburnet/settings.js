@@ -13,6 +13,8 @@ var callRestore   = rpc.declare({ object: '4eburnet', method: 'restore',      pa
 var callBkpStatus = rpc.declare({ object: '4eburnet', method: 'backup_status' });
 var callReload    = rpc.declare({ object: '4eburnet', method: 'reload' });
 var callRestart   = rpc.declare({ object: '4eburnet', method: 'restart' });
+var callGeoStatus = rpc.declare({ object: '4eburnet', method: 'geo_status' });
+var callGeoUpdate = rpc.declare({ object: '4eburnet', method: 'geo_update' });
 
 function sel(id) { return document.getElementById(id); }
 
@@ -71,7 +73,8 @@ return view.extend({
             callCfgGet('main'),
             callPkgMgr(),
             callBkpStatus(),
-            callTproxy()
+            callTproxy(),
+            callGeoStatus()
         ]);
     },
 
@@ -79,6 +82,7 @@ return view.extend({
         var cfg    = data[0] || {};
         var pkg    = data[1] || { manager: 'opkg', version: '' };
         var bkp    = data[2] || { exists: false };
+        var geo    = data[4] || { loaded: false };
         var tproxy = data[3] || { available: false };
 
         var node = E('div', {}, [
@@ -276,6 +280,47 @@ return view.extend({
                     }, [_('↺ Восстановить')]),
                     E('div', { id: 'restore-result', style: 'font-size:11px;margin-top:8px;min-height:16px' }, [''])
                 ])
+            ]),
+
+            /* GeoIP / GeoSite */
+            card('\uD83C\uDF10 GeoIP / GeoSite', [
+                mkRow(_('Статус'),
+                    E('span', {
+                        style: 'font-size:12px;color:' + (geo.loaded ? '#3ecf6a' : '#f85149')
+                    }, [geo.loaded ? _('Загружено') : _('Не загружено')])
+                ),
+                geo.categories && geo.categories.length > 0
+                    ? E('div', { style: 'font-size:11px;color:#8d96a0;margin-bottom:10px' },
+                        geo.categories.map(function(c) {
+                            return E('div', {}, [
+                                c.name + ': ' + (c.v4||0) + ' IPv4, ' +
+                                (c.v6||0) + ' IPv6, ' + (c.domains||0) + ' доменов'
+                            ]);
+                        })
+                      )
+                    : E('div', { style: 'font-size:11px;color:#8d96a0;margin-bottom:10px' },
+                        [_('Источник: github.com/RostislavKis/filter')]),
+                E('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' }, [
+                    E('button', {
+                        id: 'geo-update-btn',
+                        class: 'btn cbi-button',
+                        click: function() {
+                            var btn = sel('geo-update-btn');
+                            var st  = sel('geo-status');
+                            if (btn) btn.disabled = true;
+                            if (st) { st.textContent = _('Загрузка...'); st.style.color = '#e6edf3'; }
+                            callGeoUpdate().then(function(r) {
+                                if (btn) btn.disabled = false;
+                                if (r && r.ok) {
+                                    if (st) { st.textContent = '\u2713 ' + _('Базы обновлены'); st.style.color = '#3ecf6a'; }
+                                } else {
+                                    if (st) { st.textContent = '\u2715 ' + (r && r.error || _('Ошибка')); st.style.color = '#f85149'; }
+                                }
+                            });
+                        }
+                    }, [_('\uD83D\uDD04 Обновить базы')]),
+                ]),
+                E('div', { id: 'geo-status', style: 'font-size:11px;margin-top:8px;min-height:16px' }, [''])
             ])
         ]);
 
