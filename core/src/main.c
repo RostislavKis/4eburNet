@@ -32,6 +32,7 @@
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <arpa/inet.h>
 #include <sys/wait.h>
 #include <limits.h>
 
@@ -491,6 +492,41 @@ int main(int argc, char *argv[])
     if (cfg_ptr->dns.enabled) {
         dns_rules_init(cfg_ptr);
         dns_server_init(&dns_state, cfg_ptr);
+
+        /* B-09: проверить upstream DNS доступность (warning, не блокирует старт) */
+        if (cfg_ptr->dns.upstream_default[0]) {
+            int probe_fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+            if (probe_fd >= 0) {
+                struct timeval ptv = { .tv_sec = 2, .tv_usec = 0 };
+                setsockopt(probe_fd, SOL_SOCKET, SO_RCVTIMEO,
+                           &ptv, sizeof(ptv));
+                uint16_t up_port = cfg_ptr->dns.upstream_port
+                                   ? cfg_ptr->dns.upstream_port : 53;
+                struct sockaddr_in sa = {
+                    .sin_family = AF_INET,
+                    .sin_port   = htons(up_port),
+                };
+                if (inet_pton(AF_INET, cfg_ptr->dns.upstream_default,
+                              &sa.sin_addr) == 1) {
+                    /* Минимальный DNS запрос: QNAME="." QTYPE=A QCLASS=IN */
+                    uint8_t probe[] = {
+                        0x12,0x34, 0x01,0x00, 0x00,0x01, 0x00,0x00,
+                        0x00,0x00, 0x00,0x00, 0x00,
+                        0x00,0x01, 0x00,0x01 };
+                    if (sendto(probe_fd, probe, sizeof(probe), 0,
+                               (struct sockaddr *)&sa, sizeof(sa)) > 0) {
+                        uint8_t resp[64];
+                        ssize_t pn = recv(probe_fd, resp, sizeof(resp), 0);
+                        if (pn <= 0)
+                            log_msg(LOG_WARN,
+                                "DNS: upstream %s:%u недоступен при старте"
+                                " — DNS может не работать до появления сети",
+                                cfg_ptr->dns.upstream_default, up_port);
+                    }
+                }
+                close(probe_fd);
+            }
+        }
     }
 
     /* Per-device routing (netdev MAC map) */
