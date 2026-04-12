@@ -446,22 +446,35 @@ int main(int argc, char *argv[])
             "TPROXY: используется mark-based routing "
             "(fwmark=0x01, table=100, без kmod-nft-tproxy)");
 
+        nft_result_t mode_rc;
         if (strcmp(cfg_ptr->mode, "global") == 0)
-            nft_mode_set_global();
+            mode_rc = nft_mode_set_global();
         else if (strcmp(cfg_ptr->mode, "direct") == 0)
-            nft_mode_set_direct();
+            mode_rc = nft_mode_set_direct();
         else
-            nft_mode_set_rules();
+            mode_rc = nft_mode_set_rules();
+
+        if (mode_rc != NFT_OK) {
+            log_msg(LOG_ERROR, "nftables: режим '%s' не применён — "
+                "остановка во избежание fail-open", cfg_ptr->mode);
+            nft_cleanup();
+            goto cleanup;
+        }
     }
 
     /* Verdict Maps для масштабируемой маршрутизации (DEC-017) */
-    nft_vmap_create();
+    if (nft_vmap_create() != NFT_OK)
+        log_msg(LOG_WARN, "nft: verdict maps не созданы");
 
     /* HW Offload bypass (DEC-018) */
-    nft_offload_bypass_init();
+    if (nft_offload_bypass_init() != NFT_OK)
+        log_msg(LOG_WARN, "nft: offload bypass не инициализирован");
 
     /* Менеджер правил маршрутизации */
-    rules_init(&rules_state);
+    if (rules_init(&rules_state) < 0) {
+        log_msg(LOG_ERROR, "rules: инициализация провалилась");
+        goto cleanup;
+    }
 
     /* L-09: PATH_MAX на heap вместо стека */
     char *bypass_file = malloc(PATH_MAX);
@@ -490,8 +503,14 @@ int main(int argc, char *argv[])
 
     /* DNS демон — init (register_epoll после master_epoll) */
     if (cfg_ptr->dns.enabled) {
-        dns_rules_init(cfg_ptr);
-        dns_server_init(&dns_state, cfg_ptr);
+        if (dns_rules_init(cfg_ptr) < 0) {
+            log_msg(LOG_ERROR, "dns_rules: инициализация провалилась");
+            goto cleanup;
+        }
+        if (dns_server_init(&dns_state, cfg_ptr) < 0) {
+            log_msg(LOG_ERROR, "dns_server: инициализация провалилась");
+            goto cleanup;
+        }
 
         /* B-09: проверить upstream DNS доступность (warning, не блокирует старт) */
         if (cfg_ptr->dns.upstream_default[0]) {
@@ -531,19 +550,27 @@ int main(int argc, char *argv[])
 
     /* Per-device routing (netdev MAC map) */
     if (cfg_ptr->device_count > 0 && cfg_ptr->lan_interface[0]) {
-        device_policy_init(&device_state, cfg_ptr);
-        device_policy_apply(&device_state, cfg_ptr->lan_interface);
+        if (device_policy_init(&device_state, cfg_ptr) < 0)
+            log_msg(LOG_WARN, "device_policy: инициализация провалилась");
+        else
+            device_policy_apply(&device_state, cfg_ptr->lan_interface);
     }
 
-    /* Политика маршрутизации — ip rule и ip route */
+    /* Политика маршрутизации — ip rule и ip route
+     * B3-01: при холодной загрузке WAN может не быть —
+     * hotplug (40-4eburnet) восстановит ip rules при ifup */
     policy_check_conflicts();
     if (strcmp(cfg_ptr->mode, "tun") == 0) {
-        policy_init_tun(cfg_ptr->tun_iface);
+        if (policy_init_tun(cfg_ptr->tun_iface) != POLICY_OK)
+            log_msg(LOG_WARN, "policy: tun routing не применён — "
+                "hotplug восстановит при поднятии WAN");
     } else if (strcmp(cfg_ptr->mode, "direct") == 0) {
         /* в direct режиме правила маршрутизации не нужны */
     } else {
         /* rules и global используют TPROXY */
-        policy_init_tproxy();
+        if (policy_init_tproxy() != POLICY_OK)
+            log_msg(LOG_WARN, "policy: TPROXY routing не применён — "
+                "hotplug восстановит при поднятии WAN");
     }
     policy_dump();
 
@@ -561,17 +588,29 @@ int main(int argc, char *argv[])
         dispatcher_set_context(&dispatcher_state, cfg_ptr);
 
         /* Proxy groups + rule/proxy providers + rules engine */
-        proxy_group_init(&pgm_state, cfg_ptr);
-        rule_provider_init(&rpm_state, cfg_ptr);
+        if (proxy_group_init(&pgm_state, cfg_ptr) < 0) {
+            log_msg(LOG_ERROR, "proxy_group: инициализация провалилась");
+            goto cleanup;
+        }
+        if (rule_provider_init(&rpm_state, cfg_ptr) < 0) {
+            log_msg(LOG_ERROR, "rule_provider: инициализация провалилась");
+            goto cleanup;
+        }
         rule_provider_load_all(&rpm_state);
-        proxy_provider_init(&ppm_state, cfg_ptr);
+        if (proxy_provider_init(&ppm_state, cfg_ptr) < 0) {
+            log_msg(LOG_ERROR, "proxy_provider: инициализация провалилась");
+            goto cleanup;
+        }
         proxy_provider_load_all(&ppm_state);
         if (geo_manager_init(&geo_state, cfg_ptr) == 0)
             geo_load_region_categories(&geo_state, cfg_ptr);
         else
             log_msg(LOG_WARN, "GeoIP: не удалось инициализировать");
-        rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
-                          &geo_state);
+        if (rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
+                              &geo_state) < 0) {
+            log_msg(LOG_ERROR, "rules_engine: инициализация провалилась");
+            goto cleanup;
+        }
         dispatcher_set_rules_engine(&re_state);
         ipc_set_3x_context(&pgm_state, &rpm_state, &re_state, &geo_state);
     }
