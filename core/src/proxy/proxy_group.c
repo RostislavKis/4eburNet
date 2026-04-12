@@ -105,22 +105,44 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
             char *exclude_words[64];
             int exclude_count = 0;
 
+            memset(exclude_words, 0, sizeof(exclude_words));
+
             if (gc->filter[0]) {
                 if (regcomp(&fre, gc->filter, REG_EXTENDED | REG_NOSUB) == 0) {
                     use_regex = true;
                 } else {
-                    /* Fallback: извлечь слова из (?!.*(w1|w2|...)) */
-                    char *f = gc->filter;
-                    const char *bar = strstr(f, "(");
-                    if (bar) {
-                        char *fbuf = strdup(bar);
-                        char *fsp = NULL;
-                        for (char *w = strtok_r(fbuf, "()|.*^$?!", &fsp); w;
-                             w = strtok_r(NULL, "()|.*^$?!", &fsp)) {
-                            if (w[0] && exclude_count < 64)
-                                exclude_words[exclude_count++] = strdup(w);
+                    /* Fallback: извлечь exclude-слова из (?!.*(w1|w2|...))
+                     * Ищем самую внутреннюю группу (w1|w2|...) и split по | */
+                    const char *inner = NULL;
+                    int depth = 0, max_depth = 0;
+                    for (const char *p = gc->filter; *p; p++) {
+                        if (*p == '(') {
+                            depth++;
+                            if (depth > max_depth) {
+                                max_depth = depth;
+                                inner = p + 1;
+                            }
+                        } else if (*p == ')') {
+                            depth--;
                         }
-                        free(fbuf);
+                    }
+                    if (inner) {
+                        /* Копируем содержимое внутренних скобок, split по | */
+                        const char *end = strchr(inner, ')');
+                        if (!end) end = inner + strlen(inner);
+                        size_t ilen = (size_t)(end - inner);
+                        char *ibuf = malloc(ilen + 1);
+                        if (ibuf) {
+                            memcpy(ibuf, inner, ilen);
+                            ibuf[ilen] = '\0';
+                            char *sp2 = NULL;
+                            for (char *w = strtok_r(ibuf, "|", &sp2); w;
+                                 w = strtok_r(NULL, "|", &sp2)) {
+                                if (w[0] && exclude_count < 64)
+                                    exclude_words[exclude_count++] = strdup(w);
+                            }
+                            free(ibuf);
+                        }
                     }
                     if (exclude_count > 0) {
                         use_exclude = true;
