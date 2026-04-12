@@ -451,10 +451,17 @@ int config_load(const char *path, EburNetConfig *cfg)
     cfg->device_count = 0;
 
     section_type_t section = SECTION_NONE;
-    char line[MAX_LINE];
+    char *line = malloc(MAX_LINE);
+    if (!line) {
+        log_msg(LOG_ERROR, "Конфиг: нет памяти для line buffer");
+        free(servers); free(dns_rules); free(dp_tmp); free(devices_tmp);
+        free(pg_tmp); free(pp_tmp); free(rp_tmp); free(tr_tmp);
+        fclose(f);
+        return -1;
+    }
     int line_num = 0;
 
-    while (fgets(line, sizeof(line), f)) {
+    while (fgets(line, MAX_LINE, f)) {
         line_num++;
 
         /* Убираем перенос строки */
@@ -717,11 +724,16 @@ int config_load(const char *path, EburNetConfig *cfg)
                     else if (strcmp(key, "servers") == 0) {
                         /* option servers 'a b c' → split по пробелу (legacy) */
                         char *tmp = strdup(value);
+                        if (!tmp) goto cleanup_fail;
                         char *tok = strtok(tmp, " ");
                         while (tok) {
-                            g->servers = realloc(g->servers,
+                            char **tmp_srv = realloc(g->servers,
                                 (size_t)(g->server_count + 1) * sizeof(char *));
-                            g->servers[g->server_count++] = strdup(tok);
+                            if (!tmp_srv) { free(tmp); goto cleanup_fail; }
+                            g->servers = tmp_srv;
+                            char *s = strdup(tok);
+                            if (!s) { free(tmp); goto cleanup_fail; }
+                            g->servers[g->server_count++] = s;
                             tok = strtok(NULL, " ");
                         }
                         free(tmp);
@@ -863,9 +875,13 @@ int config_load(const char *path, EburNetConfig *cfg)
             if (section == SECTION_PROXY_GROUP && pg_count > 0 &&
                 strcmp(lkey, "servers") == 0) {
                 ProxyGroupConfig *g = &pg_tmp[pg_count - 1];
-                g->servers = realloc(g->servers,
+                char **tmp_srv = realloc(g->servers,
                     (size_t)(g->server_count + 1) * sizeof(char *));
-                g->servers[g->server_count++] = strdup(lval);
+                if (!tmp_srv) goto cleanup_fail;
+                g->servers = tmp_srv;
+                char *s = strdup(lval);
+                if (!s) goto cleanup_fail;
+                g->servers[g->server_count++] = s;
             } else {
                 log_msg(LOG_DEBUG, "Строка %d: list '%s' пропущена",
                         line_num, lkey);
@@ -878,6 +894,8 @@ int config_load(const char *path, EburNetConfig *cfg)
 
     fclose(f);
     f = NULL;
+    free(line);
+    line = NULL;
 
     /* Копируем серверы в динамический массив */
     if (srv_count > 0) {
@@ -985,6 +1003,7 @@ int config_load(const char *path, EburNetConfig *cfg)
 
 cleanup_fail:
     if (f) fclose(f);
+    free(line);
     free(servers);
     free(dns_rules);
     free(dp_tmp);

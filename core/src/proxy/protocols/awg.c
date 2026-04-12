@@ -317,35 +317,46 @@ int awg_handshake_start(awg_state_t *awg,
     if (cps_sent > 0)
         log_msg(LOG_DEBUG, "AWG: отправлены I-пакеты (%d)", cps_sent);
 
-    /* Отправить Jc junk пакетов */
-    for (int i = 0; i < awg->cfg.jc; i++) {
-        uint16_t jlen = (awg->cfg.jmin < awg->cfg.jmax)
-            ? (uint16_t)rand_in_range(awg->cfg.jmin, awg->cfg.jmax)
-            : awg->cfg.jmin;
-        if (jlen > 0) {
-            uint8_t junk[1500];
-            if (jlen > sizeof(junk)) jlen = sizeof(junk);
-            random_fill(junk, jlen);
-            send(awg->udp_fd, junk, jlen, 0);
+    /* Отправить Jc junk пакетов (heap — стек MIPS 8KB) */
+    if (awg->cfg.jc > 0) {
+        uint8_t *junk = malloc(1500);
+        if (!junk) {
+            log_msg(LOG_ERROR, "AWG: нет памяти для junk");
+            return -1;
         }
-    }
-    if (awg->cfg.jc > 0)
+        for (int i = 0; i < awg->cfg.jc; i++) {
+            uint16_t jlen = (awg->cfg.jmin < awg->cfg.jmax)
+                ? (uint16_t)rand_in_range(awg->cfg.jmin, awg->cfg.jmax)
+                : awg->cfg.jmin;
+            if (jlen > 0) {
+                if (jlen > 1500) jlen = 1500;
+                random_fill(junk, jlen);
+                send(awg->udp_fd, junk, jlen, 0);
+            }
+        }
+        free(junk);
         log_msg(LOG_DEBUG, "AWG: отправлены junk пакеты (%u)", awg->cfg.jc);
+    }
 
-    /* Noise Init handshake */
-    uint8_t init_pkt[1536];  /* 148 + max S1 padding */
-    size_t init_len = sizeof(init_pkt);
+    /* Noise Init handshake (heap — стек MIPS 8KB) */
+    uint8_t *init_pkt = malloc(1536);
+    if (!init_pkt) {
+        log_msg(LOG_ERROR, "AWG: нет памяти для init_pkt");
+        return -1;
+    }
+    size_t init_len = 1536;
     if (noise_handshake_init_create(&awg->noise, init_pkt, &init_len) < 0) {
         log_msg(LOG_ERROR, "AWG: не удалось создать Init handshake");
+        free(init_pkt);
         return -1;
     }
 
     /* AWG обфускация Init */
     awg_obfuscate_header(init_pkt, awg->cfg.h1_min, awg->cfg.h1_max);
-    init_len = awg_add_padding(init_pkt, init_len, awg->cfg.s1,
-                                sizeof(init_pkt));
+    init_len = awg_add_padding(init_pkt, init_len, awg->cfg.s1, 1536);
 
     send(awg->udp_fd, init_pkt, init_len, 0);
+    free(init_pkt);
     awg->last_handshake = time(NULL);
 
     log_msg(LOG_DEBUG, "AWG: Init handshake отправлен (%zu байт)", init_len);
