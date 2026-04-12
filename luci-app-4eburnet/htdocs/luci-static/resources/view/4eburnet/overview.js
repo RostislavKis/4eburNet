@@ -78,7 +78,7 @@ return view.extend({
                     E('div', {style: 'font-size:11px;color:#8d96a0;margin-top:3px'},
                         ['Прокси-маршрутизатор · OpenWrt']),
                     E('div', {style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap'}, [
-                        badge('v1.0.0', '#8d96a0'),
+                        badge('v' + (status.version || '?'), '#8d96a0'),
                         E('span', {
                             id: 'hero-status',
                             style: 'display:inline-block;padding:2px 8px;border-radius:3px;'
