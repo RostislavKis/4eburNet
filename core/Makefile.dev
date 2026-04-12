@@ -48,10 +48,13 @@ else  # full — все функции включены
 endif
 
 CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
+         -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
+         -ffunction-sections -fdata-sections \
          $(KCONFIG_CFLAGS)
+CFLAGS += -Werror
 WOLFSSL_PREFIX ?= /usr/local/musl-wolfssl
 INCLUDES = -Iinclude -I$(WOLFSSL_PREFIX)/include
-LDFLAGS = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
+LDFLAGS = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm -Wl,--gc-sections
 SRCDIR = src
 BUILDDIR = ../../build
 SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c \
@@ -220,6 +223,7 @@ cross-mipsel:
 		CC=$(TC_MIPSEL)/mipsel-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_MIPSEL) \
 		TARGET=$(BUILDDIR)/4eburnetd-mipsel clean all
+	$(TC_MIPSEL)/mipsel-openwrt-linux-musl-strip --strip-all $(BUILDDIR)/4eburnetd-mipsel
 	mkdir -p $(PREBUILT_DIR)/mipsel
 	cp $(BUILDDIR)/4eburnetd-mipsel $(PREBUILT_DIR)/mipsel/4eburnetd
 	ls -lh $(PREBUILT_DIR)/mipsel/4eburnetd
@@ -230,6 +234,7 @@ cross-aarch64:
 		CC=$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_AARCH64) \
 		TARGET=$(BUILDDIR)/4eburnetd-aarch64 clean all
+	$(TC_AARCH64)/aarch64-openwrt-linux-musl-strip --strip-all $(BUILDDIR)/4eburnetd-aarch64
 	mkdir -p $(PREBUILT_DIR)/aarch64
 	cp $(BUILDDIR)/4eburnetd-aarch64 $(PREBUILT_DIR)/aarch64/4eburnetd
 	ls -lh $(PREBUILT_DIR)/aarch64/4eburnetd
