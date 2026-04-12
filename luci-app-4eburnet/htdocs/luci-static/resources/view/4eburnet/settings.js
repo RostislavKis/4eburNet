@@ -122,6 +122,8 @@ return view.extend({
                         { value: 'us', label: 'US — ' + _('США') }
                     ], cfg.region || 'ru')
                 ),
+                mkRow(_('Папка GeoIP файлов'), mkInput('cfg-geodir', cfg.geo_dir || '', true)),
+                mkRow(_('URL источника GeoIP'), mkInput('cfg-geourl', cfg.geo_url || '', true)),
                 E('div', { style: 'margin-top:14px;display:flex;gap:8px;flex-wrap:wrap' }, [
                     E('button', {
                         class: 'btn cbi-button',
@@ -131,7 +133,9 @@ return view.extend({
                                 mode:          sel('cfg-mode').value,
                                 log_level:     sel('cfg-loglevel').value,
                                 lan_interface: sel('cfg-lan').value,
-                                region:        sel('cfg-region').value
+                                region:        sel('cfg-region').value,
+                                geo_dir:       sel('cfg-geodir').value,
+                                geo_url:       sel('cfg-geourl').value
                             };
                             callCfgSet('main', values).then(function(r) {
                                 if (r && r.ok) {
