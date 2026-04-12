@@ -17,6 +17,8 @@ void log_msg(int level, const char *fmt, ...)
     printf("\n");
 }
 
+void net_random_bytes(void *buf, size_t len) { memset(buf, 0xAB, len); }
+
 static int failures = 0;
 
 #define CHECK(cond, msg) do { \

@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 700
 #include "crypto/quic.h"
 
-#ifdef CONFIG_EBURNET_DOQ
+#if CONFIG_EBURNET_DOQ || CONFIG_EBURNET_QUIC
 
 #include <string.h>
 #include <wolfssl/options.h>
@@ -292,7 +292,7 @@ void quic_hp_remove(quic_hp_ctx_t *ctx,
         hdr[pn_off + i] ^= mask[1 + i];
 }
 
-#endif /* CONFIG_EBURNET_DOQ */
+#endif /* CONFIG_EBURNET_DOQ || CONFIG_EBURNET_QUIC */
 
 /* заглушка: подавить предупреждение "empty translation unit" */
 typedef int quic_c_module_t;

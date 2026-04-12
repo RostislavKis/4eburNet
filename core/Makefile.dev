@@ -124,20 +124,20 @@ WOLFSSL_LIBS     = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
 TEST_CC  = musl-gcc
 TEST_FLAGS = -std=c11 -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1
 
+HY2_COMMON = src/crypto/blake2b.c src/crypto/quic_salamander.c \
+             src/crypto/quic.c src/proxy/protocols/hysteria2_cc.c \
+             src/proxy/protocols/hysteria2.c
+
 test-uri:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
-	  src/crypto/blake2b.c \
-	  src/crypto/quic_salamander.c \
-	  src/proxy/protocols/hysteria2.c \
+	  $(HY2_COMMON) \
 	  tests/test_hysteria2_uri.c \
 	  -o /tmp/test_hysteria2_uri $(WOLFSSL_LIBS)
 	/tmp/test_hysteria2_uri
 
 test-udp:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
-	  src/crypto/blake2b.c \
-	  src/crypto/quic_salamander.c \
-	  src/proxy/protocols/hysteria2.c \
+	  $(HY2_COMMON) \
 	  src/proxy/protocols/hysteria2_udp.c \
 	  tests/test_hysteria2_udp.c \
 	  -o /tmp/test_hysteria2_udp $(WOLFSSL_LIBS)
