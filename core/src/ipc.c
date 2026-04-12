@@ -1,4 +1,5 @@
 #include "ipc.h"
+#include "constants.h"
 #include "net_utils.h"
 
 #include <stdio.h>
@@ -447,7 +448,7 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
         return -1;
 
     /* Таймаут 3с на connect/read/write — защита от зависшего демона */
-    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    struct timeval tv = { .tv_sec = TIMEOUT_IPC_CLIENT_SEC, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
@@ -506,7 +507,7 @@ int ipc_send_command_payload(ipc_command_t cmd,
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return -1;
 
-    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    struct timeval tv = { .tv_sec = TIMEOUT_IPC_CLIENT_SEC, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 

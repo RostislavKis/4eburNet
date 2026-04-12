@@ -4,6 +4,7 @@
 
 #include "dns/dns_upstream.h"
 #include "crypto/tls.h"
+#include "constants.h"
 #include "4eburnet.h"
 
 #include <stdio.h>
@@ -28,7 +29,7 @@ ssize_t dns_upstream_query(const char *server_ip, uint16_t server_port,
     if (fd < 0) return -1;
 
     /* Жёсткий потолок 500ms для защиты event loop (C-02) */
-    if (timeout_ms > 500) timeout_ms = 500;
+    if (timeout_ms > TIMEOUT_DNS_PENDING_MS) timeout_ms = TIMEOUT_DNS_PENDING_MS;
     struct timeval tv = {
         .tv_sec  = timeout_ms / 1000,
         .tv_usec = (timeout_ms % 1000) * 1000,
@@ -204,7 +205,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
 
     /* Таймаут 1 сек для защиты event loop (C-02) */
     {
-        struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+        struct timeval tv = { .tv_sec = TIMEOUT_DNS_SEC, .tv_usec = 0 };
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     }
