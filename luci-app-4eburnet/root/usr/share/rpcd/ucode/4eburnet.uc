@@ -182,11 +182,11 @@ const methods = {
     stats: {
         call: function(req) {
             if (!is_running())
-                return { error: 'not running', connections: 0,
-                         dns_queries: 0, dns_cached: 0, connections_total: 0 };
+                return { error: 'not running', connections_total: 0,
+                         connections_active: 0, dns_queries: 0, dns_cached: 0 };
             let d = ipc_json('stats');
-            if (d.error) return { error: d.error, connections: 0,
-                                  dns_queries: 0, dns_cached: 0, connections_total: 0 };
+            if (d.error) return { error: d.error, connections_total: 0,
+                                  connections_active: 0, dns_queries: 0, dns_cached: 0 };
             return d;
         }
     },
