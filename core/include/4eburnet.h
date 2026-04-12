@@ -39,6 +39,7 @@ typedef enum {
 #define EBURNET_LOG_FILE        "/tmp/4eburnet.log"
 #define EBURNET_LOG_MAX_BYTES   (512 * 1024)  /* 512KB — защита tmpfs (1.5% от 32MB tmpfs на 64MB RAM) */
 #define EBURNET_RULES_DIR       "/etc/4eburnet/rules/"
+#define EBURNET_CA_BUNDLE       "/etc/ssl/certs/ca-certificates.crt"
 
 /*/* Версия протокола IPC между 4eburnetd и LuCI */
 #define EBURNET_IPC_VERSION     1
