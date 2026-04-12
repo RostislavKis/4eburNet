@@ -224,16 +224,47 @@ const methods = {
 
     geo_update: {
         call: function(req) {
-            let geo_dir = '/etc/4eburnet/geo';
+            let main = uci_get_section('4eburnet', 'main');
+            let geo_dir = main?.geo_dir || '/etc/4eburnet/geo';
+            let base    = main?.geo_url || 'https://raw.githubusercontent.com/RostislavKis/filter/master/geo';
+
+            if (!match(geo_dir, /^[a-zA-Z0-9\/_.\-]+$/))
+                return { ok: false, error: 'invalid geo_dir: ' + geo_dir };
+
             system('mkdir -p ' + geo_dir);
-            let base = 'https://raw.githubusercontent.com/RostislavKis/filter/master/geo';
             let files = ['geoip-ru.lst', 'geosite-ru.lst', 'geosite-ads.lst'];
             let results = {};
             for (let i = 0; i < length(files); i++) {
                 let f = files[i];
-                let rc = system('uclient-fetch -q -O ' + geo_dir + '/' + f +
+                let target = geo_dir + '/' + f;
+                let tmp    = target + '.tmp';
+
+                let rc = system('uclient-fetch -q -T 30 -O ' + tmp +
                                 ' ' + base + '/' + f + ' 2>/dev/null');
-                results[f] = (rc == 0) ? 'ok' : 'error';
+                if (rc != 0) {
+                    fs.unlink(tmp);
+                    results[f] = 'error';
+                    continue;
+                }
+
+                /* Проверить что файл непустой (защита от пустого 200 OK) */
+                let fh = fs.open(tmp, 'r');
+                if (!fh) { fs.unlink(tmp); results[f] = 'error'; continue; }
+                let head = fh.read(16);
+                fh.close();
+                if (!head || length(head) == 0) {
+                    fs.unlink(tmp);
+                    results[f] = 'error';
+                    continue;
+                }
+
+                /* Атомарная замена: mv на одной FS = rename(2) */
+                if (system('mv -f ' + tmp + ' ' + target) == 0)
+                    results[f] = 'ok';
+                else {
+                    fs.unlink(tmp);
+                    results[f] = 'error';
+                }
             }
             // Перечитать конфиг чтобы демон подхватил новые geo файлы
             if (is_running())
@@ -730,7 +761,7 @@ const methods = {
             if (match(section, /[^\w]/)) return { ok: false, error: 'invalid section' };
 
             let allowed = {
-                main: { enabled:1, mode:1, log_level:1, lan_interface:1, region:1, geo_dir:1 },
+                main: { enabled:1, mode:1, log_level:1, lan_interface:1, region:1, geo_dir:1, geo_url:1 },
                 dns:  { upstream_bypass:1, upstream_proxy:1, doh_enabled:1, doh_url:1,
                         doh_ip:1, fake_ip_enabled:1, bogus_nxdomain:1 }
             };
