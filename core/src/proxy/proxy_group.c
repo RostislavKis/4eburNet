@@ -72,7 +72,7 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
         }
         gs->tolerance_ms = gc->tolerance_ms;
         gs->interval = gc->interval > 0 ? gc->interval : 300;
-        gs->next_check = time(NULL) + gs->interval;
+        gs->next_check = time(NULL) + 3;  /* первая проверка через 3 сек */
 
         /* Итерировать массив серверов группы */
         int total_configured = 0;
@@ -82,8 +82,8 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
             if (idx >= 0) {
                 if (gs->server_count < PROXY_GROUP_MAX_SERVERS) {
                     gs->servers[gs->server_count].server_idx = idx;
-                    gs->servers[gs->server_count].available = true;
-                    gs->servers[gs->server_count].latency_ms = 999;
+                    gs->servers[gs->server_count].available = false;
+                    gs->servers[gs->server_count].latency_ms = 0;
                     gs->server_count++;
                 } else if (total_configured == PROXY_GROUP_MAX_SERVERS) {
                     log_msg(LOG_WARN,
@@ -174,8 +174,8 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
                     if (gs->server_count >= PROXY_GROUP_MAX_SERVERS) break;
                     gs->servers[gs->server_count].server_idx =
                         cfg->server_count + pi;
-                    gs->servers[gs->server_count].available = true;
-                    gs->servers[gs->server_count].latency_ms = 999;
+                    gs->servers[gs->server_count].available = false;
+                    gs->servers[gs->server_count].latency_ms = 0;
                     gs->server_count++;
                 }
             }
@@ -313,10 +313,14 @@ void proxy_group_tick(proxy_group_manager_t *pgm)
 
         int i = gs->check_cursor % gs->server_count;
         int idx = gs->servers[i].server_idx;
-        if (idx >= 0 && idx < pgm->cfg->server_count) {
-            const ServerConfig *srv = &pgm->cfg->servers[idx];
-            int pfd = net_spawn_tcp_ping(srv->address, srv->port,
-                                        gs->timeout_ms);
+        const ServerConfig *srv = config_get_server(pgm->cfg, idx);
+        if (srv) {
+            /* UDP-протоколы (AWG, Hysteria2) — UDP probe вместо TCP */
+            bool udp_proto = (strcmp(srv->protocol, "awg") == 0 ||
+                              strcmp(srv->protocol, "hysteria2") == 0);
+            int pfd = udp_proto
+                ? net_spawn_udp_ping(srv->address, srv->port, gs->timeout_ms)
+                : net_spawn_tcp_ping(srv->address, srv->port, gs->timeout_ms);
             if (pfd >= 0) {
                 gs->hc_pipe_fd    = pfd;
                 gs->hc_server_idx = i;
