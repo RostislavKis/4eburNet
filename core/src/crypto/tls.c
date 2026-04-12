@@ -173,6 +173,8 @@ static WOLFSSL_CTX *get_or_create_ctx(tls_fingerprint_t fp,
             log_msg(LOG_WARN, "TLS: CA bundle не загружен (%s), "
                     "верификация может не работать", EBURNET_CA_BUNDLE);
     } else {
+        /* Reality использует x25519 публичный ключ для верификации
+         * вместо PKI — сертификат намеренно не проверяется (DEC-002) */
         wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, NULL);
     }
 
@@ -212,6 +214,11 @@ int tls_connect_start(tls_conn_t *conn, int fd,
     }
     if (config->reality_short_id) {
         conn->config.reality_short_id = strdup(config->reality_short_id);
+        if (!conn->config.reality_short_id) {
+            log_msg(LOG_ERROR, "TLS: нет памяти для reality_short_id");
+            tls_close(conn);
+            return -1;
+        }
     } else {
         conn->config.reality_short_id = NULL;
     }
