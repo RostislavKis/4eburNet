@@ -289,6 +289,17 @@ int main(int argc, char *argv[])
     bool daemon_mode = false;
     int opt;
 
+    /* --ipc обработка ДО getopt (getopt не поддерживает long options) */
+    if (argc >= 3 && strcmp(argv[1], "--ipc") == 0) {
+        const char *payload = (argc >= 4) ? argv[3] : NULL;
+        static char stdin_buf[4096];
+        if (!payload && !isatty(STDIN_FILENO)) {
+            ssize_t sn = read(STDIN_FILENO, stdin_buf, sizeof(stdin_buf) - 1);
+            if (sn > 0) { stdin_buf[sn] = '\0'; payload = stdin_buf; }
+        }
+        return handle_ipc_with_payload(argv[2], payload);
+    }
+
     while ((opt = getopt(argc, argv, "dc:vh")) != -1) {
         switch (opt) {
         case 'd':
@@ -305,22 +316,6 @@ int main(int argc, char *argv[])
             print_usage(argv[0]);
             return (opt == 'h') ? 0 : 1;
         }
-    }
-
-    /* CLI: 4eburnetd --ipc <cmd> [payload] */
-    if (optind < argc && strcmp(argv[optind], "--ipc") == 0) {
-        if (optind + 1 >= argc) {
-            fprintf(stderr, "usage: %s --ipc <command> [payload]\n", argv[0]);
-            return 1;
-        }
-        const char *payload = (optind + 2 < argc) ? argv[optind + 2] : NULL;
-        /* stdin fallback: для payload через < редирект из .uc */
-        static char stdin_buf[4096];
-        if (!payload && !isatty(STDIN_FILENO)) {
-            ssize_t sn = read(STDIN_FILENO, stdin_buf, sizeof(stdin_buf) - 1);
-            if (sn > 0) { stdin_buf[sn] = '\0'; payload = stdin_buf; }
-        }
-        return handle_ipc_with_payload(argv[optind + 1], payload);
     }
 
     /* Позиционная команда (status/stop/reload/stats/groups/...) */
