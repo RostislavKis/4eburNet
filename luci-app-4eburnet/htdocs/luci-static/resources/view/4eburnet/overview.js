@@ -105,7 +105,7 @@ return view.extend({
                                     callReload().then(function(r) {
                                         if (r && r.ok)
                                             ui.addNotification(null, E('p', {}, [_('Конфиг перечитан')]), 'info');
-                                    });
+                                    }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                                 }
                             }, [_('↺ Конфиг')]),
                             E('button', {
@@ -113,7 +113,7 @@ return view.extend({
                                 style: 'padding:4px 10px;font-size:11px',
                                 click: function() {
                                     if (confirm(_('Остановить демон?')))
-                                        callStop().then(function() { location.reload(); });
+                                        callStop().then(function() { location.reload(); }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                                 }
                             }, [_('⏹ Стоп')])
                         ] : [
@@ -121,7 +121,7 @@ return view.extend({
                                 class: 'btn cbi-button',
                                 style: 'padding:4px 10px;font-size:11px;background:#238636;color:#fff;border-color:#238636',
                                 click: function() {
-                                    callRestart().then(function() { location.reload(); });
+                                    callRestart().then(function() { location.reload(); }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                                 }
                             }, [_('▶ Старт')])
                         ]
@@ -172,7 +172,7 @@ return view.extend({
                                 callWanIp().then(function(d) {
                                     if (d && d.ip)
                                         setTxt('wan-ip-txt', d.ip);
-                                });
+                                }).catch(function() {});
                             }
                         }, ['⟳'])
                     ]),
@@ -242,7 +242,7 @@ return view.extend({
                 setTxt('hero-uptime', d.running ? 'Аптайм: ' + fmtUptime(d.uptime) : '—');
                 setTxt('stat-status', d.running ? _('Активен') : _('Остановлен'));
                 setTxt('stat-uptime', d.running ? fmtUptime(d.uptime) : '');
-            });
+            }).catch(function() {});
         }, 3000);
 
         /* Сохранить ID таймера в dataset для handleReset */

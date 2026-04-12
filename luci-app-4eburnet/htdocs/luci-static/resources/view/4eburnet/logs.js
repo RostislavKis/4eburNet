@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require rpc';
+'require ui';
 
 var callLogs = rpc.declare({ object: '4eburnet', method: 'logs', params: ['lines'] });
 
@@ -94,7 +95,7 @@ return view.extend({
                 }
                 allLines = resp.lines;
                 doUpdate();
-            });
+            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
         }, 3000);
 
         var node = E('div', {'data-poll-timer': String(pollTimer)}, [
@@ -109,7 +110,7 @@ return view.extend({
                     click: function() {
                         callLogs(100).then(function(resp) {
                             if (resp && resp.lines) { allLines = resp.lines; doUpdate(); }
-                        });
+                        }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                     }
                 }, ['⟳ ' + _('Обновить')]),
                 countSpan

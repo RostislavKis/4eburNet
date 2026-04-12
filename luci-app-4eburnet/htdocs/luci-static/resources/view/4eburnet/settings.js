@@ -142,7 +142,7 @@ return view.extend({
                                     callReload();
                                     ui.addNotification(null, E('p', {}, [_('Настройки сохранены')]), 'info');
                                 }
-                            });
+                            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                         }
                     }, [_('💾 Сохранить')]),
                     E('button', {
@@ -151,7 +151,7 @@ return view.extend({
                             if (confirm(_('Перезапустить демон?'))) {
                                 callRestart().then(function() {
                                     ui.addNotification(null, E('p', {}, [_('Демон перезапущен')]), 'info');
-                                });
+                                }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                             }
                         }
                     }, [_('↺ Рестарт')])
@@ -242,7 +242,7 @@ return view.extend({
                                 } else {
                                     if (st) { st.textContent = '✕ ' + (r && r.error || _('ошибка')); st.style.color = '#f85149'; }
                                 }
-                            });
+                            }).catch(function(e) { if (btn) btn.disabled = false; if (st) { st.textContent = '✕ RPC: ' + e; st.style.color = '#f85149'; } });
                         }
                     }, [_('📦 Создать бэкап')]),
                     E('a', {
@@ -279,7 +279,7 @@ return view.extend({
                                 } else {
                                     if (st) { st.textContent = '✕ ' + (r && r.error || _('ошибка')); st.style.color = '#f85149'; }
                                 }
-                            });
+                            }).catch(function(e) { if (btn) btn.disabled = false; if (st) { st.textContent = '✕ RPC: ' + e; st.style.color = '#f85149'; } });
                         }
                     }, [_('↺ Восстановить')]),
                     E('div', { id: 'restore-result', style: 'font-size:11px;margin-top:8px;min-height:16px' }, [''])
@@ -320,7 +320,7 @@ return view.extend({
                                 } else {
                                     if (st) { st.textContent = '\u2715 ' + (r && r.error || _('Ошибка')); st.style.color = '#f85149'; }
                                 }
-                            });
+                            }).catch(function(e) { if (btn) btn.disabled = false; if (st) { st.textContent = '✕ RPC: ' + e; st.style.color = '#f85149'; } });
                         }
                     }, [_('\uD83D\uDD04 Обновить базы')]),
                 ]),
