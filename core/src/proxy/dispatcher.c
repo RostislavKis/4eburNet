@@ -10,6 +10,7 @@
 
 #include "proxy/dispatcher.h"
 #include "constants.h"
+#include "stats.h"
 #if CONFIG_EBURNET_VLESS
 #include "proxy/protocols/vless.h"
 #include "proxy/protocols/vless_xhttp.h"
@@ -534,6 +535,7 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
             r->ep_upstream.relay     = r;
             r->ep_upstream.is_client = false;
             ds->conns_count++;
+            stats_conn_open();
             return r;
         }
     }
@@ -596,6 +598,7 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
                 (unsigned long)r->bytes_out);
         ds->total_closed++;
         ds->conns_count--;
+        stats_conn_close();
     }
 
     r->client_fd   = -1;

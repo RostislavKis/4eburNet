@@ -78,7 +78,7 @@ return view.extend({
                     E('div', {style: 'font-size:11px;color:#8d96a0;margin-top:3px'},
                         ['Прокси-маршрутизатор · OpenWrt']),
                     E('div', {style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap'}, [
-                        badge('v0.2.0', '#8d96a0'),
+                        badge('v1.0.0', '#8d96a0'),
                         E('span', {
                             id: 'hero-status',
                             style: 'display:inline-block;padding:2px 8px;border-radius:3px;'
@@ -218,9 +218,9 @@ return view.extend({
         setTxt('stat-status', status.running ? _('Активен') : _('Остановлен'));
         setTxt('stat-uptime', status.running ? fmtUptime(status.uptime) : '');
         setTxt('stat-mode',   status.mode || '—');
-        setTxt('stat-conns',  String(stats.connections || '—'));
+        setTxt('stat-conns',  String(stats.connections_active || 0));
         setTxt('stat-conns-s', _('Всего: ') + (stats.connections_total || 0));
-        setTxt('stat-dns',    String(stats.dns_queries || '—'));
+        setTxt('stat-dns',    String(stats.dns_queries || 0));
         setTxt('stat-dns-s',  _('Кэш: ') + (stats.dns_cached || 0));
         setTxt('stat-groups', String((groups.groups || []).length || '—'));
 

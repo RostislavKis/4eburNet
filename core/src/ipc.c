@@ -1,5 +1,6 @@
 #include "ipc.h"
 #include "constants.h"
+#include "stats.h"
 #include "net_utils.h"
 
 #include <stdio.h>
@@ -226,8 +227,14 @@ void ipc_process(int server_fd, EburNetState *state)
 
     case IPC_CMD_STATS:
         snprintf(buf, sizeof(buf),
-                 "{\"connections_total\":%lu}",
-                 (unsigned long)state->connections_total);
+                 "{\"connections_total\":%llu"
+                 ",\"connections_active\":%llu"
+                 ",\"dns_queries\":%llu"
+                 ",\"dns_cached\":%llu}",
+                 (unsigned long long)atomic_load(&g_stats.connections_total),
+                 (unsigned long long)atomic_load(&g_stats.connections_active),
+                 (unsigned long long)atomic_load(&g_stats.dns_queries_total),
+                 (unsigned long long)atomic_load(&g_stats.dns_cached_total));
         ipc_respond(client_fd, buf);
         break;
 
