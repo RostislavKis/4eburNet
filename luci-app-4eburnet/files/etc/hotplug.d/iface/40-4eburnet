@@ -5,9 +5,9 @@
 # Только при поднятии интерфейса
 [ "$ACTION" = "ifup" ] || exit 0
 
-# Только WAN интерфейсы (PPPoE, DHCP, статика)
+# Только WAN интерфейсы (PPPoE, DHCP, статика, LTE)
 case "$INTERFACE" in
-    wan|wan6|pppoe-wan|pppoe*|wan_*|*wan*)
+    wan|wan6|pppoe-wan|pppoe*|wan_*|*wan*|lte*|4g*)
         ;;
     *)
         exit 0
@@ -24,31 +24,36 @@ kill -0 "$PID" 2>/dev/null || exit 0
 
 logger -t 4eburnet "WAN $INTERFACE поднят, проверяем routing..."
 
-# Восстановить ip rule fwmark 0x01 → table 100 (TPROXY)
-# grep -qE точное совпадение: "0x1 " или "0x00000001 " (расширенный формат ядра)
-ip rule show 2>/dev/null | grep -qE "fwmark 0x(00000001|1) " || {
-    ip rule add fwmark 0x01 table 100 priority 100 2>/dev/null && \
-        logger -t 4eburnet "ip rule восстановлен (fwmark 0x01 → table 100)"
+# Параметры из UCI (fallback на дефолты из constants.h)
+FWMARK=$(uci -q get 4eburnet.main.fwmark 2>/dev/null || echo "0x01")
+TABLE=$(uci -q get 4eburnet.main.route_table 2>/dev/null || echo "100")
+PRIO=$(uci -q get 4eburnet.main.route_prio 2>/dev/null || echo "1000")
+
+# Восстановить ip rule fwmark → table (TPROXY)
+# grep -qE: ядро может показать 0x1 или 0x00000001
+ip rule show 2>/dev/null | grep -qE "fwmark 0x(0{0,7}1) " || {
+    ip rule add fwmark "$FWMARK" table "$TABLE" prio "$PRIO" 2>/dev/null && \
+        logger -t 4eburnet "ip rule восстановлен (fwmark $FWMARK → table $TABLE prio $PRIO)"
 }
 
-# Восстановить ip route local 0.0.0.0/0 dev lo table 100
-ip route show table 100 2>/dev/null | grep -q "local" || {
-    ip route add local 0.0.0.0/0 dev lo table 100 2>/dev/null && \
-        logger -t 4eburnet "ip route восстановлен (local → table 100)"
+# Восстановить ip route local 0.0.0.0/0 dev lo table
+ip route show table "$TABLE" 2>/dev/null | grep -q "local" || {
+    ip route add local 0.0.0.0/0 dev lo table "$TABLE" 2>/dev/null && \
+        logger -t 4eburnet "ip route восстановлен (local → table $TABLE)"
 }
 
-# IPv6: ip -6 rule fwmark 0x01 → table 100
-ip -6 rule show 2>/dev/null | grep -qE "fwmark 0x(00000001|1) " || {
-    ip -6 rule add fwmark 0x01 table 100 priority 100 2>/dev/null
+# IPv6: ip -6 rule fwmark → table
+ip -6 rule show 2>/dev/null | grep -qE "fwmark 0x(0{0,7}1) " || {
+    ip -6 rule add fwmark "$FWMARK" table "$TABLE" prio "$PRIO" 2>/dev/null
 }
 
-# IPv6: ip -6 route local ::/0 dev lo table 100
-ip -6 route show table 100 2>/dev/null | grep -q "local" || {
-    ip -6 route add local ::/0 dev lo table 100 2>/dev/null
+# IPv6: ip -6 route local ::/0 dev lo table
+ip -6 route show table "$TABLE" 2>/dev/null | grep -q "local" || {
+    ip -6 route add local ::/0 dev lo table "$TABLE" 2>/dev/null
 }
 
-# Обновить провайдеров (новый WAN IP → новые подписки)
-/usr/sbin/4eburnetd reload 2>/dev/null && \
+# Перечитать конфиг (новый WAN IP → обновить провайдеров)
+/usr/sbin/4eburnetd --ipc reload 2>/dev/null && \
     logger -t 4eburnet "конфиг перечитан после WAN $INTERFACE"
 
 exit 0
