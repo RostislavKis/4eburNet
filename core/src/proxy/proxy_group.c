@@ -346,6 +346,9 @@ void proxy_group_handle_hc_event(proxy_group_state_t *gs,
     int i = gs->hc_server_idx;
     gs->hc_server_idx = -1;
 
+    if (i < 0 || i >= gs->server_count)
+        return;
+
     if (n > 0) {
         buf[n] = '\0';
         if (strncmp(buf, "OK", 2) == 0) {
