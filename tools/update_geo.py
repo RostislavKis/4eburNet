@@ -214,7 +214,10 @@ def git_commit_push(filter_dir: str, dry_run: bool) -> None:
     run(['git', 'commit', '-m', msg])
     print(f'\n  git commit -m "{msg}"')
 
-    push = run(['git', 'push', 'origin', 'main'])
+    # Определить текущую ветку
+    branch = run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+    br = branch.stdout.strip() or 'master'
+    push = run(['git', 'push', 'origin', br])
     if push.returncode == 0:
         print('  git push OK')
     else:
