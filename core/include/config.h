@@ -227,6 +227,7 @@ typedef struct EburNetConfig {
     int            dns_policy_count;
     int            tai_utc_offset;      /* TAI-UTC в секундах, default 37 */
     char           lan_interface[32];   /* "br-lan" — для netdev hook */
+    char           tun_iface[16];       /* UCI: main.tun_interface, default TUN_IFACE_DEFAULT */
     device_config_t      *devices;
     int                   device_count;
     ProxyGroupConfig     *proxy_groups;

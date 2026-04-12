@@ -1,4 +1,5 @@
 #include "config.h"
+#include "constants.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +136,8 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         cfg->mode[sizeof(cfg->mode) - 1] = '\0';
     } else if (strcmp(key, "lan_interface") == 0) {
         snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
+    } else if (strcmp(key, "tun_interface") == 0) {
+        snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", value);
     } else if (strcmp(key, "tai_utc_offset") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 200)
@@ -413,6 +416,7 @@ int config_load(const char *path, EburNetConfig *cfg)
     snprintf(cfg->log_level, sizeof(cfg->log_level), "%s", "info");
     snprintf(cfg->mode, sizeof(cfg->mode), "%s", "rules");
     cfg->tai_utc_offset   = 37;  /* с 2017-01-01, https://www.ietf.org/timezones/data/leap-seconds.list */
+    snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", TUN_IFACE_DEFAULT);
     /* DPI bypass defaults */
     cfg->dpi_enabled      = true;
     cfg->dpi_split_pos    = 1;

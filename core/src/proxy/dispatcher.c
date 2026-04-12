@@ -9,6 +9,7 @@
  */
 
 #include "proxy/dispatcher.h"
+#include "constants.h"
 #if CONFIG_EBURNET_VLESS
 #include "proxy/protocols/vless.h"
 #include "proxy/protocols/vless_xhttp.h"
@@ -658,7 +659,7 @@ int dispatcher_select_server(dispatcher_state_t *ds,
             continue;
         if (fallback < 0)
             fallback = idx;
-        if (ds->health[i].available && ds->health[i].fail_count < 3)
+        if (ds->health[i].available && ds->health[i].fail_count < HEALTH_MAX_FAILURES)
             return idx;
     }
 
@@ -684,7 +685,7 @@ void dispatcher_server_result(dispatcher_state_t *ds,
         } else {
             ds->health[i].fail_count++;
             ds->health[i].last_check = time(NULL);
-            if (ds->health[i].fail_count >= 3) {
+            if (ds->health[i].fail_count >= HEALTH_MAX_FAILURES) {
                 ds->health[i].available = false;
                 log_msg(LOG_WARN,
                     "Сервер %d недоступен (%u ошибок подряд)",

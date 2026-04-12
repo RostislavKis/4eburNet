@@ -496,7 +496,7 @@ int main(int argc, char *argv[])
     /* Политика маршрутизации — ip rule и ip route */
     policy_check_conflicts();
     if (strcmp(cfg_ptr->mode, "tun") == 0) {
-        policy_init_tun("tun0");
+        policy_init_tun(cfg_ptr->tun_iface);
     } else if (strcmp(cfg_ptr->mode, "direct") == 0) {
         /* в direct режиме правила маршрутизации не нужны */
     } else {
