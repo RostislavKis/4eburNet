@@ -653,9 +653,8 @@ int dispatcher_select_server(dispatcher_state_t *ds,
     int fallback = -1;
     for (int i = 0; i < ds->health_count; i++) {
         int idx = ds->health[i].server_idx;
-        if (idx >= cfg->server_count)
-            continue;
-        if (!cfg->servers[idx].enabled)
+        const ServerConfig *sc = config_get_server(cfg, idx);
+        if (!sc || !sc->enabled)
             continue;
         if (fallback < 0)
             fallback = idx;
@@ -1151,7 +1150,11 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
         close(conn->fd);
         return;
     }
-    const ServerConfig *server = &cfg->servers[idx];
+    const ServerConfig *server = config_get_server(cfg, idx);
+    if (!server) {
+        log_msg(LOG_WARN, "relay: сервер idx=%d не найден", idx);
+        close(conn->fd); return;
+    }
 
     /* Выделить слот */
     relay_conn_t *r = relay_alloc(ds);
@@ -1290,8 +1293,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
                 /* Запустить протокольное рукопожатие (неблокирующее) */
                 const ServerConfig *server = NULL;
-                if (g_config && r->server_idx < g_config->server_count)
-                    server = &g_config->servers[r->server_idx];
+                if (g_config && r->server_idx >= 0)
+                    server = config_get_server(g_config, r->server_idx);
 
                 if (server) {
 #if CONFIG_EBURNET_STLS
@@ -1356,8 +1359,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 tls_step_result_t tls_rc = tls_connect_step(&r->tls);
                 if (tls_rc == TLS_OK) {
                     const ServerConfig *server = NULL;
-                    if (g_config && r->server_idx < g_config->server_count)
-                        server = &g_config->servers[r->server_idx];
+                    if (g_config && r->server_idx >= 0)
+                        server = config_get_server(g_config, r->server_idx);
 
                     /* DEC-025: диагностика Reality shortId */
                     if (server && server->reality_short_id[0]) {
@@ -1542,8 +1545,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     r->state = RELAY_XHTTP_UP_REQ;
                     /* Сразу отправляем POST */
                     const ServerConfig *srv = NULL;
-                    if (g_config && r->server_idx < g_config->server_count)
-                        srv = &g_config->servers[r->server_idx];
+                    if (g_config && r->server_idx >= 0)
+                        srv = config_get_server(g_config, r->server_idx);
                     if (!srv || xhttp_send_upload_request(r->xhttp,
                             &r->dst, srv->uuid) < 0) {
                         relay_free(ds, r);
@@ -1735,8 +1738,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 /* hrc == 1: handshake завершён → запустить inner protocol */
                 const ServerConfig *server = NULL;
                 if (g_config && r->server_idx >= 0 &&
-                    r->server_idx < g_config->server_count)
-                    server = &g_config->servers[r->server_idx];
+                    r->server_idx >= 0)
+                    server = config_get_server(g_config, r->server_idx);
                 if (server) {
                     /* Для TLS inner protocols: I/O callbacks через STLS */
                     const char *pn = server->protocol;

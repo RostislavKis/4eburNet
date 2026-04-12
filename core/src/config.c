@@ -733,6 +733,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                     } else if (strcmp(key, "tolerance_ms") == 0) {
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0') g->tolerance_ms = (int)v;
+                    } else if (strcmp(key, "providers") == 0) {
+                        free(g->providers);
+                        g->providers = strdup(value);
+                    } else if (strcmp(key, "filter") == 0) {
+                        snprintf(g->filter, sizeof(g->filter), "%s", value);
                     } else if (strcmp(key, "enabled") == 0) {
                         if (strcmp(value, "1") == 0)      g->enabled = true;
                         else if (strcmp(value, "0") == 0) g->enabled = false;
@@ -997,6 +1002,7 @@ void config_free(EburNetConfig *cfg)
         }
     for (int gi = 0; gi < cfg->proxy_group_count; gi++) {
         ProxyGroupConfig *g = &cfg->proxy_groups[gi];
+        free(g->providers); g->providers = NULL;
         for (int si = 0; si < g->server_count; si++)
             free(g->servers[si]);
         free(g->servers);
