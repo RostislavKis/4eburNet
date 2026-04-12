@@ -162,16 +162,17 @@ const methods = {
         call: function(req) {
             let running = is_running();
             if (!running)
-                return { running: false, uptime: 0,
+                return { running: false, uptime: 0, version: 'unknown',
                          mode: uci_get_section('4eburnet', 'main')['mode'] ?? 'rules',
                          profile: 'unknown', timestamp: time() };
             let d = ipc_json('status');
             if (d.error)
-                return { running: true, uptime: 0,
+                return { running: true, uptime: 0, version: 'unknown',
                          mode: uci_get_section('4eburnet', 'main')['mode'] ?? 'rules',
                          profile: 'unknown', timestamp: time() };
             return {
                 running:   true,
+                version:   d.version  ?? 'unknown',
                 uptime:    d.uptime   ?? 0,
                 mode:      d.mode     ?? uci_get_section('4eburnet', 'main')['mode'] ?? 'rules',
                 profile:   d.profile  ?? 'unknown',
