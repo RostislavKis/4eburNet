@@ -102,13 +102,44 @@ async function ebRefreshWan() {
     ebWanIp = d.ip;
     const el = document.getElementById('wan-ip-disp');
     if (el) el.textContent = ebWanIp;
-    ebBuildVless();
   }
+  ebBuildVless();
 }
 
-function ebBuildVless() {
-  ebVlessUrl = 'vless://UUID@' + ebWanIp + ':443?security=reality&pbk=PBK&sid=SID&sni=SNI&type=tcp&fp=chrome#4eburNet';
+async function ebBuildVless() {
   const el = document.getElementById('vless-url-disp');
+  const box = document.getElementById('qr-box');
+
+  /* Найти первый VLESS+Reality сервер из кон��ига */
+  const d = await ebGet('/server_list');
+  const servers = (d && d.servers) || [];
+  let srv = null;
+  for (let i = 0; i < servers.length; i++) {
+    if (servers[i].protocol === 'vless' && servers[i].reality_pbk) {
+      srv = servers[i]; break;
+    }
+  }
+  if (!srv) {
+    if (el) el.textContent = '—';
+    if (box) box.innerHTML = '<span style="color:#545d68;font-size:10px">Нет VLESS+Reality серверов</span>';
+    return;
+  }
+
+  const host = ebWanIp || srv.address || '';
+  const port = srv.port || 443;
+  const uuid = srv.uuid || '';
+  const sni  = srv.address || host;
+  const pbk  = srv.reality_pbk || '';
+  const sid  = srv.reality_sid || '';
+  const name = encodeURIComponent(srv.name || '4eburNet');
+
+  ebVlessUrl = 'vless://' + uuid + '@' + host + ':' + port
+    + '?type=tcp&security=reality&fp=chrome'
+    + '&sni=' + encodeURIComponent(sni)
+    + '&pbk=' + encodeURIComponent(pbk)
+    + '&sid=' + encodeURIComponent(sid)
+    + '#' + name;
+
   if (el) el.textContent = ebVlessUrl;
   ebGenQR(ebVlessUrl);
 }
