@@ -241,8 +241,9 @@ void ipc_process(int server_fd, EburNetState *state)
         case DEVICE_FULL:   profile = "FULL";   break;
         }
         snprintf(buf, sizeof(buf),
-                 "{\"status\":\"running\",\"profile\":\"%s\",\"uptime\":%ld}",
-                 profile, (long)uptime);
+                 "{\"status\":\"running\",\"version\":\"%s\","
+                 "\"profile\":\"%s\",\"uptime\":%ld}",
+                 EBURNET_VERSION, profile, (long)uptime);
         ipc_respond(client_fd, buf);
         break;
     }
