@@ -16,7 +16,7 @@
 #ifndef EBURNET_CRYPTO_QUIC_H
 #define EBURNET_CRYPTO_QUIC_H
 
-#ifdef CONFIG_EBURNET_DOQ
+#if CONFIG_EBURNET_DOQ || CONFIG_EBURNET_QUIC
 
 #include <stdint.h>
 #include <stddef.h>
@@ -133,5 +133,5 @@ void quic_hp_remove(quic_hp_ctx_t *ctx,
                     uint8_t *hdr, size_t hdr_len,
                     const uint8_t *sample);
 
-#endif /* CONFIG_EBURNET_DOQ */
+#endif /* CONFIG_EBURNET_DOQ || CONFIG_EBURNET_QUIC */
 #endif /* EBURNET_CRYPTO_QUIC_H */
