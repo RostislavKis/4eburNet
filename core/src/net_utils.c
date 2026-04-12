@@ -6,6 +6,7 @@
  */
 
 #include "net_utils.h"
+#include "constants.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -461,7 +462,7 @@ int net_http_fetch_ip(const char *url,
     int fd = socket(addr_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return -1;
 
-    struct timeval tv = { .tv_sec = 10 };
+    struct timeval tv = { .tv_sec = TIMEOUT_NET_FETCH_SEC };
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 

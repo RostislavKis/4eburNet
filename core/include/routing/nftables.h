@@ -21,9 +21,10 @@
 #define NFT_SET_PROXY6      "proxy_addrs6"
 #define NFT_SET_BLOCK6      "block_addrs6"
 
-/* Метки fwmark */
-#define NFT_MARK_PROXY      0x01    /* для TPROXY */
-#define NFT_MARK_TUN        0x02    /* для TUN (шаг 1.3) */
+/* Метки fwmark — единый источник в constants.h */
+#include "constants.h"
+#define NFT_MARK_PROXY      FWMARK_PROXY
+#define NFT_MARK_TUN        FWMARK_TUN
 
 /* Порт TPROXY по умолчанию */
 #define NFT_TPROXY_PORT     7893

@@ -199,31 +199,41 @@ policy_result_t policy_init_tproxy(void)
 {
     policy_result_t rc;
 
-    /* IPv4: ip rule fwmark 0x01 → table 100 */
+    char cmd[128];
+
+    /* IPv4: ip rule fwmark → table */
     if (!policy_rule_exists(POLICY_MARK_TPROXY, POLICY_TABLE_TPROXY, false)) {
-        rc = policy_exec("rule add fwmark 0x01 table 100 prio 1000");
+        snprintf(cmd, sizeof(cmd), "rule add fwmark 0x%02x table %d prio %d",
+                 POLICY_MARK_TPROXY, POLICY_TABLE_TPROXY, POLICY_PRIO_TPROXY);
+        rc = policy_exec(cmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             return rc;
     }
 
     /* IPv4: весь помеченный трафик → loopback (для TPROXY перехвата) */
     if (!policy_route_exists(POLICY_TABLE_TPROXY, "local", false)) {
-        rc = policy_exec("route add local 0.0.0.0/0 dev lo table 100");
+        snprintf(cmd, sizeof(cmd), "route add local 0.0.0.0/0 dev lo table %d",
+                 POLICY_TABLE_TPROXY);
+        rc = policy_exec(cmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             return rc;
     }
 
-    /* IPv6: ip -6 rule fwmark 0x01 → table 100 */
+    /* IPv6: ip -6 rule fwmark → table */
     if (!policy_rule_exists(POLICY_MARK_TPROXY, POLICY_TABLE_TPROXY, true)) {
-        rc = policy_exec("-6 rule add fwmark 0x01 table 100 prio 1000");
+        snprintf(cmd, sizeof(cmd), "-6 rule add fwmark 0x%02x table %d prio %d",
+                 POLICY_MARK_TPROXY, POLICY_TABLE_TPROXY, POLICY_PRIO_TPROXY);
+        rc = policy_exec(cmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             log_msg(LOG_WARN, "IPv6 rule для TPROXY не создан: %s",
                     policy_strerror(rc));
     }
 
-    /* IPv6: local ::/0 dev lo table 100 */
+    /* IPv6: local ::/0 dev lo table */
     if (!policy_route_exists(POLICY_TABLE_TPROXY, "local", true)) {
-        rc = policy_exec("-6 route add local ::/0 dev lo table 100");
+        snprintf(cmd, sizeof(cmd), "-6 route add local ::/0 dev lo table %d",
+                 POLICY_TABLE_TPROXY);
+        rc = policy_exec(cmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             log_msg(LOG_WARN, "IPv6 route для TPROXY не создан: %s",
                     policy_strerror(rc));
@@ -247,17 +257,20 @@ policy_result_t policy_init_tun(const char *dev)
 
     policy_result_t rc;
 
-    /* IPv4: ip rule fwmark 0x02 → table 200 */
+    /* IPv4: ip rule fwmark → table */
     if (!policy_rule_exists(POLICY_MARK_TUN, POLICY_TABLE_TUN, false)) {
-        rc = policy_exec("rule add fwmark 0x02 table 200 prio 1001");
+        char rcmd[128];
+        snprintf(rcmd, sizeof(rcmd), "rule add fwmark 0x%02x table %d prio %d",
+                 POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
+        rc = policy_exec(rcmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             return rc;
     }
 
-    /* IPv4: default dev [dev] table 200 */
+    /* IPv4: default dev [dev] table */
     char cmd[POLICY_CMD_MAX];
     snprintf(cmd, sizeof(cmd),
-             "route add default dev %s table 200", dev);
+             "route add default dev %s table %d", dev, POLICY_TABLE_TUN);
 
     /* Проверяем что интерфейс существует */
     char check[POLICY_CMD_MAX];
@@ -277,7 +290,10 @@ policy_result_t policy_init_tun(const char *dev)
 
     /* IPv6 */
     if (!policy_rule_exists(POLICY_MARK_TUN, POLICY_TABLE_TUN, true)) {
-        rc = policy_exec("-6 rule add fwmark 0x02 table 200 prio 1001");
+        char rcmd[128];
+        snprintf(rcmd, sizeof(rcmd), "-6 rule add fwmark 0x%02x table %d prio %d",
+                 POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
+        rc = policy_exec(rcmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             log_msg(LOG_WARN, "IPv6 rule для TUN не создан: %s",
                     policy_strerror(rc));
@@ -285,7 +301,7 @@ policy_result_t policy_init_tun(const char *dev)
 
     if (dev_exists) {
         snprintf(cmd, sizeof(cmd),
-                 "-6 route add default dev %s table 200", dev);
+                 "-6 route add default dev %s table %d", dev, POLICY_TABLE_TUN);
         rc = policy_exec(cmd);
         if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
             log_msg(LOG_WARN, "IPv6 route для TUN не создан: %s",
@@ -303,17 +319,31 @@ policy_result_t policy_init_tun(const char *dev)
 
 void policy_cleanup(void)
 {
-    /* Таблица 100 (TPROXY) — IPv6 сначала, потом IPv4 */
-    policy_exec_quiet("-6 route del local ::/0 dev lo table 100");
-    policy_exec_quiet("-6 rule del fwmark 0x01 table 100 prio 1000");
-    policy_exec_quiet("route del local 0.0.0.0/0 dev lo table 100");
-    policy_exec_quiet("rule del fwmark 0x01 table 100 prio 1000");
+    char cmd[128];
 
-    /* Таблица 200 (TUN) */
-    policy_exec_quiet("-6 route flush table 200");
-    policy_exec_quiet("-6 rule del fwmark 0x02 table 200 prio 1001");
-    policy_exec_quiet("route flush table 200");
-    policy_exec_quiet("rule del fwmark 0x02 table 200 prio 1001");
+    /* Таблица TPROXY — IPv6 сначала, потом IPv4 */
+    snprintf(cmd, sizeof(cmd), "-6 route del local ::/0 dev lo table %d", POLICY_TABLE_TPROXY);
+    policy_exec_quiet(cmd);
+    snprintf(cmd, sizeof(cmd), "-6 rule del fwmark 0x%02x table %d prio %d",
+             POLICY_MARK_TPROXY, POLICY_TABLE_TPROXY, POLICY_PRIO_TPROXY);
+    policy_exec_quiet(cmd);
+    snprintf(cmd, sizeof(cmd), "route del local 0.0.0.0/0 dev lo table %d", POLICY_TABLE_TPROXY);
+    policy_exec_quiet(cmd);
+    snprintf(cmd, sizeof(cmd), "rule del fwmark 0x%02x table %d prio %d",
+             POLICY_MARK_TPROXY, POLICY_TABLE_TPROXY, POLICY_PRIO_TPROXY);
+    policy_exec_quiet(cmd);
+
+    /* Таблица TUN */
+    snprintf(cmd, sizeof(cmd), "-6 route flush table %d", POLICY_TABLE_TUN);
+    policy_exec_quiet(cmd);
+    snprintf(cmd, sizeof(cmd), "-6 rule del fwmark 0x%02x table %d prio %d",
+             POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
+    policy_exec_quiet(cmd);
+    snprintf(cmd, sizeof(cmd), "route flush table %d", POLICY_TABLE_TUN);
+    policy_exec_quiet(cmd);
+    snprintf(cmd, sizeof(cmd), "rule del fwmark 0x%02x table %d prio %d",
+             POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
+    policy_exec_quiet(cmd);
 
     log_msg(LOG_INFO, "Политика маршрутизации очищена");
 }
