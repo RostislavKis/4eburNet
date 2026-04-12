@@ -310,7 +310,12 @@ static bool resolve_upstream_addr(const dns_server_t *ds, dns_action_t action,
 #define DNS_RATE_LIMIT  100
 #define DNS_RATE_WINDOW 1
 
-/* Обработка одного UDP DNS запроса — неблокирующий async путь */
+/*
+ * Обработка одного UDP DNS запроса — неблокирующий async путь.
+ * Почему одна функция: запрос проходит pipeline (rate-limit → cache →
+ * policy → fake-ip → DoH/DoT → UDP upstream) с ранним выходом на каждом
+ * этапе. Разбиение на функции усложнит передачу контекста client_addr/query.
+ */
 static void handle_udp_query(dns_server_t *ds)
 {
     uint8_t *pkt = malloc(DNS_MAX_PACKET);

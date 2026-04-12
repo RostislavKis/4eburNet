@@ -405,6 +405,11 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
     return 0;
 }
 
+/*
+ * Единая точка входа парсинга UCI конфига. Монолитная функция —
+ * секции server/proxy_group/traffic_rule ссылаются друг на друга,
+ * однопроходный парсинг резолвит ссылки без повторного чтения файла.
+ */
 int config_load(const char *path, EburNetConfig *cfg)
 {
     /* L-11: O_CLOEXEC через open()+fdopen() */
