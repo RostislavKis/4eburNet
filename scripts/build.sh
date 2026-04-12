@@ -18,7 +18,7 @@ msg_fail() { printf "${RED}[ОШИБКА]${NC} %s\n" "$*"; }
 msg_warn() { printf "${YELLOW}[!]${NC} %s\n" "$*"; }
 
 # Пути к SDK (переопределить через переменные окружения)
-SDK_BASE="${SDK_BASE:-$HOME/phoenix-router-dev/sdk}"
+SDK_BASE="${SDK_BASE:-$HOME/4eburnet-dev/sdk}"
 SDK_MIPSEL="${SDK_MIPSEL:-$SDK_BASE/mipsel/sdk-mipsel}"
 SDK_AARCH64="${SDK_AARCH64:-$SDK_BASE/aarch64/sdk-aarch64}"
 
