@@ -19,6 +19,7 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <poll.h>
 #include <sys/syscall.h>
 #include <stdint.h>
 #include <arpa/inet.h>
@@ -600,6 +601,85 @@ int net_spawn_tcp_ping(const char *ip, uint16_t port, int timeout_ms)
         _exit(1);
     }
     /* Родительский: закрыть write end, вернуть read end */
+    close(fds[1]);
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    return fds[0];
+}
+
+/* UDP probe: connect + send 1 байт + poll ответ/ICMP */
+static void child_do_udp_ping(const char *ip, uint16_t port,
+                               int timeout_ms, int pipe_wr)
+{
+    struct sockaddr_storage ss;
+    socklen_t ss_len;
+    memset(&ss, 0, sizeof(ss));
+    struct sockaddr_in  *s4 = (struct sockaddr_in  *)&ss;
+    struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&ss;
+
+    if (inet_pton(AF_INET, ip, &s4->sin_addr) == 1) {
+        s4->sin_family = AF_INET;
+        s4->sin_port   = htons(port);
+        ss_len = sizeof(*s4);
+    } else if (inet_pton(AF_INET6, ip, &s6->sin6_addr) == 1) {
+        s6->sin6_family = AF_INET6;
+        s6->sin6_port   = htons(port);
+        ss_len = sizeof(*s6);
+    } else {
+        write(pipe_wr, "ERR\n", 4); _exit(0);
+    }
+
+    int fd = socket((int)ss.ss_family, SOCK_DGRAM, 0);
+    if (fd < 0) { write(pipe_wr, "ERR\n", 4); _exit(0); }
+
+    /* connect() для UDP — привязывает ICMP errors к этому сокету */
+    if (connect(fd, (struct sockaddr *)&ss, ss_len) < 0) {
+        close(fd); write(pipe_wr, "ERR\n", 4); _exit(0);
+    }
+
+    struct timespec t1, t2;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    send(fd, "\x00", 1, 0);
+
+    /* Ждём ответ или ICMP error */
+    struct pollfd pfd = { .fd = fd, .events = POLLIN | POLLERR };
+    int pr = poll(&pfd, 1, timeout_ms);
+
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    int64_t ms = (int64_t)(t2.tv_sec - t1.tv_sec) * 1000
+               + (int64_t)(t2.tv_nsec - t1.tv_nsec) / 1000000;
+
+    if (pr > 0) {
+        /* POLLERR = ICMP unreachable → хост жив, порт ответил ICMP
+         * POLLIN  = получили данные → хост жив
+         * Оба случая = host reachable */
+        char buf[32];
+        int n = snprintf(buf, sizeof(buf), "OK %lld\n", (long long)ms);
+        write(pipe_wr, buf, (size_t)n);
+    } else {
+        /* timeout — хост недоступен или пакет отфильтрован */
+        write(pipe_wr, "ERR\n", 4);
+    }
+    close(fd);
+    _exit(0);
+}
+
+int net_spawn_udp_ping(const char *ip, uint16_t port, int timeout_ms)
+{
+    if (!ip || !port) return -1;
+
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]); close(fds[1]); return -1;
+    }
+    if (pid == 0) {
+        close(fds[0]);
+        fcntl(fds[1], F_SETFD, 0);
+        child_do_udp_ping(ip, port, timeout_ms, fds[1]);
+        _exit(1);
+    }
     close(fds[1]);
     fcntl(fds[0], F_SETFL, O_NONBLOCK);
     return fds[0];
