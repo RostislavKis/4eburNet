@@ -313,14 +313,15 @@ static bool resolve_upstream_addr(const dns_server_t *ds, dns_action_t action,
 /* Обработка одного UDP DNS запроса — неблокирующий async путь */
 static void handle_udp_query(dns_server_t *ds)
 {
-    uint8_t pkt[DNS_MAX_PACKET];
+    uint8_t *pkt = malloc(DNS_MAX_PACKET);
+    if (!pkt) return;
     struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    ssize_t n = recvfrom(ds->udp_fd, pkt, sizeof(pkt), MSG_DONTWAIT,
+    ssize_t n = recvfrom(ds->udp_fd, pkt, DNS_MAX_PACKET, MSG_DONTWAIT,
                          (struct sockaddr *)&client_addr, &client_len);
     if (n <= 0)
-        return;
+        goto out;
 
     stats_dns_query();
 
@@ -348,7 +349,7 @@ static void handle_udp_query(dns_server_t *ds)
         if (now_t - ds->rate_table[slot].window_start < DNS_RATE_WINDOW) {
             if (++ds->rate_table[slot].count > DNS_RATE_LIMIT) {
                 log_msg(LOG_DEBUG, "DNS: rate limit (slot %d)", slot);
-                return;
+                goto out;
             }
         } else {
             ds->rate_table[slot].window_start = now_t;
@@ -367,7 +368,7 @@ skip_rate:;
     dns_query_t q;
     if (dns_parse_query(pkt, n, &q) < 0) {
         log_msg(LOG_DEBUG, "DNS: невалидный запрос (%zd байт)", n);
-        return;
+        goto out;
     }
 
     log_msg(LOG_DEBUG, "DNS: запрос %s (type %u)", q.qname, q.qtype);
@@ -382,7 +383,7 @@ skip_rate:;
                    (struct sockaddr *)&client_addr, client_len) < 0)
             log_msg(LOG_DEBUG, "DNS: sendto (cache): %s", strerror(errno));
         log_msg(LOG_DEBUG, "DNS: %s из кэша", q.qname);
-        return;
+        goto out;
     }
 
     /* Nameserver-policy: проверить до стандартного routing */
@@ -412,7 +413,7 @@ skip_rate:;
                 };
                 epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_ADD,
                           ds->pending.slots[idx].upstream_fd, &ev);
-                return;
+                goto out;
             }
             log_msg(LOG_WARN, "DNS policy: pending полон, fallback");
         } else if (policy->type == DNS_UPSTREAM_DOT) {
@@ -445,7 +446,7 @@ skip_rate:;
                                         &policy_cfg,
                                         pkt, (size_t)n, q.id,
                                         async_doh_dot_cb, ctx) == 0)
-                    return;
+                    goto out;
                 free(ctx);
             }
             log_msg(LOG_WARN, "DNS policy DoT: async failed, fallback");
@@ -476,7 +477,7 @@ skip_rate:;
                                         &policy_cfg,
                                         pkt, (size_t)n, q.id,
                                         async_doh_dot_cb, ctx) == 0)
-                    return;
+                    goto out;
                 free(ctx);
             }
             log_msg(LOG_WARN, "DNS policy DoH: async failed, fallback");
@@ -490,7 +491,7 @@ skip_rate:;
     /* BLOCK — мгновенный NXDOMAIN, без upstream */
     if (action == DNS_ACTION_BLOCK) {
         uint8_t *reply = malloc(DNS_MAX_PACKET);
-        if (!reply) return;
+        if (!reply) goto out;
         int nx_len = dns_build_nxdomain(&q, reply, DNS_MAX_PACKET);
         if (nx_len > 0) {
             if (sendto(ds->udp_fd, reply, nx_len, 0,
@@ -499,7 +500,7 @@ skip_rate:;
             log_msg(LOG_DEBUG, "DNS: %s -> NXDOMAIN (blocked)", q.qname);
         }
         free(reply);
-        return;
+        goto out;
     }
 
     /* BYPASS домены НИКОГДА не идут через DoH/DoT proxy.
@@ -552,7 +553,7 @@ skip_rate:;
                 }
                 free(reply);
             }
-            return;  /* ответили fake IP, реальный upstream не нужен */
+            goto out;  /* ответили fake IP, реальный upstream не нужен */
         }
         /* fake_ip_alloc вернул 0 — пул исчерпан, fallback реальный upstream */
         log_msg(LOG_WARN,
@@ -582,7 +583,7 @@ skip_rate:;
                 }
                 free(nodata);
             }
-            return;
+            goto out;
         }
     }
 #endif /* CONFIG_EBURNET_FAKE_IP */
@@ -595,7 +596,7 @@ skip_rate:;
             (d->dot_enabled && d->dot_server_ip[0])) {
 
             dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
-            if (!ctx) return;
+            if (!ctx) goto out;
             ctx->ds            = ds;
             ctx->client_addr   = client_addr;
             ctx->client_addrlen = client_len;
@@ -608,7 +609,7 @@ skip_rate:;
                 if (async_dns_doh_start(&ds->async_pool, d, pkt, (size_t)n,
                                         q.id, async_doh_dot_cb, ctx) == 0) {
                     log_msg(LOG_DEBUG, "DNS: %s -> async DoH", q.qname);
-                    return;  /* ctx освободится в callback */
+                    goto out;  /* ctx освободится в callback */
                 }
                 log_msg(LOG_WARN,
                     "DNS: async DoH start failed (%s), пробуем DoT", q.qname);
@@ -619,7 +620,7 @@ skip_rate:;
                 if (async_dns_dot_start(&ds->async_pool, d, pkt, (size_t)n,
                                         q.id, async_doh_dot_cb, ctx) == 0) {
                     log_msg(LOG_DEBUG, "DNS: %s -> async DoT", q.qname);
-                    return;  /* ctx освободится в callback */
+                    goto out;  /* ctx освободится в callback */
                 }
                 log_msg(LOG_WARN,
                     "DNS: async DoT start failed (%s), dropped", q.qname);
@@ -630,7 +631,7 @@ skip_rate:;
             log_msg(LOG_WARN,
                 "DNS: async DoH/DoT пул исчерпан, %s dropped (клиент повторит)",
                 q.qname);
-            return;
+            goto out;
         }
     }
 #endif /* CONFIG_EBURNET_DOH */
@@ -641,7 +642,7 @@ skip_rate:;
     uint16_t upstream_port = 53;
     if (!resolve_upstream_addr(ds, action, &upstream_ip, &upstream_port)) {
         log_msg(LOG_WARN, "DNS: upstream не настроен для action %d", action);
-        return;
+        goto out;
     }
 
     int idx = dns_pending_add(&ds->pending, &q, pkt, n,
@@ -650,7 +651,7 @@ skip_rate:;
     if (idx < 0) {
         log_msg(LOG_WARN, "DNS: pending очередь полна, сброс запроса %s",
                 q.qname);
-        return;
+        goto out;
     }
 
     /* Заполнить fallback upstream если настроен */
@@ -676,7 +677,7 @@ skip_rate:;
                   ds->pending.slots[idx].upstream_fd, &ev) < 0) {
         log_msg(LOG_DEBUG, "DNS: epoll_ctl ADD upstream: %s", strerror(errno));
         dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
-        return;
+        goto out;
     }
 
     /* Parallel query — отправить запрос одновременно на fallback */
@@ -728,6 +729,8 @@ skip_rate:;
 
     log_msg(LOG_DEBUG, "DNS: %s -> async upstream %s:%u (slot %d)",
             q.qname, upstream_ip, upstream_port, idx);
+out:
+    free(pkt);
 }
 
 /* ── TCP DNS async state machine (audit_v9) ── */
@@ -1024,16 +1027,17 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     int idx = (int)(p - ds->pending.slots);
 
     /* resp — указатель, может переключиться на tcp_buf при TC retry */
-    uint8_t  resp_buf[DNS_MAX_PACKET];
+    uint8_t *resp_buf = malloc(DNS_MAX_PACKET);
+    if (!resp_buf) return;
     uint8_t *resp   = resp_buf;
     uint8_t *tcp_buf = NULL;  /* для TC retry cleanup */
 
-    ssize_t resp_n = recv(fd, resp_buf, sizeof(resp_buf), MSG_DONTWAIT);
+    ssize_t resp_n = recv(fd, resp_buf, DNS_MAX_PACKET, MSG_DONTWAIT);
     if (resp_n <= 2) {
         log_msg(LOG_DEBUG, "DNS: upstream пустой ответ для %s", p->qname);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
         dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
-        return;
+        goto out_resp;
     }
 
     /* M-02: базовая валидация DNS ответа */
@@ -1041,13 +1045,13 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
         log_msg(LOG_DEBUG, "DNS: upstream ответ слишком короткий (%zd)", resp_n);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
         dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
-        return;
+        goto out_resp;
     }
     if (!(resp[2] & 0x80)) {
         log_msg(LOG_DEBUG, "DNS: upstream ответ без QR=1 для %s", p->qname);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
         dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
-        return;
+        goto out_resp;
     }
 
     /* Проверить upstream ID — parallel query использует другой ID */
@@ -1061,7 +1065,7 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
                 resp_id, expected_id);
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
         /* Не удалять слот — ждём правильный ответ от другого fd */
-        return;
+        goto out_resp;
     }
 
     /* Восстановить оригинальный client ID */
@@ -1107,7 +1111,7 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
         }
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
         dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
-        return;
+        goto out_resp;
     }
 
     /* TC bit (truncated) — TCP retry отключён (audit_v9: блокирует event loop).
@@ -1151,6 +1155,8 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
     epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL, fd, NULL);
     dns_pending_complete(&ds->pending, idx, ds->master_epoll_fd);
     free(tcp_buf);  /* NULL-safe */
+out_resp:
+    free(resp_buf);
 }
 
 void dns_server_handle_event(dns_server_t *ds, int fd, int master_epoll_fd,
