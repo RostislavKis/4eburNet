@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require rpc';
+'require ui';
 
 var callDnsGet = rpc.declare({ object: '4eburnet', method: 'dns_get' });
 var callDnsSet = rpc.declare({ object: '4eburnet', method: 'dns_set' });
@@ -138,7 +139,7 @@ return view.extend({
                     statusEl.textContent = '✕ ' + ((r && r.error) || _('ошибка'));
                     statusEl.style.color = '#f85149';
                 }
-            });
+            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
         }
 
         return E('div', {}, [
