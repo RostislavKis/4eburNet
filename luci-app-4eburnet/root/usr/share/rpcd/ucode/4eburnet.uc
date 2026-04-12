@@ -129,11 +129,12 @@ function ipc_json(cmd_name, payload) {
 
     if (payload) {
         // Payload через tmp файл + stdin redirect (нет shell injection)
-        tmp = '/tmp/.4eburnet-ipc-' + time() + '.json';
+        tmp = '/tmp/.4eburnet-ipc-' + time() + '-' + math.floor(math.random() * 0xFFFFFF) + '.json';
         let wf = fs.open(tmp, 'w');
         if (!wf) return { error: 'write tmp failed' };
         wf.write('' + payload);
         wf.close();
+        fs.chmod(tmp, 0o600);
         cmdline += ' < ' + tmp;
     }
 
@@ -230,6 +231,8 @@ const methods = {
 
             if (!match(geo_dir, /^[a-zA-Z0-9\/_.\-]+$/))
                 return { ok: false, error: 'invalid geo_dir: ' + geo_dir };
+            if (!match(base, /^https?:\/\/[a-zA-Z0-9.\-_]+(:[0-9]+)?(\/[a-zA-Z0-9.\-_\/]*)?$/))
+                return { ok: false, error: 'invalid geo_url: ' + base };
 
             system('mkdir -p ' + geo_dir);
             let files = ['geoip-ru.lst', 'geosite-ru.lst', 'geosite-ads.lst'];
@@ -865,9 +868,10 @@ const methods = {
             if (!fs.access(sub_py, 'r'))
                 return { ok: false, error: 'sub_convert.py not found' };
 
-            let tmp_in  = '/tmp/4eburnet-sub-input.tmp';
-            let tmp_out = '/tmp/4eburnet-sub-output.uci';
-            let tmp_err = '/tmp/4eburnet-sub-err.log';
+            let rnd = time() + '-' + math.floor(math.random() * 0xFFFFFF);
+            let tmp_in  = '/tmp/.4eburnet-sub-' + rnd + '-in.tmp';
+            let tmp_out = '/tmp/.4eburnet-sub-' + rnd + '-out.uci';
+            let tmp_err = '/tmp/.4eburnet-sub-' + rnd + '-err.log';
 
             /* Записать content во временный файл если передан напрямую */
             if (content) {
@@ -875,6 +879,7 @@ const methods = {
                 if (!f) return { ok: false, error: 'cannot write tmp file' };
                 f.write(content);
                 f.close();
+                fs.chmod(tmp_in, 0o600);
             }
 
             /* Валидация fmt по allowlist — подстановка в shell без кавычек */
@@ -913,6 +918,7 @@ const methods = {
             if (ef) { log = ef.read('all'); ef.close(); }
 
             if (rc !== 0) {
+                fs.unlink(tmp_out);
                 fs.unlink(tmp_err);
                 return { ok: false, error: trim(log) || 'convert failed' };
             }
