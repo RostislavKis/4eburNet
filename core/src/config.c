@@ -256,7 +256,9 @@ static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
 /* Применение опции к текущему серверу */
 static void apply_server_option(ServerConfig *srv, const char *key, const char *value)
 {
-    if (strcmp(key, "enabled") == 0) {
+    if (strcmp(key, "name") == 0) {
+        snprintf(srv->name, sizeof(srv->name), "%s", value);
+    } else if (strcmp(key, "enabled") == 0) {
         if (strcmp(value, "1") == 0)      srv->enabled = true;
         else if (strcmp(value, "0") == 0) srv->enabled = false;
         else log_msg(LOG_WARN, "server.enabled: невалидное '%s', ожидается '0'/'1'", value);

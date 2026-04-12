@@ -98,13 +98,38 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
 
         /* Добавить серверы из провайдеров (use: + filter) */
         if (gc->providers && gc->providers[0]) {
+            /* Filter: попытаться POSIX ERE, fallback на exclude-list */
             regex_t fre;
-            bool has_filter = (gc->filter[0] != '\0');
-            if (has_filter &&
-                regcomp(&fre, gc->filter, REG_EXTENDED | REG_NOSUB) != 0) {
-                log_msg(LOG_WARN, "Группа %s: filter regex ошибка", gc->name);
-                has_filter = false;
+            bool use_regex = false;
+            bool use_exclude = false;
+            char *exclude_words[64];
+            int exclude_count = 0;
+
+            if (gc->filter[0]) {
+                if (regcomp(&fre, gc->filter, REG_EXTENDED | REG_NOSUB) == 0) {
+                    use_regex = true;
+                } else {
+                    /* Fallback: извлечь слова из (?!.*(w1|w2|...)) */
+                    char *f = gc->filter;
+                    const char *bar = strstr(f, "(");
+                    if (bar) {
+                        char *fbuf = strdup(bar);
+                        char *fsp = NULL;
+                        for (char *w = strtok_r(fbuf, "()|.*^$?!", &fsp); w;
+                             w = strtok_r(NULL, "()|.*^$?!", &fsp)) {
+                            if (w[0] && exclude_count < 64)
+                                exclude_words[exclude_count++] = strdup(w);
+                        }
+                        free(fbuf);
+                    }
+                    if (exclude_count > 0) {
+                        use_exclude = true;
+                        log_msg(LOG_DEBUG, "Группа %s: filter → %d exclude слов",
+                                gc->name, exclude_count);
+                    }
+                }
             }
+
             char *pcopy = strdup(gc->providers);
             char *sp = NULL;
             for (char *pn = strtok_r(pcopy, " ", &sp); pn;
@@ -112,10 +137,19 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
                 for (int pi = 0; pi < cfg->provider_server_count; pi++) {
                     const ServerConfig *ps = &cfg->provider_servers[pi];
                     if (strcmp(ps->source_provider, pn) != 0) continue;
-                    if (has_filter &&
+                    /* Применить filter */
+                    if (use_regex &&
                         regexec(&fre, ps->name, 0, NULL, 0) != 0) continue;
+                    if (use_exclude) {
+                        bool excluded = false;
+                        for (int ei = 0; ei < exclude_count; ei++) {
+                            if (strstr(ps->name, exclude_words[ei])) {
+                                excluded = true; break;
+                            }
+                        }
+                        if (excluded) continue;
+                    }
                     if (gs->server_count >= PROXY_GROUP_MAX_SERVERS) break;
-                    /* Unified idx: server_count + pi */
                     gs->servers[gs->server_count].server_idx =
                         cfg->server_count + pi;
                     gs->servers[gs->server_count].available = true;
@@ -124,7 +158,8 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
                 }
             }
             free(pcopy);
-            if (has_filter) regfree(&fre);
+            if (use_regex) regfree(&fre);
+            for (int ei = 0; ei < exclude_count; ei++) free(exclude_words[ei]);
         }
 
         gs->hc_pipe_fd    = -1;
