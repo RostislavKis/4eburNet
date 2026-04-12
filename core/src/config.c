@@ -9,7 +9,7 @@
 #include <fcntl.h>
 
 /* Максимальная длина строки в конфиге */
-#define MAX_LINE 1024
+#define MAX_LINE 8192
 
 /* Порт сервера по умолчанию */
 #define DEFAULT_SERVER_PORT 443
