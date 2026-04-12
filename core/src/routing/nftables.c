@@ -1189,12 +1189,12 @@ nft_result_t nft_offload_bypass_init(void)
         "        type filter hook forward priority %d; policy accept;\n"
         "\n"
         "        ip daddr @" NFT_SET_PROXY
-            " ct mark set 0x01\n"
+            " ct mark set 0x%02x\n"
         "        ip6 daddr @" NFT_SET_PROXY6
-            " ct mark set 0x01\n"
+            " ct mark set 0x%02x\n"
         "    }\n"
         "}\n",
-        NFT_PRIO_OFFLOAD);
+        NFT_PRIO_OFFLOAD, NFT_MARK_PROXY, NFT_MARK_PROXY);
 
     if (n < 0 || (size_t)n >= NFT_ATOMIC_MAX) {
         free(config);
