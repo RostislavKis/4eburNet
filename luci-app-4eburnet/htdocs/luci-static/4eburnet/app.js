@@ -153,7 +153,7 @@ function ebGenQR(text) {
       colorDark: '#000', colorLight: '#fff',
       correctLevel: QRCode.CorrectLevel.M});
   } else {
-    box.innerHTML = '<div style="font-size:9px;color:#545d68;text-align:center;padding:6px">QR<br>' + (ebWanIp || '—') + '</div>';
+    box.innerHTML = '<div style="font-size:9px;color:#545d68;text-align:center;padding:6px">QR<br>' + ebEsc(ebWanIp || '—') + '</div>';
   }
 }
 

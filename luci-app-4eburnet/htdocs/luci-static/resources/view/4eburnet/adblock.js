@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require rpc';
+'require ui';
 
 var callAdblockStatus = rpc.declare({ object: '4eburnet', method: 'adblock_status' });
 var callDnsSet        = rpc.declare({ object: '4eburnet', method: 'dns_set' });
@@ -50,7 +51,7 @@ return view.extend({
                     } else {
                         showStatus('✕ ' + ((r && r.error) || _('ошибка')), false);
                     }
-                });
+                }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
             }
         }, [
             status.enabled
@@ -85,7 +86,7 @@ return view.extend({
                         installStatusEl.textContent = '✕ ' + ((r && r.output) || (r && r.message) || _('ошибка'));
                         installStatusEl.style.color = '#f85149';
                     }
-                });
+                }).catch(function(e) { if (installBtn) installBtn.disabled = false; ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
             }
         }, [_('⬇ Установить 4eburnet-geodata')]);
 

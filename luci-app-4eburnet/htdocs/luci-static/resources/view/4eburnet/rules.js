@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require rpc';
+'require ui';
 
 var callRulesList  = rpc.declare({ object: '4eburnet', method: 'rules_list' });
 var callRuleAdd    = rpc.declare({
@@ -51,7 +52,7 @@ return view.extend({
                 if (!tbody) return;
                 while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
                 buildRows(rules, tbody);
-            });
+            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
         }
 
         function buildRows(ruleList, tbody) {
@@ -88,7 +89,7 @@ return view.extend({
                                     } else {
                                         showStatus('✕ ' + ((res && res.error) || _('ошибка')), false);
                                     }
-                                });
+                                }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                             }
                         }, ['✕']) : E('span', {style: 'color:#30363d'}, ['—'])
                     ])
@@ -210,7 +211,7 @@ return view.extend({
                                 } else {
                                     showStatus('✕ ' + ((r && r.error) || _('ошибка')), false);
                                 }
-                            });
+                            }).catch(function(e) { ui.addNotification(null, E('p', {}, ['RPC: ' + e]), 'danger'); });
                         }
                     }, [_('+ Добавить')])
                 ]),
