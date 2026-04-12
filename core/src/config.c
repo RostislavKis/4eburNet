@@ -704,7 +704,9 @@ int config_load(const char *path, EburNetConfig *cfg)
             case SECTION_PROXY_GROUP:
                 if (pg_count > 0) {
                     ProxyGroupConfig *g = &pg_tmp[pg_count - 1];
-                    if (strcmp(key, "type") == 0) {
+                    if (strcmp(key, "name") == 0) {
+                        snprintf(g->name, sizeof(g->name), "%s", value);
+                    } else if (strcmp(key, "type") == 0) {
                         if (strcmp(value, "select") == 0) g->type = PROXY_GROUP_SELECT;
                         else if (strcmp(value, "url-test") == 0) g->type = PROXY_GROUP_URL_TEST;
                         else if (strcmp(value, "fallback") == 0) g->type = PROXY_GROUP_FALLBACK;
