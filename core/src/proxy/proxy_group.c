@@ -50,9 +50,15 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
         if (!gc->enabled) continue;
         proxy_group_state_t *gs = &pgm->groups[pgm->count];
 
-        snprintf(gs->name, sizeof(gs->name), "%s", gc->name);
+        {   int _n = snprintf(gs->name, sizeof(gs->name), "%s", gc->name);
+            if (_n < 0 || (size_t)_n >= sizeof(gs->name))
+                log_msg(LOG_DEBUG, "snprintf truncated (non-critical): %s:%d", __FILE__, __LINE__);
+        }
         gs->type = gc->type;
-        snprintf(gs->test_url, sizeof(gs->test_url), "%s", gc->url);
+        {   int _n = snprintf(gs->test_url, sizeof(gs->test_url), "%s", gc->url);
+            if (_n < 0 || (size_t)_n >= sizeof(gs->test_url))
+                log_msg(LOG_DEBUG, "snprintf truncated (non-critical): %s:%d", __FILE__, __LINE__);
+        }
         gs->timeout_ms = gc->timeout_ms > 0 ? gc->timeout_ms : 5000;
         /* Ограничить таймаут по профилю — защита event loop */
         {

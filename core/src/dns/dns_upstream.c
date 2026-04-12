@@ -96,8 +96,11 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
     }
 
     tls_config_t cfg = {0};
-    if (sni && sni[0])
-        snprintf(cfg.sni, sizeof(cfg.sni), "%s", sni);
+    if (sni && sni[0]) {
+        int _n = snprintf(cfg.sni, sizeof(cfg.sni), "%s", sni);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg.sni))
+            log_msg(LOG_WARN, "DoT: SNI обрезан: %s", sni);
+    }
     cfg.fingerprint = TLS_FP_NONE;
     cfg.verify_cert = false;
 
@@ -194,9 +197,15 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
         size_t hlen = slash - url;
         if (hlen >= sizeof(host)) hlen = sizeof(host) - 1;
         memcpy(host, url, hlen);
-        snprintf(path, sizeof(path), "%s", slash);
+        {   int _n = snprintf(path, sizeof(path), "%s", slash);
+            if (_n < 0 || (size_t)_n >= sizeof(path))
+                log_msg(LOG_WARN, "DoH: path обрезан: %s", slash);
+        }
     } else {
-        snprintf(host, sizeof(host), "%s", url);
+        {   int _n = snprintf(host, sizeof(host), "%s", url);
+            if (_n < 0 || (size_t)_n >= sizeof(host))
+                log_msg(LOG_WARN, "DoH: host обрезан: %s", url);
+        }
     }
 
     /* TCP + TLS подключение */
@@ -234,7 +243,10 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     }
 
     tls_config_t tls_cfg = {0};
-    snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", host);
+    {   int _n = snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", host);
+        if (_n < 0 || (size_t)_n >= sizeof(tls_cfg.sni))
+            log_msg(LOG_WARN, "DoH: TLS SNI обрезан: %s", host);
+    }
     tls_cfg.fingerprint = TLS_FP_NONE;
     tls_cfg.verify_cert = false;
 
