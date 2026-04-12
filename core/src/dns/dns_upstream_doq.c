@@ -1033,3 +1033,6 @@ void doq_check_timeouts(doq_pool_t *pool)
 }
 
 #endif /* CONFIG_EBURNET_DOQ */
+
+/* Подавить предупреждение empty translation unit при DOQ=0 */
+typedef int dns_upstream_doq_empty_tu_;
