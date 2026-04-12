@@ -142,6 +142,8 @@ typedef struct {
     proxy_group_type_t type;
     char             **servers;         /* dynamic массив имён серверов */
     int                server_count;   /* количество серверов в группе */
+    char              *providers;      /* strdup, пробел-разделённый список провайдеров */
+    char               filter[512];   /* POSIX ERE regex для фильтрации имён серверов */
     char               url[512];       /* health-check URL */
     int                interval;       /* сек */
     int                timeout_ms;
@@ -252,6 +254,20 @@ typedef struct EburNetConfig {
     char                  cdn_fastly_url[256];
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
 } EburNetConfig;
+
+/* Получить ServerConfig по unified индексу:
+ * [0..server_count) = cfg->servers[idx]
+ * [server_count..server_count+provider_server_count) = cfg->provider_servers[idx-server_count]
+ * Возвращает NULL если idx вне диапазона. */
+static inline const ServerConfig *config_get_server(const EburNetConfig *cfg, int idx)
+{
+    if (idx < cfg->server_count)
+        return &cfg->servers[idx];
+    int pi = idx - cfg->server_count;
+    if (pi < cfg->provider_server_count)
+        return &cfg->provider_servers[pi];
+    return NULL;
+}
 
 /* Загрузка конфига из UCI-файла, возвращает 0 при успехе */
 int  config_load(const char *path, EburNetConfig *cfg);
