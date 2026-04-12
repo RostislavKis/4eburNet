@@ -103,9 +103,13 @@ return view.extend({
                     mkSelect('cfg-mode', [
                         { value: 'rules',  label: _('rules — по правилам (рекомендуется)') },
                         { value: 'global', label: _('global — весь трафик через прокси') },
-                        { value: 'direct', label: _('direct — без прокси') }
+                        { value: 'direct', label: _('direct — без прокси') },
+                        { value: 'tun',    label: _('tun — через TUN интерфейс') }
                     ], cfg.mode || 'rules')
                 ),
+                E('div', { id: 'tun-iface-row', style: cfg.mode === 'tun' ? '' : 'display:none' }, [
+                    mkRow(_('TUN интерфейс'), mkInput('cfg-tuniface', cfg.tun_interface || 'tun0', true))
+                ]),
                 mkRow(_('Уровень логирования'),
                     mkSelect('cfg-loglevel', [
                         { value: 'debug', label: 'debug — ' + _('всё') },
@@ -129,13 +133,14 @@ return view.extend({
                         class: 'btn cbi-button',
                         click: function() {
                             var values = {
-                                enabled:       sel('cfg-enabled') && sel('cfg-enabled').checked ? '1' : '0',
-                                mode:          sel('cfg-mode').value,
-                                log_level:     sel('cfg-loglevel').value,
-                                lan_interface: sel('cfg-lan').value,
-                                region:        sel('cfg-region').value,
-                                geo_dir:       sel('cfg-geodir').value,
-                                geo_url:       sel('cfg-geourl').value
+                                enabled:        sel('cfg-enabled') && sel('cfg-enabled').checked ? '1' : '0',
+                                mode:           sel('cfg-mode').value,
+                                log_level:      sel('cfg-loglevel').value,
+                                lan_interface:  sel('cfg-lan').value,
+                                region:         sel('cfg-region').value,
+                                geo_dir:        sel('cfg-geodir').value,
+                                geo_url:        sel('cfg-geourl').value,
+                                tun_interface:  sel('cfg-tuniface') ? sel('cfg-tuniface').value : 'tun0'
                             };
                             callCfgSet('main', values).then(function(r) {
                                 if (r && r.ok) {
@@ -327,6 +332,13 @@ return view.extend({
                 E('div', { id: 'geo-status', style: 'font-size:11px;margin-top:8px;min-height:16px' }, [''])
             ])
         ]);
+
+        /* TUN интерфейс показывать только при mode=tun */
+        var modeEl = node.querySelector('#cfg-mode');
+        if (modeEl) modeEl.addEventListener('change', function() {
+            var tr = document.getElementById('tun-iface-row');
+            if (tr) tr.style.display = this.value === 'tun' ? '' : 'none';
+        });
 
         return node;
     },

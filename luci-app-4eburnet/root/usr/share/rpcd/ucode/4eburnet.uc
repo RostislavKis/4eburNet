@@ -765,7 +765,7 @@ const methods = {
             if (match(section, /[^\w]/)) return { ok: false, error: 'invalid section' };
 
             let allowed = {
-                main: { enabled:1, mode:1, log_level:1, lan_interface:1, region:1, geo_dir:1, geo_url:1 },
+                main: { enabled:1, mode:1, log_level:1, lan_interface:1, tun_interface:1, region:1, geo_dir:1, geo_url:1 },
                 dns:  { upstream_bypass:1, upstream_proxy:1, doh_enabled:1, doh_url:1,
                         doh_ip:1, fake_ip_enabled:1, bogus_nxdomain:1 }
             };
