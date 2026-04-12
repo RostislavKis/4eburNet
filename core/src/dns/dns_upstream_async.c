@@ -241,7 +241,9 @@ static int tls_handshake_step(async_dns_conn_t *conn)
                 log_msg(LOG_WARN, "async DoT: TLS SNI обрезан");
         }
         tls_cfg.fingerprint = TLS_FP_NONE;
-        tls_cfg.verify_cert = false;
+        /* DoT серверы имеют валидные CA-сертификаты.
+         * VERIFY_PEER обязателен — иначе ТСПУ может подменить DNS через MitM */
+        tls_cfg.verify_cert = true;
 
         if (tls_connect_start(&conn->tls, conn->fd, &tls_cfg) < 0) {
             log_msg(LOG_WARN, "async_dns: tls_connect_start failed");
