@@ -19,6 +19,14 @@
 #include "proxy/hysteria2.h"
 #endif
 
+/* Проверка truncation для некритичных snprintf (LOG_DEBUG) */
+#define SNPRINTF_NC(dst, sz, ...) do { \
+    int _n = snprintf((dst), (sz), __VA_ARGS__); \
+    if (_n < 0 || (size_t)_n >= (sz)) \
+        log_msg(LOG_DEBUG, "snprintf truncated (non-critical): %s:%d", \
+                __FILE__, __LINE__); \
+} while(0)
+
 /* ── RFC 4648 base64 decode (standard + URL-safe alphabet) ── */
 
 /* Возвращает 6-битное значение символа, -2=whitespace, -3=padding, -1=invalid */
@@ -151,16 +159,16 @@ static int parse_vless_uri(const char *uri, ServerConfig *s)
         url_decode(val, val_dec, sizeof(val_dec));
 
         if (strcmp(key, "pbk") == 0) {
-            snprintf(s->reality_pbk, sizeof(s->reality_pbk), "%s", val_dec);
+            SNPRINTF_NC(s->reality_pbk, sizeof(s->reality_pbk), "%s", val_dec);
         } else if (strcmp(key, "sid") == 0) {
-            snprintf(s->reality_short_id, sizeof(s->reality_short_id),
+            SNPRINTF_NC(s->reality_short_id, sizeof(s->reality_short_id),
                      "%s", val_dec);
         } else if (strcmp(key, "type") == 0) {
             if (strcmp(val_dec, "xhttp") == 0 ||
                 strcmp(val_dec, "httpupgrade") == 0)
-                snprintf(s->transport, sizeof(s->transport), "xhttp");
+                SNPRINTF_NC(s->transport, sizeof(s->transport), "xhttp");
             else
-                snprintf(s->transport, sizeof(s->transport), "raw");
+                SNPRINTF_NC(s->transport, sizeof(s->transport), "raw");
         }
         /* sni, fp, flow, security — игнорируем или нет отдельного поля */
 
@@ -168,7 +176,7 @@ static int parse_vless_uri(const char *uri, ServerConfig *s)
     }
 
 done:
-    snprintf(s->protocol, sizeof(s->protocol), "vless");
+    SNPRINTF_NC(s->protocol, sizeof(s->protocol), "vless");
     s->enabled = true;
     return 0;
 }
@@ -197,7 +205,7 @@ static int parse_ss_uri(const char *uri, ServerConfig *s)
                 decoded[dlen] = '\0';
                 char *colon2 = strchr((char *)decoded, ':');
                 if (colon2)
-                    snprintf(s->password, sizeof(s->password), "%s", colon2 + 1);
+                    SNPRINTF_NC(s->password, sizeof(s->password), "%s", colon2 + 1);
             }
         }
         p = at + 1;
@@ -233,18 +241,18 @@ static int parse_ss_uri(const char *uri, ServerConfig *s)
         *at2 = '\0';
         char *colon2 = strchr((char *)decoded, ':');
         if (colon2)
-            snprintf(s->password, sizeof(s->password), "%s", colon2 + 1);
+            SNPRINTF_NC(s->password, sizeof(s->password), "%s", colon2 + 1);
         const char *hp = at2 + 1;
         char *colon3 = strrchr(hp, ':');
         if (!colon3) return -1;
         *colon3 = '\0';
-        snprintf(s->address, sizeof(s->address), "%s", hp);
+        SNPRINTF_NC(s->address, sizeof(s->address), "%s", hp);
         long port = strtol(colon3 + 1, NULL, 10);
         if (port <= 0 || port > 65535) return -1;
         s->port = (uint16_t)port;
     }
 
-    snprintf(s->protocol, sizeof(s->protocol), "shadowsocks");
+    SNPRINTF_NC(s->protocol, sizeof(s->protocol), "shadowsocks");
     s->enabled = true;
     return 0;
 }
@@ -288,7 +296,7 @@ static int parse_trojan_uri(const char *uri, ServerConfig *s)
     if (port <= 0 || port > 65535) return -1;
     s->port = (uint16_t)port;
 
-    snprintf(s->protocol, sizeof(s->protocol), "trojan");
+    SNPRINTF_NC(s->protocol, sizeof(s->protocol), "trojan");
     s->enabled = true;
     return 0;
 }
@@ -301,17 +309,17 @@ static int parse_trojan_uri(const char *uri, ServerConfig *s)
 static void hy2_config_to_server(const hysteria2_config_t *hy2,
                                   ServerConfig *s)
 {
-    snprintf(s->address,  sizeof(s->address),  "%s", hy2->server_addr);
-    snprintf(s->password, sizeof(s->password), "%s", hy2->password);
+    SNPRINTF_NC(s->address,  sizeof(s->address),  "%s", hy2->server_addr);
+    SNPRINTF_NC(s->password, sizeof(s->password), "%s", hy2->password);
     s->port    = hy2->server_port;
-    snprintf(s->protocol, sizeof(s->protocol), "hysteria2");
+    SNPRINTF_NC(s->protocol, sizeof(s->protocol), "hysteria2");
     s->enabled = true;
     /* Hysteria2-специфичные поля */
     s->hy2_obfs_enabled = hy2->obfs_enabled;
-    snprintf(s->hy2_obfs_password, sizeof(s->hy2_obfs_password),
+    SNPRINTF_NC(s->hy2_obfs_password, sizeof(s->hy2_obfs_password),
              "%s", hy2->obfs_password);
     s->hy2_insecure  = hy2->insecure;
-    snprintf(s->hy2_sni, sizeof(s->hy2_sni), "%s", hy2->sni);
+    SNPRINTF_NC(s->hy2_sni, sizeof(s->hy2_sni), "%s", hy2->sni);
     s->hy2_up_mbps   = hy2->up_mbps;
     s->hy2_down_mbps = hy2->down_mbps;
 }
@@ -333,7 +341,7 @@ static int parse_server_uri(const char *uri, ServerConfig *s,
 
     memset(s, 0, sizeof(*s));
     if (provider_name)
-        snprintf(s->source_provider, sizeof(s->source_provider),
+        SNPRINTF_NC(s->source_provider, sizeof(s->source_provider),
                  "%s", provider_name);
 
     if (strncmp(uri, "vless://", 8) == 0)
@@ -404,11 +412,11 @@ int proxy_provider_init(proxy_provider_manager_t *ppm, EburNetConfig *cfg)
     for (int i = 0; i < n; i++) {
         const ProxyProviderConfig *pc = &cfg->proxy_providers[i];
         proxy_provider_state_t *ps = &ppm->providers[i];
-        snprintf(ps->name, sizeof(ps->name), "%s", pc->name);
+        SNPRINTF_NC(ps->name, sizeof(ps->name), "%s", pc->name);
         if (pc->path[0]) {
-            snprintf(ps->cache_path, sizeof(ps->cache_path), "%s", pc->path);
+            SNPRINTF_NC(ps->cache_path, sizeof(ps->cache_path), "%s", pc->path);
         } else {
-            snprintf(ps->cache_path, sizeof(ps->cache_path),
+            SNPRINTF_NC(ps->cache_path, sizeof(ps->cache_path),
                      "/etc/4eburnet/providers/%s.txt", pc->name);
         }
     }

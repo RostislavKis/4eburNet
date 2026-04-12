@@ -213,7 +213,12 @@ static int vless_protocol_start(relay_conn_t *relay,
 {
     (void)dst;
     tls_config_t cfg = {0};
-    snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
+    {   int _n = snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg.sni)) {
+            log_msg(LOG_WARN, "VLESS: SNI обрезан: %s", server->address);
+            return -1;
+        }
+    }
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
     /* DEC-025: передаём shortId для диагностики после handshake */
@@ -260,11 +265,17 @@ static int xhttp_protocol_start(relay_conn_t *relay,
 
     if (inet_pton(AF_INET, server->address,
                   &(struct in_addr){}) == 1) {
-        snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+        {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+            if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
+                log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
+        }
         resolved_family = AF_INET;
     } else if (inet_pton(AF_INET6, server->address,
                          &(struct in6_addr){}) == 1) {
-        snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+        {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+            if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
+                log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
+        }
         resolved_family = AF_INET6;
     } else {
         net_resolve_host(server->address, server->port,
@@ -322,7 +333,12 @@ static int xhttp_protocol_start(relay_conn_t *relay,
     tls_config_t cfg = {0};
     const char *sni_host = server->xhttp_host[0]
         ? server->xhttp_host : server->address;
-    snprintf(cfg.sni, sizeof(cfg.sni), "%s", sni_host);
+    {   int _n = snprintf(cfg.sni, sizeof(cfg.sni), "%s", sni_host);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg.sni)) {
+            log_msg(LOG_WARN, "XHTTP: SNI обрезан: %s", sni_host);
+            return -1;
+        }
+    }
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
 
@@ -363,7 +379,12 @@ static int trojan_protocol_start(relay_conn_t *relay,
 {
     (void)dst;
     tls_config_t cfg = {0};
-    snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
+    {   int _n = snprintf(cfg.sni, sizeof(cfg.sni), "%s", server->address);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg.sni)) {
+            log_msg(LOG_WARN, "Trojan: SNI обрезан: %s", server->address);
+            return -1;
+        }
+    }
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
 #if CONFIG_EBURNET_STLS
@@ -713,11 +734,17 @@ static int upstream_connect(dispatcher_state_t *ds,
 
     if (inet_pton(AF_INET, server->address,
                   &(struct in_addr){}) == 1) {
-        snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+        {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+            if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
+                log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
+        }
         resolved_family = AF_INET;
     } else if (inet_pton(AF_INET6, server->address,
                          &(struct in6_addr){}) == 1) {
-        snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+        {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
+            if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
+                log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
+        }
         resolved_family = AF_INET6;
     } else {
         net_resolve_host(server->address, server->port,
@@ -856,9 +883,12 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
                                  ? g_config->dpi_fake_ttl     : 5;
             strat.fake_repeats = (g_config && g_config->dpi_fake_repeats > 0)
                                  ? g_config->dpi_fake_repeats : 8;
-            snprintf(strat.fake_sni, sizeof(strat.fake_sni), "%s",
-                     (g_config && g_config->dpi_fake_sni[0])
-                     ? g_config->dpi_fake_sni : "www.google.com");
+            {   int _n = snprintf(strat.fake_sni, sizeof(strat.fake_sni), "%s",
+                         (g_config && g_config->dpi_fake_sni[0])
+                         ? g_config->dpi_fake_sni : "www.google.com");
+                if (_n < 0 || (size_t)_n >= sizeof(strat.fake_sni))
+                    log_msg(LOG_WARN, "DPI: fake_sni обрезан: %s:%d", __FILE__, __LINE__);
+            }
 
             /* fake+TTL: malloc чтобы не переполнять стек MIPS (8KB) */
             uint8_t *fake_buf = malloc(1300);
@@ -1372,8 +1402,11 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         int rn = tls_get_client_random(&r->tls, rnd, sizeof(rnd));
                         if (rn >= 8) {
                             char hex[17] = {0};
-                            for (int hi = 0; hi < 8; hi++)
-                                snprintf(hex + hi * 2, 3, "%02x", rnd[hi]);
+                            for (int hi = 0; hi < 8; hi++) {
+                                int _n = snprintf(hex + hi * 2, 3, "%02x", rnd[hi]);
+                                if (_n < 0 || _n >= 3)
+                                    log_msg(LOG_DEBUG, "snprintf truncated (non-critical): %s:%d", __FILE__, __LINE__);
+                            }
                             log_msg(LOG_DEBUG,
                                     "Reality shortId=%s clientRandom[0:8]=%s",
                                     server->reality_short_id, hex);
