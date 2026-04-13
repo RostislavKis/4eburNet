@@ -192,27 +192,37 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     const char *url = cfg->doh_url;
     if (strncmp(url, "https://", 8) == 0) url += 8;
 
-    char host[512] = {0};
-    char path[256] = "/dns-query";
+    /* M-09: heap вместо 768B на MIPS стеке */
+    #define DOH_HOST_SIZE 512
+    #define DOH_PATH_SIZE 256
+    char *host = calloc(1, DOH_HOST_SIZE);
+    char *path = calloc(1, DOH_PATH_SIZE);
+    if (!host || !path) {
+        log_msg(LOG_ERROR, "dns_doh: нет памяти для host/path");
+        free(host); free(path); free(b64);
+        return -1;
+    }
+    snprintf(path, DOH_PATH_SIZE, "/dns-query");
+
     const char *slash = strchr(url, '/');
     if (slash) {
         size_t hlen = slash - url;
-        if (hlen >= sizeof(host)) hlen = sizeof(host) - 1;
+        if (hlen >= DOH_HOST_SIZE) hlen = DOH_HOST_SIZE - 1;
         memcpy(host, url, hlen);
-        {   int _n = snprintf(path, sizeof(path), "%s", slash);
-            if (_n < 0 || (size_t)_n >= sizeof(path))
+        {   int _n = snprintf(path, DOH_PATH_SIZE, "%s", slash);
+            if (_n < 0 || (size_t)_n >= DOH_PATH_SIZE)
                 log_msg(LOG_WARN, "DoH: path обрезан: %s", slash);
         }
     } else {
-        {   int _n = snprintf(host, sizeof(host), "%s", url);
-            if (_n < 0 || (size_t)_n >= sizeof(host))
+        {   int _n = snprintf(host, DOH_HOST_SIZE, "%s", url);
+            if (_n < 0 || (size_t)_n >= DOH_HOST_SIZE)
                 log_msg(LOG_WARN, "DoH: host обрезан: %s", url);
         }
     }
 
     /* TCP + TLS подключение */
     int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0) { free(b64); return -1; }
+    if (fd < 0) { free(b64); free(host); free(path); return -1; }
 
     /* Таймаут 1 сек для защиты event loop (C-02) */
     {
@@ -232,16 +242,16 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     };
     if (!doh_ip[0]) {
         log_msg(LOG_WARN, "DNS DoH: IP адрес не задан (doh_ip/doh_sni)");
-        free(b64); close(fd);
+        free(b64); free(host); free(path); close(fd);
         return -1;
     }
     if (inet_pton(AF_INET, doh_ip, &addr.sin_addr) != 1) {
         log_msg(LOG_WARN, "DNS DoH: невалидный IP: %s", doh_ip);
-        free(b64); close(fd); return -1;
+        free(b64); free(host); free(path); close(fd); return -1;
     }
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        free(b64); close(fd); return -1;
+        free(b64); free(host); free(path); close(fd); return -1;
     }
 
     tls_config_t tls_cfg = {0};
@@ -256,7 +266,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
 
     tls_conn_t tls;
     if (tls_connect(&tls, fd, &tls_cfg) < 0) {
-        free(b64); close(fd); return -1;
+        free(b64); free(host); free(path); close(fd); return -1;
     }
 
     /* HTTP GET запрос (L-15: heap вместо стека) */
@@ -264,6 +274,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     uint8_t *http_buf = malloc(DNS_DOH_B64_SIZE);
     if (!http_req || !http_buf) {
         free(http_req); free(http_buf); free(b64);
+        free(host); free(path);
         tls_close(&tls); close(fd);
         return -1;
     }
@@ -277,6 +288,9 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
         path, b64, host);
     free(b64);
     b64 = NULL;
+    /* host/path больше не нужны — HTTP запрос уже сформирован */
+    free(host); host = NULL;
+    free(path); path = NULL;
 
     if (req_len < 0 || req_len >= 2048) {
         log_msg(LOG_ERROR, "dns_doh: HTTP запрос обрезан (%d >= 2048)", req_len);
