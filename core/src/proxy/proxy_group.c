@@ -145,8 +145,14 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
                             char *sp2 = NULL;
                             for (char *w = strtok_r(ibuf, "|", &sp2); w;
                                  w = strtok_r(NULL, "|", &sp2)) {
-                                if (w[0] && exclude_count < 64)
-                                    exclude_words[exclude_count++] = strdup(w);
+                                if (w[0] && exclude_count < 64) {
+                                    char *ew = strdup(w);
+                                    if (!ew) {
+                                        log_msg(LOG_ERROR, "proxy_group: нет памяти для exclude word");
+                                        break;
+                                    }
+                                    exclude_words[exclude_count++] = ew;
+                                }
                             }
                             free(ibuf);
                         }
