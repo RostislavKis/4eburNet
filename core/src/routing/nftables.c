@@ -647,11 +647,11 @@ nft_result_t nft_mode_set_direct(void)
 nft_result_t nft_mode_set_tun(void)
 {
     /*
-     * Режим TUN (заготовка для шага 1.3):
+     * Режим TUN:
      * Вместо tproxy ставим только fwmark.
      * Трафик перехватывается через ip rule:
-     *   ip rule add fwmark 0x02 table 100
-     *   ip route add default dev tun0 table 100
+     *   ip rule add fwmark 0x02 table 200 (ROUTE_TABLE_TUN)
+     *   ip route add default dev tun0 table 200
      *
      * Порядок правил:
      *   block → local → bypass → mark (всё остальное)

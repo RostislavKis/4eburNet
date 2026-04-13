@@ -365,7 +365,7 @@ static int parse_server_uri(const char *uri, ServerConfig *s,
     return -1;  /* неизвестный протокол */
 }
 
-/* ── Stub реализации (будут дополнены в Шаге 3) ── */
+/* ── Лимиты и вспомогательные функции ── */
 
 int proxy_provider_max_servers(DeviceProfile profile, int configured_max)
 {
