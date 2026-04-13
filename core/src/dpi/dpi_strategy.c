@@ -26,7 +26,7 @@ void dpi_strategy_config_init(dpi_strategy_config_t *cfg)
     cfg->split_pos    = 1;
     cfg->fake_ttl     = 5;
     cfg->fake_repeats = 8;
-    snprintf(cfg->fake_sni, sizeof(cfg->fake_sni), "www.google.com");
+    snprintf(cfg->fake_sni, sizeof(cfg->fake_sni), EBURNET_DPI_DEFAULT_FAKE_SNI);
 }
 
 /* ── Утилиты ────────────────────────────────────────────────────── */

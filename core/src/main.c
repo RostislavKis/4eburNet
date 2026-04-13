@@ -72,7 +72,7 @@ static void geo_load_region_categories(geo_manager_t *gm,
                                         const EburNetConfig *cfg)
 {
     const char *geo_dir = (cfg->geo_dir[0])
-        ? cfg->geo_dir : "/etc/4eburnet/geo";
+        ? cfg->geo_dir : EBURNET_GEO_DIR;
 
     const char *rl = NULL;
     if (cfg->geo_region[0]) {
@@ -520,7 +520,7 @@ int main(int argc, char *argv[])
         if (cfg_ptr->dns.upstream_default[0]) {
             int probe_fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
             if (probe_fd >= 0) {
-                struct timeval ptv = { .tv_sec = 2, .tv_usec = 0 };
+                struct timeval ptv = { .tv_sec = TIMEOUT_DNS_PROBE_SEC, .tv_usec = 0 };
                 setsockopt(probe_fd, SOL_SOCKET, SO_RCVTIMEO,
                            &ptv, sizeof(ptv));
                 uint16_t up_port = cfg_ptr->dns.upstream_port
@@ -745,7 +745,7 @@ int main(int argc, char *argv[])
                 if (rn > 0 && rbuf[0] == 'O') {
                     const char *ddir = (cfg_ptr && cfg_ptr->dpi_dir[0])
                                        ? cfg_ptr->dpi_dir
-                                       : "/etc/4eburnet/dpi";
+                                       : EBURNET_DPI_DIR;
                     dpi_filter_init(ddir);
                     log_msg(LOG_INFO,
                             "CDN IP обновлены, dpi_filter перезагружен");

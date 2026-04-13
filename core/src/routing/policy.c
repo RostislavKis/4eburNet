@@ -445,21 +445,27 @@ static void dump_rule_cb(const char *line, void *ctx) {
     (void)ctx;
     log_msg(LOG_DEBUG, "  rule: %s", line);
 }
-static void dump_t100_cb(const char *line, void *ctx) {
+static void dump_tproxy_cb(const char *line, void *ctx) {
     (void)ctx;
-    log_msg(LOG_DEBUG, "  table 100: %s", line);
+    log_msg(LOG_DEBUG, "  table %d: %s", POLICY_TABLE_TPROXY, line);
 }
-static void dump_t200_cb(const char *line, void *ctx) {
+static void dump_tun_cb(const char *line, void *ctx) {
     (void)ctx;
-    log_msg(LOG_DEBUG, "  table 200: %s", line);
+    log_msg(LOG_DEBUG, "  table %d: %s", POLICY_TABLE_TUN, line);
 }
 
 void policy_dump(void)
 {
     log_msg(LOG_DEBUG, "=== Политика маршрутизации ===");
     exec_cmd_lines("ip rule show 2>/dev/null", dump_rule_cb, NULL);
-    exec_cmd_lines("ip route show table 100 2>/dev/null", dump_t100_cb, NULL);
-    exec_cmd_lines("ip route show table 200 2>/dev/null", dump_t200_cb, NULL);
+
+    char cmd_tproxy[64], cmd_tun[64];
+    snprintf(cmd_tproxy, sizeof(cmd_tproxy),
+             "ip route show table %d 2>/dev/null", POLICY_TABLE_TPROXY);
+    snprintf(cmd_tun, sizeof(cmd_tun),
+             "ip route show table %d 2>/dev/null", POLICY_TABLE_TUN);
+    exec_cmd_lines(cmd_tproxy, dump_tproxy_cb, NULL);
+    exec_cmd_lines(cmd_tun, dump_tun_cb, NULL);
 
     log_msg(LOG_DEBUG, "==============================");
 }

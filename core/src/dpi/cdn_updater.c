@@ -294,7 +294,7 @@ static int cdn_do_update(const struct EburNetConfig *cfg, bool reload_filter)
     if (!cfg) return -1;
 
     const char *dpi_dir = cfg->dpi_dir[0] ? cfg->dpi_dir
-                                           : "/etc/4eburnet/dpi";
+                                           : EBURNET_DPI_DIR;
 
     /* URL-ы: из конфига или встроенные defaults */
     const char *cf_v4_url = cfg->cdn_cf_v4_url[0]
@@ -415,7 +415,7 @@ int cdn_updater_check(const struct EburNetConfig *cfg)
     if (cfg->cdn_update_interval_days <= 0) {
         /* Проверить что ipset.txt существует, иначе предупредить */
         const char *ddir = cfg->dpi_dir[0] ? cfg->dpi_dir
-                                            : "/etc/4eburnet/dpi";
+                                            : EBURNET_DPI_DIR;
         char ipset_path[512];
         snprintf(ipset_path, sizeof(ipset_path), "%s/ipset.txt", ddir);
         if (access(ipset_path, F_OK) != 0)
@@ -426,7 +426,7 @@ int cdn_updater_check(const struct EburNetConfig *cfg)
     }
 
     const char *dpi_dir = cfg->dpi_dir[0] ? cfg->dpi_dir
-                                           : "/etc/4eburnet/dpi";
+                                           : EBURNET_DPI_DIR;
     char stamp_path[512];
     snprintf(stamp_path, sizeof(stamp_path), "%s/ipset.stamp", dpi_dir);
 
