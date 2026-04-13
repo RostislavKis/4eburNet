@@ -422,68 +422,82 @@ skip_rate:;
             }
             log_msg(LOG_WARN, "DNS policy: pending полон, fallback");
         } else if (policy->type == DNS_UPSTREAM_DOT) {
-            /* DoT: async если доступен */
-            DnsConfig policy_cfg = ds->cfg->dns;
-            {
-                size_t ulen = strlen(policy->upstream);
-                if (ulen >= sizeof(policy_cfg.dot_server_ip))
-                    ulen = sizeof(policy_cfg.dot_server_ip) - 1;
-                memcpy(policy_cfg.dot_server_ip, policy->upstream, ulen);
-                policy_cfg.dot_server_ip[ulen] = '\0';
-            }
-            policy_cfg.dot_port    = up_port;
-            policy_cfg.dot_enabled = true;
-            if (policy->sni[0])
-                snprintf(policy_cfg.dot_sni,
-                         sizeof(policy_cfg.dot_sni),
-                         "%s", policy->sni);
+            /* DoT: async если доступен
+             * B1-02: DnsConfig на heap — ~3.8KB (47% MIPS стека) */
+            DnsConfig *policy_cfg = malloc(sizeof(DnsConfig));
+            if (policy_cfg) {
+                *policy_cfg = ds->cfg->dns;
+                {
+                    size_t ulen = strlen(policy->upstream);
+                    if (ulen >= sizeof(policy_cfg->dot_server_ip))
+                        ulen = sizeof(policy_cfg->dot_server_ip) - 1;
+                    memcpy(policy_cfg->dot_server_ip, policy->upstream, ulen);
+                    policy_cfg->dot_server_ip[ulen] = '\0';
+                }
+                policy_cfg->dot_port    = up_port;
+                policy_cfg->dot_enabled = true;
+                if (policy->sni[0])
+                    snprintf(policy_cfg->dot_sni,
+                             sizeof(policy_cfg->dot_sni),
+                             "%s", policy->sni);
 
-            dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
-            if (ctx) {
-                ctx->ds             = ds;
-                ctx->client_addr    = client_addr;
-                ctx->client_addrlen = client_len;
-                ctx->query          = q;
-                snprintf(ctx->qname, sizeof(ctx->qname),
-                         "%s", q.qname);
-                ctx->qtype = q.qtype;
-                if (async_dns_dot_start(&ds->async_pool,
-                                        &policy_cfg,
-                                        pkt, (size_t)n, q.id,
-                                        async_doh_dot_cb, ctx) == 0)
-                    goto out;
-                free(ctx);
+                dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
+                if (ctx) {
+                    ctx->ds             = ds;
+                    ctx->client_addr    = client_addr;
+                    ctx->client_addrlen = client_len;
+                    ctx->query          = q;
+                    snprintf(ctx->qname, sizeof(ctx->qname),
+                             "%s", q.qname);
+                    ctx->qtype = q.qtype;
+                    if (async_dns_dot_start(&ds->async_pool,
+                                            policy_cfg,
+                                            pkt, (size_t)n, q.id,
+                                            async_doh_dot_cb, ctx) == 0) {
+                        free(policy_cfg);
+                        goto out;
+                    }
+                    free(ctx);
+                }
+                free(policy_cfg);
             }
             log_msg(LOG_WARN, "DNS policy DoT: async failed, fallback");
         } else if (policy->type == DNS_UPSTREAM_DOH) {
-            /* DoH: async если доступен */
-            DnsConfig policy_cfg = ds->cfg->dns;
-            snprintf(policy_cfg.doh_url,
-                     sizeof(policy_cfg.doh_url),
-                     "%s", policy->upstream);
-            policy_cfg.doh_port    = up_port;
-            policy_cfg.doh_enabled = true;
-            if (policy->sni[0])
-                snprintf(policy_cfg.doh_sni,
-                         sizeof(policy_cfg.doh_sni),
-                         "%s", policy->sni);
-            policy_cfg.doh_ip[0] = '\0';  /* использовать URL */
+            /* DoH: async если доступен
+             * B1-02: DnsConfig на heap — ~3.8KB (47% MIPS стека) */
+            DnsConfig *policy_cfg = malloc(sizeof(DnsConfig));
+            if (policy_cfg) {
+                *policy_cfg = ds->cfg->dns;
+                snprintf(policy_cfg->doh_url,
+                         sizeof(policy_cfg->doh_url),
+                         "%s", policy->upstream);
+                policy_cfg->doh_port    = up_port;
+                policy_cfg->doh_enabled = true;
+                if (policy->sni[0])
+                    snprintf(policy_cfg->doh_sni,
+                             sizeof(policy_cfg->doh_sni),
+                             "%s", policy->sni);
+                policy_cfg->doh_ip[0] = '\0';
 
-            dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
-            if (ctx) {
-                ctx->ds             = ds;
-                ctx->client_addr    = client_addr;
-                ctx->client_addrlen = client_len;
-                ctx->query          = q;
-                snprintf(ctx->qname, sizeof(ctx->qname),
-                         "%s", q.qname);
-                ctx->qtype = q.qtype;
-                if (async_dns_doh_start(&ds->async_pool,
-                                        &policy_cfg,
-                                        pkt, (size_t)n, q.id,
-                                        async_doh_dot_cb, ctx) == 0)
-                    goto out;
-                free(ctx);
+                dns_async_ctx_t *ctx = malloc(sizeof(*ctx));
+                if (ctx) {
+                    ctx->ds             = ds;
+                    ctx->client_addr    = client_addr;
+                    ctx->client_addrlen = client_len;
+                    ctx->query          = q;
+                    snprintf(ctx->qname, sizeof(ctx->qname),
+                             "%s", q.qname);
+                    ctx->qtype = q.qtype;
+                    if (async_dns_doh_start(&ds->async_pool,
+                                            policy_cfg,
+                                            pkt, (size_t)n, q.id,
+                                            async_doh_dot_cb, ctx) == 0) {
+                        free(policy_cfg);
+                        goto out;
+                    }
+                    free(ctx);
+                }
+                free(policy_cfg);
             }
             log_msg(LOG_WARN, "DNS policy DoH: async failed, fallback");
         }
