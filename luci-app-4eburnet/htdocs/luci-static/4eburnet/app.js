@@ -179,17 +179,24 @@ async function ebLoadGroupsMini() {
     box.innerHTML = '<div class="eb-xs">Нет данных</div>';
     return;
   }
-  box.innerHTML = d.groups.slice(0, 3).map(g => `
+  /* B4-06: available/latency на уровне сервера, не группы */
+  box.innerHTML = d.groups.slice(0, 3).map(g => {
+    const srvs = g.servers || [];
+    const avail = srvs.some(s => s.available);
+    const sel = srvs[g.selected] || srvs[0] || {};
+    const lat = sel.latency || 0;
+    return `
     <div class="eb-srow ${g.selected ? 'sel' : ''}">
-      <div class="eb-sdot ${g.available ? 'ok' : 'er'}"></div>
+      <div class="eb-sdot ${avail ? 'ok' : 'er'}"></div>
       <div>
         <div class="eb-bold" style="font-size:11px">${ebEsc(g.name || '—')}</div>
         <div class="eb-xs">${ebEsc(String(g.type || ''))}</div>
       </div>
-      <div class="eb-ml eb-slat ${g.latency_ms < 100 ? 'ok' : g.latency_ms < 250 ? 'wn' : 'er'}">
-        ${g.latency_ms ? g.latency_ms + ' мс' : '—'}
+      <div class="eb-ml eb-slat ${lat < 100 ? 'ok' : lat < 250 ? 'wn' : 'er'}">
+        ${lat ? lat + ' мс' : '—'}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ── Accordion ──────────────────────────────────────────────────────
