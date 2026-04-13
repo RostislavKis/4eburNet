@@ -295,12 +295,12 @@ static bool resolve_upstream_addr(const dns_server_t *ds, dns_action_t action,
     case DNS_ACTION_PROXY:
         *out_ip = d->upstream_proxy;
         break;
+    case DNS_ACTION_BLOCK:
+        return false;
     case DNS_ACTION_DEFAULT:
     default:
         *out_ip = d->upstream_default;
         break;
-    case DNS_ACTION_BLOCK:
-        return false;
     }
 
     return (*out_ip && (*out_ip)[0]);

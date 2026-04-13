@@ -592,7 +592,7 @@ def _parse_clash_rule(rule_str: str) -> dict | None:
         if m:
             return {'type': 'port', 'value': m.group(1).strip(),
                     'target': m.group(2).strip()}
-        log.warning("AND-правило не поддержано: %s", rest)
+        print(f"[WARNING] sub_convert: AND-правило не поддержано: {rest}", file=sys.stderr)
         return None
 
     uci_type = type_map.get(rtype)
