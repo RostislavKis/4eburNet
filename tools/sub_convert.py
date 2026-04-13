@@ -539,6 +539,16 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
               or awg_opts.get('persistent-keepalive') or awg_opts.get('keepalive'))
         if ka:
             srv['awg_keepalive'] = str(int(ka))
+        # P9-03: AWG mtu/dns/reserved
+        mtu = proxy.get('mtu') or awg_opts.get('mtu')
+        if mtu:
+            srv['awg_mtu'] = str(int(mtu))
+        dns = proxy.get('dns') or awg_opts.get('dns')
+        if dns:
+            srv['awg_dns'] = str(dns)
+        reserved = proxy.get('reserved') or awg_opts.get('reserved')
+        if reserved:
+            srv['awg_reserved'] = str(reserved)
         servers.append(srv)
     else:
         print(f'  [skip] неподдерживаемый тип: {ptype} ({name})',
@@ -569,14 +579,20 @@ def _parse_clash_rule(rule_str: str) -> dict | None:
         'NOT':            None,
     }
 
-    # AND,((NETWORK,proto),(DST-PORT,port)),target → type=port
+    # P9-02: AND-правила — оба порядка NETWORK/DST-PORT
     if rtype == 'AND':
+        rest = ','.join(parts[1:])
+        # NETWORK,DST-PORT порядок
         m = re.match(
-            r'\(\(NETWORK,[^)]+\),\(DST-PORT,([^)]+)\)\),(.+)',
-            ','.join(parts[1:]))
+            r'\(\(NETWORK,[^)]+\),\(DST-PORT,([^)]+)\)\),(.+)', rest)
+        if not m:
+            # обратный порядок: DST-PORT,NETWORK
+            m = re.match(
+                r'\(\(DST-PORT,([^)]+)\),\(NETWORK,[^)]+\)\),(.+)', rest)
         if m:
             return {'type': 'port', 'value': m.group(1).strip(),
                     'target': m.group(2).strip()}
+        log.warning("AND-правило не поддержано: %s", rest)
         return None
 
     uci_type = type_map.get(rtype)
@@ -813,16 +829,22 @@ def generate_uci(servers: list,
         priority += 1
 
     # DNS опции из Clash dns: секции
-    for key, val in (dns_opts or []):
-        if key == 'dns_rule':
-            lines.append(f"config dns_rule")
-            parts = str(val).split(' ', 1)
-            if len(parts) == 2:
-                lines.append(f"\toption domain\t'{_uci_safe(parts[0])}'")
-                lines.append(f"\toption upstream\t'{_uci_safe(parts[1])}'")
-            lines.append("")
-        else:
-            lines.append(f"# dns: {key} = {_uci_safe(val)}")
+    # P9-01: записывать как UCI options в секцию dns, не как комментарии
+    dns_uci = [kv for kv in (dns_opts or []) if kv[0] != 'dns_rule']
+    dns_rules = [kv for kv in (dns_opts or []) if kv[0] == 'dns_rule']
+    if dns_uci:
+        lines.append("config dns 'dns'")
+        lines.append("\toption enabled\t'1'")
+        for key, val in dns_uci:
+            lines.append(f"\toption {key}\t'{_uci_safe(val)}'")
+        lines.append("")
+    for _, val in dns_rules:
+        lines.append("config dns_rule")
+        parts = str(val).split(' ', 1)
+        if len(parts) == 2:
+            lines.append(f"\toption domain\t'{_uci_safe(parts[0])}'")
+            lines.append(f"\toption upstream\t'{_uci_safe(parts[1])}'")
+        lines.append("")
 
     return '\n'.join(lines)
 

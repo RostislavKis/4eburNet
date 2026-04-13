@@ -360,18 +360,27 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
             return -1;
         }
     } else if (strcmp(key, "awg_h1") == 0) {
+        /* P9-04: awg_h — формат "MIN-MAX" или "VAL" (десятичные uint32) */
+        if (strspn(value, "0123456789-") != strlen(value))
+            log_msg(LOG_WARN, "config: awg_h1 невалидный формат: %s", value);
         int _n = snprintf(srv->awg_h1, sizeof(srv->awg_h1), "%s", value);
         if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h1))
             log_msg(LOG_WARN, "config: обрезано: awg_h1");
     } else if (strcmp(key, "awg_h2") == 0) {
+        if (strspn(value, "0123456789-") != strlen(value))
+            log_msg(LOG_WARN, "config: awg_h2 невалидный формат: %s", value);
         int _n = snprintf(srv->awg_h2, sizeof(srv->awg_h2), "%s", value);
         if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h2))
             log_msg(LOG_WARN, "config: обрезано: awg_h2");
     } else if (strcmp(key, "awg_h3") == 0) {
+        if (strspn(value, "0123456789-") != strlen(value))
+            log_msg(LOG_WARN, "config: awg_h3 невалидный формат: %s", value);
         int _n = snprintf(srv->awg_h3, sizeof(srv->awg_h3), "%s", value);
         if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h3))
             log_msg(LOG_WARN, "config: обрезано: awg_h3");
     } else if (strcmp(key, "awg_h4") == 0) {
+        if (strspn(value, "0123456789-") != strlen(value))
+            log_msg(LOG_WARN, "config: awg_h4 невалидный формат: %s", value);
         int _n = snprintf(srv->awg_h4, sizeof(srv->awg_h4), "%s", value);
         if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h4))
             log_msg(LOG_WARN, "config: обрезано: awg_h4");
@@ -418,6 +427,17 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
             srv->awg_keepalive = (uint16_t)v;
         else
             log_msg(LOG_WARN, "awg_keepalive: невалидное '%s'", value);
+    /* P9-03: AWG mtu/dns/reserved */
+    } else if (strcmp(key, "awg_mtu") == 0) {
+        char *ep; long v = strtol(value, &ep, 10);
+        if (ep != value && *ep == '\0' && v >= 576 && v <= 65535)
+            srv->awg_mtu = (uint16_t)v;
+        else
+            log_msg(LOG_WARN, "awg_mtu: невалидное '%s'", value);
+    } else if (strcmp(key, "awg_dns") == 0) {
+        snprintf(srv->awg_dns, sizeof(srv->awg_dns), "%s", value);
+    } else if (strcmp(key, "awg_reserved") == 0) {
+        snprintf(srv->awg_reserved, sizeof(srv->awg_reserved), "%s", value);
     /* Hysteria2-специфичные опции */
     } else if (strcmp(key, "hy2_obfs_password") == 0) {
         strncpy(srv->hy2_obfs_password, value,
