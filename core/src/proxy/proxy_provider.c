@@ -582,9 +582,12 @@ int proxy_provider_load_all(proxy_provider_manager_t *ppm)
         if (pc->type == PROXY_PROVIDER_URL && pc->url[0]) {
             if (fetch_with_ip_cache(pc->url, ps->cache_path,
                                     ps->resolved_ip, sizeof(ps->resolved_ip),
-                                    &ps->resolved_family) < 0)
+                                    &ps->resolved_family) < 0) {
                 log_msg(LOG_WARN, "proxy_provider[%s]: не удалось скачать",
                         ps->name);
+                /* BL-03: retry через 60с когда DNS будет готов */
+                ps->next_update = time(NULL) + TIMEOUT_PROVIDER_RETRY_SEC;
+            }
         }
         int n = provider_parse_file(ppm, i);
         if (n >= 0) {
@@ -645,7 +648,8 @@ void proxy_provider_tick(proxy_provider_manager_t *ppm)
         const ProxyProviderConfig *pc = &ppm->cfg->proxy_providers[i];
         proxy_provider_state_t    *ps = &ppm->providers[i];
         if (!pc->enabled) continue;
-        if (pc->interval <= 0) continue;
+        /* BL-03: interval=0 НО next_update>0 = retry после failed initial fetch */
+        if (pc->interval <= 0 && ps->next_update == 0) continue;
         if (ps->next_update == 0 || now < ps->next_update) continue;
 
         if (pc->type == PROXY_PROVIDER_URL && pc->url[0]) {
