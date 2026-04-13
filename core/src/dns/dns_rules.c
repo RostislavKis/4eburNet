@@ -105,8 +105,13 @@ int dns_rules_init(const EburNetConfig *cfg)
     }
     g_rules.capacity = cfg->dns_rule_count + 256;
     g_rules.patterns = calloc(g_rules.capacity, sizeof(char *));
+    if (!g_rules.patterns) return -1;
     g_rules.actions  = calloc(g_rules.capacity, sizeof(dns_action_t));
-    if (!g_rules.patterns || !g_rules.actions) return -1;
+    if (!g_rules.actions) {
+        free(g_rules.patterns);
+        g_rules.patterns = NULL;
+        return -1;
+    }
 
     for (int i = 0; i < cfg->dns_rule_count; i++) {
         const DnsRule *r = &cfg->dns_rules[i];

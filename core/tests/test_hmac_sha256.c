@@ -31,7 +31,7 @@ static int hex2bin(const char *hex, uint8_t *out, size_t outlen)
 static void bin2hex(const uint8_t *bin, size_t len, char *out)
 {
     for (size_t i = 0; i < len; i++)
-        sprintf(out + i * 2, "%02x", bin[i]);
+        snprintf(out + i * 2, 3, "%02x", bin[i]);
 }
 
 /* RFC 4231 Case 1: key = 0x0b * 20, data = "Hi There" */
