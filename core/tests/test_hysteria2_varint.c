@@ -15,7 +15,10 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-/* Заглушка log_msg — нужна для линковки hysteria2.c */
+/* Заглушки для линковки hysteria2.c */
+int net_random_bytes(uint8_t *buf, size_t len) { memset(buf, 0xAB, len); return 0; }
+void random_fill(uint8_t *buf, size_t len) { memset(buf, 0xCD, len); }
+
 void log_msg(int level, const char *fmt, ...)
 {
     (void)level;
