@@ -472,7 +472,12 @@ const methods = {
                 reality_pbk: '', reality_sid: '',
                 hy2_obfs_password: '', hy2_sni: '',
                 hy2_insecure: 0, hy2_up_mbps: 0, hy2_down_mbps: 0,
-                stls_password: '', stls_sni: '' },
+                stls_password: '', stls_sni: '',
+                awg_private_key: '', awg_public_key: '', awg_psk: '',
+                awg_jc: '', awg_jmin: '', awg_jmax: '',
+                awg_s1: '', awg_s2: '', awg_s3: '', awg_s4: '',
+                awg_h1: '', awg_h2: '', awg_h3: '', awg_h4: '',
+                awg_mtu: '', awg_dns: '', awg_reserved: '' },
         call: function(req) {
             let a = req.args ?? {};
             let required_fields = ['name', 'protocol', 'address', 'port'];
@@ -498,7 +503,12 @@ const methods = {
             let safe = { name:1, protocol:1, address:1, transport:1,
                          uuid:1, password:1, reality_pbk:1, reality_sid:1,
                          xhttp_path:1, xhttp_host:1,
-                         stls_password:1, stls_sni:1 };
+                         stls_password:1, stls_sni:1,
+                         awg_private_key:1, awg_public_key:1, awg_psk:1,
+                         awg_jc:1, awg_jmin:1, awg_jmax:1,
+                         awg_s1:1, awg_s2:1, awg_s3:1, awg_s4:1,
+                         awg_h1:1, awg_h2:1, awg_h3:1, awg_h4:1,
+                         awg_mtu:1, awg_dns:1, awg_reserved:1 };
             for (let k in a)
                 if (safe[k] && a[k]) c.set('4eburnet', sec, k, '' + a[k]);
             c.set('4eburnet', sec, 'port', '' + port);
