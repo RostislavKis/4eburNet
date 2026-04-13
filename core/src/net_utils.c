@@ -345,49 +345,57 @@ int net_resolve_host(const char *host, uint16_t port,
 static int http_do_tls_get(int fd, const char *sni_host,
                             const char *path, const char *dest_path)
 {
+    /* B1-01: буферы на heap — стековый кадр был ~5.4KB (MIPS стек 8KB) */
+    char    *req     = malloc(1024);
+    char    *tmppath = malloc(280);
+    uint8_t *buf     = malloc(4096);
+    if (!req || !tmppath || !buf) {
+        log_msg(LOG_ERROR, "http_do_tls_get: нет памяти");
+        free(req); free(tmppath); free(buf);
+        close(fd); return -1;
+    }
+
+    int result = -1;
+    FILE *out = NULL;
+
     tls_config_t tls_cfg = {0};
     snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", sni_host);
     tls_cfg.verify_cert = false;
 
     tls_conn_t tls;
     if (tls_connect(&tls, fd, &tls_cfg) < 0) {
-        close(fd); return -1;
+        close(fd); goto out;
     }
 
-    char req[1024];
-    int req_len = snprintf(req, sizeof(req),
+    int req_len = snprintf(req, 1024,
         "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
         path, sni_host);
-    if (req_len < 0 || req_len >= (int)sizeof(req)) {
+    if (req_len < 0 || req_len >= 1024) {
         log_msg(LOG_ERROR, "net_utils: HTTP запрос обрезан (path=%s)", path);
-        tls_close(&tls); close(fd);
-        return -1;
+        tls_close(&tls); close(fd); goto out;
     }
     tls_send(&tls, req, req_len);
 
-    char tmppath[280];
-    snprintf(tmppath, sizeof(tmppath), "%s.XXXXXX", dest_path);
+    snprintf(tmppath, 280, "%s.XXXXXX", dest_path);
     int tmpfd = mkstemp(tmppath);
-    if (tmpfd < 0) { tls_close(&tls); close(fd); return -1; }
+    if (tmpfd < 0) { tls_close(&tls); close(fd); goto out; }
     fchmod(tmpfd, 0644);
-    FILE *out = fdopen(tmpfd, "w");
+    out = fdopen(tmpfd, "w");
     if (!out) {
         close(tmpfd); unlink(tmppath);
-        tls_close(&tls); close(fd);
-        return -1;
+        tls_close(&tls); close(fd); goto out;
     }
 
-    uint8_t buf[4096];
     bool headers_done = false;
     bool http_ok = false;
     ssize_t total = 0;
 
     while (1) {
-        ssize_t n = tls_recv(&tls, buf, sizeof(buf));
+        ssize_t n = tls_recv(&tls, buf, 4096);
         if (n <= 0) break;
 
         if (!headers_done) {
-            size_t safe_n = (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1;
+            size_t safe_n = (size_t)n < 4096 ? (size_t)n : 4096 - 1;
             buf[safe_n] = '\0';
             for (ssize_t j = 0; j < n - 3; j++) {
                 if (buf[j]=='\r' && buf[j+1]=='\n' &&
@@ -409,17 +417,25 @@ static int http_do_tls_get(int fd, const char *sni_host,
     }
 
     fclose(out);
+    out = NULL;
     tls_close(&tls);
     close(fd);
 
     if (!http_ok || total == 0) {
         unlink(tmppath);
-        return -1;
+        goto out;
     }
 
     rename(tmppath, dest_path);
     log_msg(LOG_INFO, "net_http_fetch: загружен %s (%zd байт)", dest_path, total);
-    return 0;
+    result = 0;
+
+out:
+    if (out) fclose(out);
+    free(req);
+    free(tmppath);
+    free(buf);
+    return result;
 }
 
 /* net_http_fetch_ip — connect по кэшированному IP, без getaddrinfo */

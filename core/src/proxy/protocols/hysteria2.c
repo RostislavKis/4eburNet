@@ -78,6 +78,12 @@ struct hysteria2_conn {
     /* Brutal CC */
     brutal_cc_t         cc;
 
+    /* B1-04: рабочие буферы на heap вместо стека (MIPS 8KB стек) */
+    uint8_t             wire_buf[1500];   /* recv/send: Salamander wire */
+    uint8_t             frames_buf[2048]; /* flush_hs/send_stream: CRYPTO/STREAM frames */
+    uint8_t             pkt_buf[1400];    /* flush_hs/send_stream: QUIC пакет */
+    uint8_t             plain_buf[1400];  /* process_incoming: AEAD decrypt */
+
     /* Диагностика */
     char                error_msg[256];
     uint32_t            rtt_ms;
@@ -614,22 +620,22 @@ static int hy2_flush_hs(hysteria2_conn_t *conn)
 
     int ki = (conn->hs_level == wolfssl_encryption_initial) ? 0 : 1;
 
-    uint8_t frames[2048];
-    size_t flen = frame_crypto(frames, sizeof(frames),
+    uint8_t *frames = conn->frames_buf;
+    size_t flen = frame_crypto(frames, sizeof(conn->frames_buf),
                                 conn->hs_offset[ki],
                                 conn->hs_buf, conn->hs_buf_len);
     if (!flen) return -1;
     conn->hs_offset[ki] += conn->hs_buf_len;
     conn->hs_buf_len = 0;
 
-    uint8_t pkt[1400];
+    uint8_t *pkt = conn->pkt_buf;
     size_t plen = hy2_build_long_pkt(conn, ki, frames, flen,
-                                      ki == 0, pkt, sizeof(pkt));
+                                      ki == 0, pkt, sizeof(conn->pkt_buf));
     if (!plen) return -1;
 
     /* Salamander: salt(8) + obfuscated packet */
     if (conn->salamander_active) {
-        uint8_t wire[1500];
+        uint8_t *wire = conn->wire_buf;
         salamander_gen_salt(wire);
         memcpy(wire + SALAMANDER_SALT_LEN, pkt, plen);
         salamander_process(&conn->salamander, wire, SALAMANDER_SALT_LEN + plen);
@@ -694,8 +700,8 @@ static int hy2_process_incoming(hysteria2_conn_t *conn,
         pnum = (pnum << 8) | hdr[pn_offset + i];
 
     /* AEAD decrypt */
-    uint8_t plain[1400];
-    size_t plain_len = sizeof(plain);
+    uint8_t *plain = conn->plain_buf;
+    size_t plain_len = sizeof(conn->plain_buf);
     if (quic_aead_unprotect(&conn->keys[ki].recv_aead,
                              plain, &plain_len,
                              pkt + pn_offset + 4,
@@ -868,8 +874,8 @@ static int hy2_quic_handshake(hysteria2_conn_t *conn)
     setsockopt(conn->udp_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     for (int attempt = 0; attempt < 50; attempt++) {
-        uint8_t wire[1500];
-        ssize_t n = recv(conn->udp_fd, wire, sizeof(wire), 0);
+        uint8_t *wire = conn->wire_buf;
+        ssize_t n = recv(conn->udp_fd, wire, sizeof(conn->wire_buf), 0);
         if (n <= 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 continue; /* таймаут recv — ретрай */
@@ -948,24 +954,25 @@ static size_t hy2_build_short_pkt(hysteria2_conn_t *conn,
 static int hy2_send_stream(hysteria2_conn_t *conn, uint64_t stream_id,
                             const uint8_t *data, size_t dlen, bool fin)
 {
-    uint8_t frames[1400];
+    const size_t frame_cap = 1400;
+    uint8_t *frames = conn->frames_buf; /* 2048, используем до 1400 */
     size_t pos = 0;
     /* STREAM frame type: 0x08 + OFF(0x04) + LEN(0x02) + FIN(0x01) */
     uint8_t ftype = 0x08u | 0x02u; /* длина указана */
     if (fin) ftype |= 0x01u;
-    pos += qv_enc(frames + pos, sizeof(frames) - pos, ftype);
-    pos += qv_enc(frames + pos, sizeof(frames) - pos, stream_id);
-    pos += qv_enc(frames + pos, sizeof(frames) - pos, (uint64_t)dlen);
-    if (pos + dlen > sizeof(frames)) return -1;
+    pos += qv_enc(frames + pos, frame_cap - pos, ftype);
+    pos += qv_enc(frames + pos, frame_cap - pos, stream_id);
+    pos += qv_enc(frames + pos, frame_cap - pos, (uint64_t)dlen);
+    if (pos + dlen > frame_cap) return -1;
     if (dlen > 0 && data) memcpy(frames + pos, data, dlen);
     pos += dlen;
 
-    uint8_t pkt[1400];
-    size_t plen = hy2_build_short_pkt(conn, frames, pos, pkt, sizeof(pkt));
+    uint8_t *pkt = conn->pkt_buf;
+    size_t plen = hy2_build_short_pkt(conn, frames, pos, pkt, sizeof(conn->pkt_buf));
     if (!plen) return -1;
 
     if (conn->salamander_active) {
-        uint8_t wire[1500];
+        uint8_t *wire = conn->wire_buf;
         salamander_gen_salt(wire);
         memcpy(wire + SALAMANDER_SALT_LEN, pkt, plen);
         salamander_process(&conn->salamander, wire, SALAMANDER_SALT_LEN + plen);
@@ -1038,8 +1045,8 @@ static int hy2_http3_auth(hysteria2_conn_t *conn)
     /* Получить ответ — ожидаем STREAM frame на auth_stream */
     conn->auth_rxlen = 0;
     for (int i = 0; i < 30; i++) {
-        uint8_t wire[1500];
-        ssize_t n = recv(conn->udp_fd, wire, sizeof(wire), 0);
+        uint8_t *wire = conn->wire_buf;
+        ssize_t n = recv(conn->udp_fd, wire, sizeof(conn->wire_buf), 0);
         if (n <= 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
             break;
@@ -1213,8 +1220,8 @@ static uint64_t hy2_now_us(void)
 
 static int hy2_recv_one(hysteria2_conn_t *conn)
 {
-    uint8_t wire[1500];
-    ssize_t n = recv(conn->udp_fd, wire, sizeof(wire), 0);
+    uint8_t *wire = conn->wire_buf;
+    ssize_t n = recv(conn->udp_fd, wire, sizeof(conn->wire_buf), 0);
     if (n <= 0) return (n == 0) ? 0 : -1;
 
     uint8_t *qpkt = wire;
