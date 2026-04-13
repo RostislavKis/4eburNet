@@ -38,6 +38,7 @@ static int hkdf_expand_label(WOLFSSL *ssl,
     const char prefix[] = "tls13 ";
     size_t  plen = 6;
     size_t  llen = strlen(label);
+    if (plen + llen > sizeof(info) - 4) return -1;  /* M-12: overflow guard */
 
     info[pos++] = (uint8_t)(outlen >> 8);
     info[pos++] = (uint8_t)(outlen & 0xFF);

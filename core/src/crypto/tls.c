@@ -92,8 +92,11 @@ int tls_global_init(void)
     /* Отключаем встроенное логирование — используем свою систему */
     wolfSSL_Debugging_OFF();
 
-    log_msg(LOG_INFO, "wolfSSL инициализирован (v%s)",
-            wolfSSL_lib_version());
+    /* W-01: проверка минимальной версии wolfSSL */
+    const char *wv = wolfSSL_lib_version();
+    if (wv[0] < '5')
+        log_msg(LOG_WARN, "wolfSSL %s < 5.x — рекомендуется 5.9.0+", wv);
+    log_msg(LOG_INFO, "wolfSSL инициализирован (v%s)", wv);
     return 0;
 }
 
@@ -225,11 +228,14 @@ int tls_connect_start(tls_conn_t *conn, int fd,
     }
 
     /* Копируем SNI — защита от dangling pointer при reload конфига */
-    if (config->sni[0])
-        snprintf(conn->config.sni, sizeof(conn->config.sni),
-                 "%s", config->sni);
-    else
+    if (config->sni[0]) {
+        int _n = snprintf(conn->config.sni, sizeof(conn->config.sni),
+                          "%s", config->sni);
+        if (_n < 0 || (size_t)_n >= sizeof(conn->config.sni))
+            log_msg(LOG_WARN, "TLS: SNI обрезан: %s", config->sni);
+    } else {
         conn->config.sni[0] = '\0';
+    }
 
     /* CTX из кэша (H-04: один CTX на все соединения с одним fingerprint) */
     WOLFSSL_CTX *ctx = get_or_create_ctx(config->fingerprint,

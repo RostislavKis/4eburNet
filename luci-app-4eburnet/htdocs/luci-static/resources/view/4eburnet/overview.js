@@ -188,7 +188,7 @@ return view.extend({
                                 callWanIp().then(function(d) {
                                     if (d && d.ip)
                                         setTxt('wan-ip-txt', d.ip);
-                                }).catch(function() {});
+                                }).catch(function() { /* WAN IP — не критично */ });
                             }
                         }, ['⟳'])
                     ]),
@@ -263,7 +263,7 @@ return view.extend({
                 setTxt('hero-uptime', d.running ? 'Аптайм: ' + fmtUptime(d.uptime) : '—');
                 setTxt('stat-status', d.running ? _('Активен') : _('Остановлен'));
                 setTxt('stat-uptime', d.running ? fmtUptime(d.uptime) : '');
-            }).catch(function() {});
+            }).catch(function() { /* status poll — не критично */ });
         }, 3000);
 
         /* Сохранить ID таймера в dataset для handleReset */

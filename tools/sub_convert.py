@@ -281,7 +281,7 @@ def _parse_clash_yaml_native(doc: dict, max_servers: int = 500) -> tuple:
             dns_opts.append(('upstream_fallback', _extract_ip(fallback[0])))
         fip = dns.get('fake-ip-range', '')
         if fip:
-            dns_opts.append(('fake_ip_cidr', str(fip)))
+            dns_opts.append(('fake_ip_range', str(fip)))
         # nameserver-policy → dns_rule
         for domain, srv_list in (dns.get('nameserver-policy') or {}).items():
             ip = _extract_ip(srv_list[0] if isinstance(srv_list, list) else srv_list)

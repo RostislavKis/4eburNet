@@ -547,6 +547,8 @@ int main(int argc, char *argv[])
                 };
                 if (inet_pton(AF_INET, cfg_ptr->dns.upstream_default,
                               &sa.sin_addr) == 1) {
+                    log_msg(LOG_INFO, "DNS: probe upstream %s:%u",
+                            cfg_ptr->dns.upstream_default, up_port);
                     /* Минимальный DNS запрос: QNAME="." QTYPE=A QCLASS=IN */
                     uint8_t probe[] = {
                         0x12,0x34, 0x01,0x00, 0x00,0x01, 0x00,0x00,
