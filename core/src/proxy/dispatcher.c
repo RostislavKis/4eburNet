@@ -336,6 +336,8 @@ static int xhttp_protocol_start(relay_conn_t *relay,
     {   int _n = snprintf(cfg.sni, sizeof(cfg.sni), "%s", sni_host);
         if (_n < 0 || (size_t)_n >= sizeof(cfg.sni)) {
             log_msg(LOG_WARN, "XHTTP: SNI обрезан: %s", sni_host);
+            free(relay->xhttp);
+            relay->xhttp = NULL;
             return -1;
         }
     }
