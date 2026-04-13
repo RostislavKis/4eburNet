@@ -273,6 +273,8 @@ int proxy_group_select_server(proxy_group_manager_t *pgm, const char *group_name
         }
         return g->servers[0].server_idx;
     }
+    default:
+        break;
     }
 
     return -1;

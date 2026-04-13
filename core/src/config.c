@@ -1085,6 +1085,8 @@ int config_load(const char *path, EburNetConfig *cfg)
             case SECTION_NONE:
                 log_msg(LOG_WARN, "Строка %d: опция вне секции", line_num);
                 break;
+            default:
+                break;
             }
         } else if (strcmp(keyword, "list") == 0) {
             char *lkey = next_token(&cursor);

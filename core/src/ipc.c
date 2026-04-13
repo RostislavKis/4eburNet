@@ -174,6 +174,11 @@ static size_t json_get_str(const char *json, const char *key,
     return i;
 }
 
+/*
+ * ipc_process — обработчик всех IPC команд в одной функции.
+ * Единый switch минимизирует overhead диспетчеризации.
+ * Каждая команда независима — таблица handler-указателей не оправдана.
+ */
 void ipc_process(int server_fd, EburNetState *state)
 {
     /* Неблокирующий accept + client_fd (H-02) */
