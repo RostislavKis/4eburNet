@@ -407,6 +407,8 @@ rule_match_result_t rules_engine_match(rules_engine_t *re,
                     matched = true;
             }
             break;
+        default:
+            break;
         }
 
         if (matched) {
@@ -444,6 +446,8 @@ int rules_engine_get_server(rules_engine_t *re,
                     r.group_name);
             return srv;
         }
+    default:
+        break;
     }
     return -1;
 }
