@@ -160,6 +160,10 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
             }
 
             char *pcopy = strdup(gc->providers);
+            if (!pcopy) {
+                log_msg(LOG_ERROR, "proxy_group: нет памяти для providers copy");
+                continue;
+            }
             char *sp = NULL;
             for (char *pn = strtok_r(pcopy, " ", &sp); pn;
                  pn = strtok_r(NULL, " ", &sp)) {

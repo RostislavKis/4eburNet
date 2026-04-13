@@ -594,7 +594,7 @@ static void child_do_tcp_ping(const char *ip, uint16_t port,
                    + (int64_t)(t2.tv_nsec - t1.tv_nsec) / 1000000;
         char buf[32];
         int n = snprintf(buf, sizeof(buf), "OK %lld\n", (long long)ms);
-        write(pipe_wr, buf, (size_t)n);
+        if (n > 0) write(pipe_wr, buf, (size_t)n);
     }
     _exit(0);
 }
@@ -670,7 +670,7 @@ static void child_do_udp_ping(const char *ip, uint16_t port,
          * Оба случая = host reachable */
         char buf[32];
         int n = snprintf(buf, sizeof(buf), "OK %lld\n", (long long)ms);
-        write(pipe_wr, buf, (size_t)n);
+        if (n > 0) write(pipe_wr, buf, (size_t)n);
     } else {
         /* timeout — хост недоступен или пакет отфильтрован */
         write(pipe_wr, "ERR\n", 4);
