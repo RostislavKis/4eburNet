@@ -135,9 +135,13 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         strncpy(cfg->mode, value, sizeof(cfg->mode) - 1);
         cfg->mode[sizeof(cfg->mode) - 1] = '\0';
     } else if (strcmp(key, "lan_interface") == 0) {
-        snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
+        int _n = snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg->lan_interface))
+            log_msg(LOG_WARN, "config: обрезано: lan_interface");
     } else if (strcmp(key, "tun_interface") == 0) {
-        snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", value);
+        int _n = snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg->tun_iface))
+            log_msg(LOG_WARN, "config: обрезано: tun_iface");
     } else if (strcmp(key, "tai_utc_offset") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 200)
@@ -145,11 +149,17 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         else
             log_msg(LOG_WARN, "tai_utc_offset: невалидное '%s'", value);
     } else if (strcmp(key, "region") == 0) {
-        snprintf(cfg->geo_region, sizeof(cfg->geo_region), "%s", value);
+        int _n = snprintf(cfg->geo_region, sizeof(cfg->geo_region), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg->geo_region))
+            log_msg(LOG_WARN, "config: обрезано: geo_region");
     } else if (strcmp(key, "geo_dir") == 0) {
-        snprintf(cfg->geo_dir, sizeof(cfg->geo_dir), "%s", value);
+        int _n = snprintf(cfg->geo_dir, sizeof(cfg->geo_dir), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg->geo_dir))
+            log_msg(LOG_WARN, "config: обрезано: geo_dir");
     } else if (strcmp(key, "dpi_dir") == 0) {
-        snprintf(cfg->dpi_dir, sizeof(cfg->dpi_dir), "%s", value);
+        int _n = snprintf(cfg->dpi_dir, sizeof(cfg->dpi_dir), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(cfg->dpi_dir))
+            log_msg(LOG_WARN, "config: обрезано: dpi_dir");
     } else if (strcmp(key, "dpi_enabled") == 0) {
         if (strcmp(value, "1") == 0)      cfg->dpi_enabled = true;
         else if (strcmp(value, "0") == 0) cfg->dpi_enabled = false;
@@ -186,9 +196,11 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
             if (value[i] == ' ' || value[i] == '\t' ||
                 value[i] == '\n' || value[i] == '\r')
                 valid = 0;
-        if (valid)
-            snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "%s", value);
-        else
+        if (valid) {
+            int _n = snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "%s", value);
+            if (_n < 0 || (size_t)_n >= sizeof(cfg->dpi_fake_sni))
+                log_msg(LOG_WARN, "config: обрезано: dpi_fake_sni");
+        } else
             log_msg(LOG_WARN,
                     "dpi_fake_sni: невалидный hostname '%s', "
                     "используется '%s'", value, cfg->dpi_fake_sni);
@@ -209,9 +221,12 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
             log_msg(LOG_WARN,
                     "cdn_cf_v4_url: ожидается https://host/path, "
                     "получено '%s' — поле не изменено", value);
-        else
-            snprintf(cfg->cdn_cf_v4_url, sizeof(cfg->cdn_cf_v4_url),
-                     "%s", value);
+        else {
+            int _n = snprintf(cfg->cdn_cf_v4_url, sizeof(cfg->cdn_cf_v4_url),
+                              "%s", value);
+            if (_n < 0 || (size_t)_n >= sizeof(cfg->cdn_cf_v4_url))
+                log_msg(LOG_WARN, "config: обрезано: cdn_cf_v4_url");
+        }
     } else if (strcmp(key, "cdn_cf_v6_url") == 0) {
         size_t vlen = strlen(value);
         if (vlen == 0) { /* пусто → default */ }
@@ -219,9 +234,12 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
             log_msg(LOG_WARN,
                     "cdn_cf_v6_url: ожидается https://host/path, "
                     "получено '%s' — поле не изменено", value);
-        else
-            snprintf(cfg->cdn_cf_v6_url, sizeof(cfg->cdn_cf_v6_url),
-                     "%s", value);
+        else {
+            int _n = snprintf(cfg->cdn_cf_v6_url, sizeof(cfg->cdn_cf_v6_url),
+                              "%s", value);
+            if (_n < 0 || (size_t)_n >= sizeof(cfg->cdn_cf_v6_url))
+                log_msg(LOG_WARN, "config: обрезано: cdn_cf_v6_url");
+        }
     } else if (strcmp(key, "cdn_fastly_url") == 0) {
         size_t vlen = strlen(value);
         if (vlen == 0) { /* пусто → default */ }
@@ -229,9 +247,12 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
             log_msg(LOG_WARN,
                     "cdn_fastly_url: ожидается https://host/path, "
                     "получено '%s' — поле не изменено", value);
-        else
-            snprintf(cfg->cdn_fastly_url, sizeof(cfg->cdn_fastly_url),
-                     "%s", value);
+        else {
+            int _n = snprintf(cfg->cdn_fastly_url, sizeof(cfg->cdn_fastly_url),
+                              "%s", value);
+            if (_n < 0 || (size_t)_n >= sizeof(cfg->cdn_fastly_url))
+                log_msg(LOG_WARN, "config: обрезано: cdn_fastly_url");
+        }
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
@@ -251,8 +272,11 @@ static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
         if (m[i] > 255) return -1;
         mac[i] = (uint8_t)m[i];
     }
-    snprintf(out_str, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+{   int _n = snprintf(out_str, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
+                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    if (_n < 0 || (size_t)_n >= 18)
+        log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
+}
     return 0;
 }
 
@@ -261,7 +285,11 @@ static int parse_mac(const char *str, uint8_t mac[6], char *out_str)
 static int apply_server_option(ServerConfig *srv, const char *key, const char *value)
 {
     if (strcmp(key, "name") == 0) {
-        snprintf(srv->name, sizeof(srv->name), "%s", value);
+        int _n = snprintf(srv->name, sizeof(srv->name), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->name)) {
+            log_msg(LOG_ERROR, "config: поле обрезано: srv->name");
+            return -1;
+        }
     } else if (strcmp(key, "enabled") == 0) {
         if (strcmp(value, "1") == 0)      srv->enabled = true;
         else if (strcmp(value, "0") == 0) srv->enabled = false;
@@ -304,19 +332,39 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         srv->reality_short_id[sizeof(srv->reality_short_id) - 1] = '\0';
     /* AWG параметры */
     } else if (strcmp(key, "awg_private_key") == 0) {
-        snprintf(srv->awg_private_key, sizeof(srv->awg_private_key), "%s", value);
+        int _n = snprintf(srv->awg_private_key, sizeof(srv->awg_private_key), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_private_key)) {
+            log_msg(LOG_ERROR, "config: поле обрезано: awg_private_key");
+            return -1;
+        }
     } else if (strcmp(key, "awg_public_key") == 0) {
-        snprintf(srv->awg_public_key, sizeof(srv->awg_public_key), "%s", value);
+        int _n = snprintf(srv->awg_public_key, sizeof(srv->awg_public_key), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_public_key)) {
+            log_msg(LOG_ERROR, "config: поле обрезано: awg_public_key");
+            return -1;
+        }
     } else if (strcmp(key, "awg_psk") == 0) {
-        snprintf(srv->awg_psk, sizeof(srv->awg_psk), "%s", value);
+        int _n = snprintf(srv->awg_psk, sizeof(srv->awg_psk), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_psk)) {
+            log_msg(LOG_ERROR, "config: поле обрезано: awg_psk");
+            return -1;
+        }
     } else if (strcmp(key, "awg_h1") == 0) {
-        snprintf(srv->awg_h1, sizeof(srv->awg_h1), "%s", value);
+        int _n = snprintf(srv->awg_h1, sizeof(srv->awg_h1), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h1))
+            log_msg(LOG_WARN, "config: обрезано: awg_h1");
     } else if (strcmp(key, "awg_h2") == 0) {
-        snprintf(srv->awg_h2, sizeof(srv->awg_h2), "%s", value);
+        int _n = snprintf(srv->awg_h2, sizeof(srv->awg_h2), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h2))
+            log_msg(LOG_WARN, "config: обрезано: awg_h2");
     } else if (strcmp(key, "awg_h3") == 0) {
-        snprintf(srv->awg_h3, sizeof(srv->awg_h3), "%s", value);
+        int _n = snprintf(srv->awg_h3, sizeof(srv->awg_h3), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h3))
+            log_msg(LOG_WARN, "config: обрезано: awg_h3");
     } else if (strcmp(key, "awg_h4") == 0) {
-        snprintf(srv->awg_h4, sizeof(srv->awg_h4), "%s", value);
+        int _n = snprintf(srv->awg_h4, sizeof(srv->awg_h4), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->awg_h4))
+            log_msg(LOG_WARN, "config: обрезано: awg_h4");
     } else if (strcmp(key, "awg_s1") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 1500)
@@ -384,12 +432,20 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         srv->hy2_down_mbps = (v > 0 && v <= 100000) ? (uint32_t)v : 0;
 #if CONFIG_EBURNET_STLS
     } else if (strcmp(key, "stls_password") == 0) {
-        snprintf(srv->stls_password, sizeof(srv->stls_password), "%s", value);
+        int _n = snprintf(srv->stls_password, sizeof(srv->stls_password), "%s", value);
+        if (_n < 0 || (size_t)_n >= sizeof(srv->stls_password)) {
+            log_msg(LOG_ERROR, "config: поле обрезано: stls_password");
+            return -1;
+        }
     } else if (strcmp(key, "stls_sni") == 0) {
         if (!strchr(value, '.') || value[0] == '.' || value[0] == '\0') {
             log_msg(LOG_WARN, "config: stls_sni '%s' не FQDN", value);
         } else {
-            snprintf(srv->stls_sni, sizeof(srv->stls_sni), "%s", value);
+            int _n = snprintf(srv->stls_sni, sizeof(srv->stls_sni), "%s", value);
+            if (_n < 0 || (size_t)_n >= sizeof(srv->stls_sni)) {
+                log_msg(LOG_ERROR, "config: поле обрезано: stls_sni");
+                return -1;
+            }
         }
 #endif
     } else {
@@ -424,16 +480,28 @@ int config_load(const char *path, EburNetConfig *cfg)
     /* Инициализация структуры */
     memset(cfg, 0, sizeof(*cfg));
     cfg->enabled = false;
-    snprintf(cfg->log_level, sizeof(cfg->log_level), "%s", "info");
-    snprintf(cfg->mode, sizeof(cfg->mode), "%s", "rules");
+{   int _n = snprintf(cfg->log_level, sizeof(cfg->log_level), "%s", "info");
+    if (_n < 0 || (size_t)_n >= sizeof(cfg->log_level))
+        log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
+}
+{   int _n = snprintf(cfg->mode, sizeof(cfg->mode), "%s", "rules");
+    if (_n < 0 || (size_t)_n >= sizeof(cfg->mode))
+        log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
+}
     cfg->tai_utc_offset   = 37;  /* с 2017-01-01, https://www.ietf.org/timezones/data/leap-seconds.list */
-    snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", TUN_IFACE_DEFAULT);
+{   int _n = snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", TUN_IFACE_DEFAULT);
+    if (_n < 0 || (size_t)_n >= sizeof(cfg->tun_iface))
+        log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
+}
     /* DPI bypass defaults */
     cfg->dpi_enabled      = true;
     cfg->dpi_split_pos    = 1;
     cfg->dpi_fake_ttl     = 5;
     cfg->dpi_fake_repeats = 8;
-    snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "www.google.com");
+{   int _n = snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "www.google.com");
+    if (_n < 0 || (size_t)_n >= sizeof(cfg->dpi_fake_sni))
+        log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
+}
 
     /* CDN updater defaults */
     cfg->cdn_update_interval_days = 7;
@@ -534,8 +602,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                     ProxyProviderConfig *pp = &pp_tmp[pp_count++];
                     memset(pp, 0, sizeof(*pp));
                     pp->enabled = true;
-                    if (name && name[0])
-                        snprintf(pp->name, sizeof(pp->name), "%s", name);
+                    if (name && name[0]) {
+                        int _n = snprintf(pp->name, sizeof(pp->name), "%s", name);
+                        if (_n < 0 || (size_t)_n >= sizeof(pp->name))
+                            log_msg(LOG_WARN, "config: обрезано: pp->name");
+                    }
                 }
             } else if (strcmp(type, "rule_provider") == 0) {
                 section = SECTION_RULE_PROVIDER;
@@ -554,9 +625,12 @@ int config_load(const char *path, EburNetConfig *cfg)
                 section = SECTION_DEVICE_POLICY;
                 if (dev_count < MAX_DEVICES) {
                     memset(&devices_tmp[dev_count], 0, sizeof(device_config_t));
-                    if (name)
-                        snprintf(devices_tmp[dev_count].name,
+                    if (name) {
+                        int _n = snprintf(devices_tmp[dev_count].name,
                                  sizeof(devices_tmp[dev_count].name), "%s", name);
+                        if (_n < 0 || (size_t)_n >= sizeof(devices_tmp[dev_count].name))
+                            log_msg(LOG_WARN, "config: обрезано: device name");
+                    }
                     dev_count++;
                 }
             } else if (strcmp(type, "dns_rule") == 0) {
@@ -607,12 +681,25 @@ int config_load(const char *path, EburNetConfig *cfg)
                 } else if (strcmp(key, "listen_port") == 0)
                     d->listen_port = (uint16_t)parse_int_uci(
                         value, "listen_port", 53, 1, 65535);
-                else if (strcmp(key, "upstream_bypass") == 0)
-                    snprintf(d->upstream_bypass, sizeof(d->upstream_bypass), "%s", value);
-                else if (strcmp(key, "upstream_proxy") == 0)
-                    snprintf(d->upstream_proxy, sizeof(d->upstream_proxy), "%s", value);
-                else if (strcmp(key, "upstream_default") == 0)
-                    snprintf(d->upstream_default, sizeof(d->upstream_default), "%s", value);
+                else if (strcmp(key, "upstream_bypass") == 0) {
+                    int _n = snprintf(d->upstream_bypass, sizeof(d->upstream_bypass), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->upstream_bypass)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: upstream_bypass");
+                        goto cleanup_fail;
+                    }
+                } else if (strcmp(key, "upstream_proxy") == 0) {
+                    int _n = snprintf(d->upstream_proxy, sizeof(d->upstream_proxy), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->upstream_proxy)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: upstream_proxy");
+                        goto cleanup_fail;
+                    }
+                } else if (strcmp(key, "upstream_default") == 0) {
+                    int _n = snprintf(d->upstream_default, sizeof(d->upstream_default), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->upstream_default)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: upstream_default");
+                        goto cleanup_fail;
+                    }
+                }
                 else if (strcmp(key, "upstream_port") == 0)
                     d->upstream_port = (uint16_t)parse_int_uci(
                         value, "upstream_port", 53, 1, 65535);
@@ -626,12 +713,25 @@ int config_load(const char *path, EburNetConfig *cfg)
                     if (strcmp(value, "1") == 0)      d->doh_enabled = true;
                     else if (strcmp(value, "0") == 0) d->doh_enabled = false;
                     else log_msg(LOG_WARN, "doh_enabled: невалидное '%s'", value);
-                } else if (strcmp(key, "doh_url") == 0)
-                    snprintf(d->doh_url, sizeof(d->doh_url), "%s", value);
-                else if (strcmp(key, "doh_sni") == 0)
-                    snprintf(d->doh_sni, sizeof(d->doh_sni), "%s", value);
-                else if (strcmp(key, "doh_ip") == 0)
-                    snprintf(d->doh_ip, sizeof(d->doh_ip), "%s", value);
+                } else if (strcmp(key, "doh_url") == 0) {
+                    int _n = snprintf(d->doh_url, sizeof(d->doh_url), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->doh_url)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: doh_url");
+                        goto cleanup_fail;
+                    }
+                } else if (strcmp(key, "doh_sni") == 0) {
+                    int _n = snprintf(d->doh_sni, sizeof(d->doh_sni), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->doh_sni)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: doh_sni");
+                        goto cleanup_fail;
+                    }
+                } else if (strcmp(key, "doh_ip") == 0) {
+                    int _n = snprintf(d->doh_ip, sizeof(d->doh_ip), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->doh_ip)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: doh_ip");
+                        goto cleanup_fail;
+                    }
+                }
                 else if (strcmp(key, "doh_port") == 0)
                     d->doh_port = (uint16_t)parse_int_uci(
                         value, "doh_port", 443, 1, 65535);
@@ -639,22 +739,36 @@ int config_load(const char *path, EburNetConfig *cfg)
                     if (strcmp(value, "1") == 0)      d->dot_enabled = true;
                     else if (strcmp(value, "0") == 0) d->dot_enabled = false;
                     else log_msg(LOG_WARN, "dot_enabled: невалидное '%s'", value);
-                } else if (strcmp(key, "dot_server_ip") == 0)
-                    snprintf(d->dot_server_ip, sizeof(d->dot_server_ip), "%s", value);
+                } else if (strcmp(key, "dot_server_ip") == 0) {
+                    int _n = snprintf(d->dot_server_ip, sizeof(d->dot_server_ip), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->dot_server_ip)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: dot_server_ip");
+                        goto cleanup_fail;
+                    }
+                }
                 else if (strcmp(key, "dot_port") == 0)
                     d->dot_port = (uint16_t)parse_int_uci(
                         value, "dot_port", 853, 1, 65535);
-                else if (strcmp(key, "dot_sni") == 0)
-                    snprintf(d->dot_sni, sizeof(d->dot_sni), "%s", value);
-                else if (strcmp(key, "upstream_fallback") == 0)
-                    snprintf(d->upstream_fallback,
-                             sizeof(d->upstream_fallback), "%s", value);
-                else if (strcmp(key, "fallback_timeout_ms") == 0)
+                else if (strcmp(key, "dot_sni") == 0) {
+                    int _n = snprintf(d->dot_sni, sizeof(d->dot_sni), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->dot_sni)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: dot_sni");
+                        goto cleanup_fail;
+                    }
+                } else if (strcmp(key, "upstream_fallback") == 0) {
+                    int _n = snprintf(d->upstream_fallback,
+                                      sizeof(d->upstream_fallback), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->upstream_fallback))
+                        log_msg(LOG_WARN, "config: обрезано: upstream_fallback");
+                } else if (strcmp(key, "fallback_timeout_ms") == 0)
                     d->fallback_timeout_ms = parse_int_uci(
                         value, "fallback_timeout_ms", 1000, 100, 10000);
-                else if (strcmp(key, "bogus_nxdomain") == 0)
-                    snprintf(d->bogus_nxdomain,
-                             sizeof(d->bogus_nxdomain), "%s", value);
+                else if (strcmp(key, "bogus_nxdomain") == 0) {
+                    int _n = snprintf(d->bogus_nxdomain,
+                                      sizeof(d->bogus_nxdomain), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->bogus_nxdomain))
+                        log_msg(LOG_WARN, "config: обрезано: bogus_nxdomain");
+                }
                 else if (strcmp(key, "cache_ttl_min") == 0)
                     d->cache_ttl_min = parse_int_uci(
                         value, "cache_ttl_min", 0, 0, 3600);
@@ -666,8 +780,13 @@ int config_load(const char *path, EburNetConfig *cfg)
                     if (strcmp(value, "1") == 0)      d->fake_ip_enabled = true;
                     else if (strcmp(value, "0") == 0) d->fake_ip_enabled = false;
                     else log_msg(LOG_WARN, "fake_ip_enabled: невалидное '%s'", value);
-                } else if (strcmp(key, "fake_ip_range") == 0)
-                    snprintf(d->fake_ip_range, sizeof(d->fake_ip_range), "%s", value);
+                } else if (strcmp(key, "fake_ip_range") == 0) {
+                    int _n = snprintf(d->fake_ip_range, sizeof(d->fake_ip_range), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->fake_ip_range)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: fake_ip_range");
+                        goto cleanup_fail;
+                    }
+                }
                 else if (strcmp(key, "fake_ip_pool_size") == 0)
                     d->fake_ip_pool_size = parse_int_uci(
                         value, "fake_ip_pool_size", 65536, 1, 262144);
@@ -680,32 +799,53 @@ int config_load(const char *path, EburNetConfig *cfg)
                     else log_msg(LOG_WARN,
                                  "doq_enabled: невалидное '%s', ожидается '0'/'1'",
                                  value);
-                } else if (strcmp(key, "doq_server_ip") == 0)
-                    snprintf(d->doq_server_ip, sizeof(d->doq_server_ip),
-                             "%s", value);
-                else if (strcmp(key, "doq_server_port") == 0)
+                } else if (strcmp(key, "doq_server_ip") == 0) {
+                    int _n = snprintf(d->doq_server_ip, sizeof(d->doq_server_ip),
+                                      "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->doq_server_ip)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: doq_server_ip");
+                        goto cleanup_fail;
+                    }
+                } else if (strcmp(key, "doq_server_port") == 0)
                     d->doq_server_port = (uint16_t)parse_int_uci(
                         value, "doq_server_port", 853, 1, 65535);
-                else if (strcmp(key, "doq_sni") == 0)
-                    snprintf(d->doq_sni, sizeof(d->doq_sni), "%s", value);
+                else if (strcmp(key, "doq_sni") == 0) {
+                    int _n = snprintf(d->doq_sni, sizeof(d->doq_sni), "%s", value);
+                    if (_n < 0 || (size_t)_n >= sizeof(d->doq_sni)) {
+                        log_msg(LOG_ERROR, "config: поле обрезано: doq_sni");
+                        goto cleanup_fail;
+                    }
+                }
                 break;
             }
             case SECTION_DNS_RULE:
                 if (dns_rule_count > 0) {
                     DnsRule *dr = &dns_rules[dns_rule_count - 1];
-                    if (strcmp(key, "type") == 0)
-                        snprintf(dr->type, sizeof(dr->type), "%s", value);
-                    else if (strcmp(key, "pattern") == 0)
-                        snprintf(dr->pattern, sizeof(dr->pattern), "%s", value);
+                    if (strcmp(key, "type") == 0) {
+                        int _n = snprintf(dr->type, sizeof(dr->type), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(dr->type))
+                            log_msg(LOG_WARN, "config: обрезано: dr->type");
+                    } else if (strcmp(key, "pattern") == 0) {
+                        int _n = snprintf(dr->pattern, sizeof(dr->pattern), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(dr->pattern))
+                            log_msg(LOG_WARN, "config: обрезано: dr->pattern");
+                    }
                 }
                 break;
             case SECTION_DNS_POLICY:
                 if (dp_count > 0) {
                     DnsPolicy *dp = &dp_tmp[dp_count - 1];
-                    if (strcmp(key, "pattern") == 0)
-                        snprintf(dp->pattern, sizeof(dp->pattern), "%s", value);
-                    else if (strcmp(key, "upstream") == 0)
-                        snprintf(dp->upstream, sizeof(dp->upstream), "%s", value);
+                    if (strcmp(key, "pattern") == 0) {
+                        int _n = snprintf(dp->pattern, sizeof(dp->pattern), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(dp->pattern))
+                            log_msg(LOG_WARN, "config: обрезано: dp->pattern");
+                    } else if (strcmp(key, "upstream") == 0) {
+                        int _n = snprintf(dp->upstream, sizeof(dp->upstream), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(dp->upstream)) {
+                            log_msg(LOG_ERROR, "config: поле обрезано: dp->upstream");
+                            goto cleanup_fail;
+                        }
+                    }
                     else if (strcmp(key, "port") == 0) {
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0' && v > 0 && v <= 65535)
@@ -717,9 +857,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                             dp->type = DNS_UPSTREAM_DOH;
                         else
                             dp->type = DNS_UPSTREAM_UDP;
-                    } else if (strcmp(key, "sni") == 0)
-                        snprintf(dp->sni, sizeof(dp->sni), "%s", value);
-                    else if (strcmp(key, "priority") == 0) {
+                    } else if (strcmp(key, "sni") == 0) {
+                        int _n = snprintf(dp->sni, sizeof(dp->sni), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(dp->sni))
+                            log_msg(LOG_WARN, "config: обрезано: dp->sni");
+                    } else if (strcmp(key, "priority") == 0) {
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0')
                             dp->priority = (int)v;
@@ -730,7 +872,9 @@ int config_load(const char *path, EburNetConfig *cfg)
                 if (pg_count > 0) {
                     ProxyGroupConfig *g = &pg_tmp[pg_count - 1];
                     if (strcmp(key, "name") == 0) {
-                        snprintf(g->name, sizeof(g->name), "%s", value);
+                        int _n = snprintf(g->name, sizeof(g->name), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(g->name))
+                            log_msg(LOG_WARN, "config: обрезано: g->name");
                     } else if (strcmp(key, "type") == 0) {
                         if (strcmp(value, "select") == 0) g->type = PROXY_GROUP_SELECT;
                         else if (strcmp(value, "url-test") == 0) g->type = PROXY_GROUP_URL_TEST;
@@ -754,8 +898,13 @@ int config_load(const char *path, EburNetConfig *cfg)
                         }
                         free(tmp);
                     }
-                    else if (strcmp(key, "url") == 0)
-                        snprintf(g->url, sizeof(g->url), "%s", value);
+                    else if (strcmp(key, "url") == 0) {
+                        int _n = snprintf(g->url, sizeof(g->url), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(g->url)) {
+                            log_msg(LOG_ERROR, "config: поле обрезано: g->url");
+                            goto cleanup_fail;
+                        }
+                    }
                     else if (strcmp(key, "interval") == 0) {
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0') g->interval = (int)v;
@@ -773,7 +922,9 @@ int config_load(const char *path, EburNetConfig *cfg)
                             goto cleanup_fail;
                         }
                     } else if (strcmp(key, "filter") == 0) {
-                        snprintf(g->filter, sizeof(g->filter), "%s", value);
+                        int _n = snprintf(g->filter, sizeof(g->filter), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(g->filter))
+                            log_msg(LOG_WARN, "config: обрезано: g->filter");
                     } else if (strcmp(key, "enabled") == 0) {
                         if (strcmp(value, "1") == 0)      g->enabled = true;
                         else if (strcmp(value, "0") == 0) g->enabled = false;
@@ -788,10 +939,19 @@ int config_load(const char *path, EburNetConfig *cfg)
                         if (strcmp(value, "http") == 0) rp->type = RULE_PROVIDER_HTTP;
                         else rp->type = RULE_PROVIDER_FILE;
                     }
-                    else if (strcmp(key, "url") == 0)
-                        snprintf(rp->url, sizeof(rp->url), "%s", value);
-                    else if (strcmp(key, "path") == 0)
-                        snprintf(rp->path, sizeof(rp->path), "%s", value);
+                    else if (strcmp(key, "url") == 0) {
+                        int _n = snprintf(rp->url, sizeof(rp->url), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(rp->url)) {
+                            log_msg(LOG_ERROR, "config: поле обрезано: rp->url");
+                            goto cleanup_fail;
+                        }
+                    } else if (strcmp(key, "path") == 0) {
+                        int _n = snprintf(rp->path, sizeof(rp->path), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(rp->path)) {
+                            log_msg(LOG_ERROR, "config: поле обрезано: rp->path");
+                            goto cleanup_fail;
+                        }
+                    }
                     else if (strcmp(key, "format") == 0) {
                         if (strcmp(value, "domain") == 0) rp->format = RULE_FORMAT_DOMAIN;
                         else if (strcmp(value, "ipcidr") == 0) rp->format = RULE_FORMAT_IPCIDR;
@@ -804,23 +964,37 @@ int config_load(const char *path, EburNetConfig *cfg)
                         if (strcmp(value, "1") == 0)      rp->enabled = true;
                         else if (strcmp(value, "0") == 0) rp->enabled = false;
                         else log_msg(LOG_WARN, "rule_provider.enabled: невалидное '%s'", value);
-                    } else if (strcmp(key, "region") == 0)
-                        snprintf(rp->region, sizeof(rp->region), "%s", value);
+                    } else if (strcmp(key, "region") == 0) {
+                        int _n = snprintf(rp->region, sizeof(rp->region), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(rp->region))
+                            log_msg(LOG_WARN, "config: обрезано: rp->region");
+                    }
                 }
                 break;
             case SECTION_PROXY_PROVIDER:
                 if (pp_count > 0) {
                     ProxyProviderConfig *pp = &pp_tmp[pp_count - 1];
-                    if (strcmp(key, "name") == 0)
-                        snprintf(pp->name, sizeof(pp->name), "%s", value);
-                    else if (strcmp(key, "type") == 0) {
+                    if (strcmp(key, "name") == 0) {
+                        int _n = snprintf(pp->name, sizeof(pp->name), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(pp->name))
+                            log_msg(LOG_WARN, "config: обрезано: pp->name");
+                    } else if (strcmp(key, "type") == 0) {
                         if (strcmp(value, "url") == 0) pp->type = PROXY_PROVIDER_URL;
                         else pp->type = PROXY_PROVIDER_FILE;
                     }
-                    else if (strcmp(key, "url") == 0)
-                        snprintf(pp->url, sizeof(pp->url), "%s", value);
-                    else if (strcmp(key, "path") == 0)
-                        snprintf(pp->path, sizeof(pp->path), "%s", value);
+                    else if (strcmp(key, "url") == 0) {
+                        int _n = snprintf(pp->url, sizeof(pp->url), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(pp->url)) {
+                            log_msg(LOG_ERROR, "config: поле обрезано: pp->url");
+                            goto cleanup_fail;
+                        }
+                    } else if (strcmp(key, "path") == 0) {
+                        int _n = snprintf(pp->path, sizeof(pp->path), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(pp->path)) {
+                            log_msg(LOG_ERROR, "config: поле обрезано: pp->path");
+                            goto cleanup_fail;
+                        }
+                    }
                     else if (strcmp(key, "interval") == 0) {
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0') pp->interval = (int)v;
@@ -847,10 +1021,15 @@ int config_load(const char *path, EburNetConfig *cfg)
                         else if (strcmp(value, "GEOIP") == 0)    tr->type = RULE_TYPE_GEOIP;
                         else if (strcmp(value, "GEOSITE") == 0)  tr->type = RULE_TYPE_GEOSITE;
                     }
-                    else if (strcmp(key, "value") == 0)
-                        snprintf(tr->value, sizeof(tr->value), "%s", value);
-                    else if (strcmp(key, "target") == 0)
-                        snprintf(tr->target, sizeof(tr->target), "%s", value);
+                    else if (strcmp(key, "value") == 0) {
+                        int _n = snprintf(tr->value, sizeof(tr->value), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(tr->value))
+                            log_msg(LOG_WARN, "config: обрезано: tr->value");
+                    } else if (strcmp(key, "target") == 0) {
+                        int _n = snprintf(tr->target, sizeof(tr->target), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(tr->target))
+                            log_msg(LOG_WARN, "config: обрезано: tr->target");
+                    }
                     else if (strcmp(key, "priority") == 0) {
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0') tr->priority = (int)v;
@@ -860,8 +1039,11 @@ int config_load(const char *path, EburNetConfig *cfg)
             case SECTION_DEVICE_POLICY:
                 if (dev_count > 0) {
                     device_config_t *d = &devices_tmp[dev_count - 1];
-                    if (strcmp(key, "alias") == 0 || strcmp(key, "name") == 0)
-                        snprintf(d->alias, sizeof(d->alias), "%s", value);
+                    if (strcmp(key, "alias") == 0 || strcmp(key, "name") == 0) {
+                        int _n = snprintf(d->alias, sizeof(d->alias), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(d->alias))
+                            log_msg(LOG_WARN, "config: обрезано: d->alias");
+                    }
                     else if (strcmp(key, "mac") == 0)
                         parse_mac(value, d->mac, d->mac_str);
                     else if (strcmp(key, "policy") == 0) {
@@ -870,8 +1052,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                         else if (strcmp(value, "block") == 0) d->policy = DEVICE_POLICY_BLOCK;
                         else d->policy = DEVICE_POLICY_DEFAULT;
                     }
-                    else if (strcmp(key, "server_group") == 0)
-                        snprintf(d->server_group, sizeof(d->server_group), "%s", value);
+                    else if (strcmp(key, "server_group") == 0) {
+                        int _n = snprintf(d->server_group, sizeof(d->server_group), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(d->server_group))
+                            log_msg(LOG_WARN, "config: обрезано: d->server_group");
+                    }
                     else if (strcmp(key, "enabled") == 0) {
                         if (strcmp(value, "1") == 0)      d->enabled = true;
                         else if (strcmp(value, "0") == 0) d->enabled = false;
@@ -880,8 +1065,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                         char *ep; long v = strtol(value, &ep, 10);
                         if (ep != value && *ep == '\0') d->priority = (int)v;
                     }
-                    else if (strcmp(key, "comment") == 0)
-                        snprintf(d->comment, sizeof(d->comment), "%s", value);
+                    else if (strcmp(key, "comment") == 0) {
+                        int _n = snprintf(d->comment, sizeof(d->comment), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(d->comment))
+                            log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
+                    }
                 }
                 break;
             case SECTION_NONE:
