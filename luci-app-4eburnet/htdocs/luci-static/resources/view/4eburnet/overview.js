@@ -192,6 +192,11 @@ return view.extend({
                         (groups.groups || []).length > 0
                         ? E('div', {},
                             (groups.groups || []).slice(0, 4).map(function(g) {
+                                /* B4-06: available/latency на уровне сервера, не группы */
+                                var srvs = g.servers || [];
+                                var avail = srvs.some(function(s) { return s.available; });
+                                var sel = srvs[g.selected] || srvs[0] || {};
+                                var lat = sel.latency || 0;
                                 return E('div', {
                                     style: 'display:flex;align-items:center;gap:8px;'
                                          + 'padding:5px 8px;background:rgba(255,255,255,.03);'
@@ -199,13 +204,13 @@ return view.extend({
                                 }, [
                                     E('div', {
                                         style: 'width:7px;height:7px;border-radius:50%;flex-shrink:0;'
-                                             + 'background:' + (g.available ? '#3ecf6a' : '#f85149')
+                                             + 'background:' + (avail ? '#3ecf6a' : '#f85149')
                                     }),
                                     E('div', {style: 'flex:1;font-size:11px;font-weight:600;color:#e6edf3'}, [g.name || '—']),
                                     E('div', {
                                         style: 'font-family:monospace;font-size:10px;'
-                                             + 'color:' + ((g.latency_ms || 0) < 100 ? '#3ecf6a' : '#f0b429')
-                                    }, [g.latency_ms ? g.latency_ms + 'мс' : '—'])
+                                             + 'color:' + (lat < 100 ? '#3ecf6a' : '#f0b429')
+                                    }, [lat ? lat + 'мс' : '—'])
                                 ]);
                             }))
                         : E('div', {style: 'font-size:11px;color:#545d68'}, [_('Нет данных от демона')])
