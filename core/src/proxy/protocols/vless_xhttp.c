@@ -128,9 +128,12 @@ int xhttp_send_upload_request(xhttp_state_t *xh,
     if (vless_len < 0)
         return -1;
 
-    /* HTTP POST заголовки */
-    char http_hdr[1024];
-    int hdr_len = snprintf(http_hdr, sizeof(http_hdr),
+    /* HTTP POST заголовки (M-01: heap вместо 1024B на MIPS стеке) */
+    int result = -1;
+    char *http_hdr = malloc(1024);
+    if (!http_hdr) { log_msg(LOG_ERROR, "XHTTP: OOM"); return -1; }
+
+    int hdr_len = snprintf(http_hdr, 1024,
         "POST %s HTTP/1.1\r\n"
         "Host: %s\r\n"
         "Content-Type: application/octet-stream\r\n"
@@ -138,15 +141,15 @@ int xhttp_send_upload_request(xhttp_state_t *xh,
         "X-Session-ID: %s\r\n"
         "\r\n",
         xh->path, xh->host, xh->session_id.hex);
-    if (hdr_len < 0 || hdr_len >= (int)sizeof(http_hdr)) {
+    if (hdr_len < 0 || hdr_len >= 1024) {
         log_msg(LOG_ERROR, "XHTTP: POST заголовок обрезан");
-        return -1;
+        goto out_upload;
     }
 
     /* Отправить HTTP заголовки */
     if (tls_send(&xh->upload, http_hdr, hdr_len) != hdr_len) {
         log_msg(LOG_WARN, "XHTTP: не удалось отправить POST заголовки");
-        return -1;
+        goto out_upload;
     }
 
     /* Первый chunk — VLESS header */
@@ -157,12 +160,15 @@ int xhttp_send_upload_request(xhttp_state_t *xh,
         tls_send(&xh->upload, vless_hdr, vless_len) != vless_len ||
         tls_send(&xh->upload, "\r\n", 2) != 2) {
         log_msg(LOG_WARN, "XHTTP: не удалось отправить VLESS header chunk");
-        return -1;
+        goto out_upload;
     }
 
     log_msg(LOG_DEBUG, "XHTTP: POST запрос отправлен (%d байт VLESS header)",
             vless_len);
-    return 0;
+    result = 0;
+out_upload:
+    free(http_hdr);
+    return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -171,25 +177,32 @@ int xhttp_send_upload_request(xhttp_state_t *xh,
 
 int xhttp_send_download_request(xhttp_state_t *xh)
 {
-    char http_req[1024];
-    int len = snprintf(http_req, sizeof(http_req),
+    /* M-02: heap вместо 1024B на MIPS стеке */
+    int result = -1;
+    char *http_req = malloc(1024);
+    if (!http_req) { log_msg(LOG_ERROR, "XHTTP: OOM"); return -1; }
+
+    int len = snprintf(http_req, 1024,
         "GET %s?session=%s HTTP/1.1\r\n"
         "Host: %s\r\n"
         "Accept: application/octet-stream\r\n"
         "\r\n",
         xh->path, xh->session_id.hex, xh->host);
-    if (len < 0 || len >= (int)sizeof(http_req)) {
+    if (len < 0 || len >= 1024) {
         log_msg(LOG_ERROR, "XHTTP: GET заголовок обрезан");
-        return -1;
+        goto out_download;
     }
 
     if (tls_send(&xh->download, http_req, len) != len) {
         log_msg(LOG_WARN, "XHTTP: не удалось отправить GET запрос");
-        return -1;
+        goto out_download;
     }
 
     log_msg(LOG_DEBUG, "XHTTP: GET запрос отправлен");
-    return 0;
+    result = 0;
+out_download:
+    free(http_req);
+    return result;
 }
 
 /* ------------------------------------------------------------------ */
