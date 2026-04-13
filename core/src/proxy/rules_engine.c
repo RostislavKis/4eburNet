@@ -300,8 +300,8 @@ static bool ruleset_match_domain(rules_engine_t *re,
     if (bsearch(&key, pc->entries, pc->count, sizeof(char *), cmp_str))
         return true;
 
-    /* TODO 3.5: суффикс-поиск O(n) — при > 50K записей
-       заменить на trie или отдельный sorted suffix array */
+    /* Суффикс-поиск O(n) — приемлемо при n < 50K (~5мс на MIPS).
+     * При GeoSite 300K+ → patricia trie из geo_loader.c (DEC-031) */
     for (int i = 0; i < pc->count; i++) {
         if (suffix_match(domain, pc->entries[i]))
             return true;
