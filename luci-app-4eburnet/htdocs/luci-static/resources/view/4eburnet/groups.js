@@ -18,7 +18,7 @@ return view.extend({
                 var srvs = g.servers || [];
                 var avail = srvs.some(function(s) { return s.available; });
                 var sel = srvs[g.selected] || srvs[0] || {};
-                var lat = sel.latency || 0;
+                var lat = sel.latency_ms || 0;
                 return E('div', {
                     style: 'background:#161b22;border:1px solid '
                          + (avail ? 'rgba(62,207,106,.25)' : '#30363d')
