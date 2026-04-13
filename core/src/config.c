@@ -624,8 +624,12 @@ int config_load(const char *path, EburNetConfig *cfg)
             } else if (strcmp(type, "proxy_group") == 0) {
                 section = SECTION_PROXY_GROUP;
                 if (pg_count < MAX_PROXY_GROUPS) {
-                    if (name) snprintf(pg_tmp[pg_count].name,
-                        sizeof(pg_tmp[pg_count].name), "%s", name);
+                    if (name) {
+                        int _n = snprintf(pg_tmp[pg_count].name,
+                            sizeof(pg_tmp[pg_count].name), "%s", name);
+                        if (_n < 0 || (size_t)_n >= sizeof(pg_tmp[pg_count].name))
+                            log_msg(LOG_WARN, "config: обрезано: pg->name");
+                    }
                     pg_count++;
                 }
             } else if (strcmp(type, "proxy_provider") == 0) {
@@ -643,8 +647,12 @@ int config_load(const char *path, EburNetConfig *cfg)
             } else if (strcmp(type, "rule_provider") == 0) {
                 section = SECTION_RULE_PROVIDER;
                 if (rp_count < MAX_RULE_PROVIDERS) {
-                    if (name) snprintf(rp_tmp[rp_count].name,
-                        sizeof(rp_tmp[rp_count].name), "%s", name);
+                    if (name) {
+                        int _n = snprintf(rp_tmp[rp_count].name,
+                            sizeof(rp_tmp[rp_count].name), "%s", name);
+                        if (_n < 0 || (size_t)_n >= sizeof(rp_tmp[rp_count].name))
+                            log_msg(LOG_WARN, "config: обрезано: rp->name");
+                    }
                     rp_count++;
                 }
             } else if (strcmp(type, "traffic_rule") == 0) {

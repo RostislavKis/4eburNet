@@ -292,7 +292,13 @@ end
 
 methods.restart = function(_)
     os.execute("/etc/init.d/4eburnet stop 2>/dev/null")
-    os.execute("sleep 1")
+    -- P-05: poll PID вместо фиксированного sleep
+    for _ = 1, 25 do
+        local f = io.open("/var/run/4eburnet.pid", "r")
+        if not f then break end
+        f:close()
+        os.execute("sleep 0.2")
+    end
     local ret = os.execute("/etc/init.d/4eburnet start 2>/dev/null")
     return {ok=(ret == 0 or ret == true)}
 end

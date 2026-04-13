@@ -50,6 +50,8 @@ if [ "$ROUTER_IP" = "192.168.1.1" ]; then
     exit 99
 fi
 
+# P-09: StrictHostKeyChecking=no допустим только для dev-устройства (EC330/QEMU)
+# Для production — убрать и добавить host key в known_hosts
 SSH_CMD="ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -p $ROUTER_PORT ${ROUTER_USER}@${ROUTER_IP}"
 SCP_CMD="scp -o ConnectTimeout=5 -o StrictHostKeyChecking=no -P $ROUTER_PORT"
 
