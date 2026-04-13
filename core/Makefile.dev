@@ -221,7 +221,28 @@ test-config-parsing:
 	  -o /tmp/test_config_parsing
 	/tmp/test_config_parsing
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing
+test-blake2b:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  src/crypto/blake2b.c \
+	  tests/test_blake2b.c \
+	  -o /tmp/test_blake2b
+	/tmp/test_blake2b
+
+test-salamander:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  src/crypto/blake2b.c src/crypto/quic_salamander.c \
+	  tests/test_salamander.c \
+	  -o /tmp/test_salamander
+	/tmp/test_salamander
+
+test-varint:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  $(HY2_COMMON) \
+	  tests/test_hysteria2_varint.c \
+	  -o /tmp/test_hysteria2_varint $(WOLFSSL_LIBS)
+	/tmp/test_hysteria2_varint
+
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint
 
 # ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
@@ -258,4 +279,19 @@ cross-aarch64:
 	cp $(BUILDDIR)/4eburnetd-aarch64 $(PREBUILT_DIR)/aarch64/4eburnetd
 	ls -lh $(PREBUILT_DIR)/aarch64/4eburnetd
 
-.PHONY: all clean run install-vm test test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing cross-mipsel cross-aarch64
+help:
+	@echo "4eburNet Makefile.dev — доступные таргеты:"
+	@echo ""
+	@echo "  make                  — сборка x86_64 dev бинарника"
+	@echo "  make test             — запустить все тесты (14 суитов)"
+	@echo "  make clean            — удалить артефакты сборки"
+	@echo "  make cross-mipsel     — кросс-компиляция MIPS (TC_MIPSEL=path)"
+	@echo "  make cross-aarch64    — кросс-компиляция ARM64 (TC_AARCH64=path)"
+	@echo "  make help             — этот список"
+	@echo ""
+
+.PHONY: all clean run install-vm test help \
+  test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
+  test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
+  test-blake2b test-salamander test-varint \
+  cross-mipsel cross-aarch64
