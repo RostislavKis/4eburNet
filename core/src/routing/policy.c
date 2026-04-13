@@ -460,10 +460,13 @@ void policy_dump(void)
     exec_cmd_lines("ip rule show 2>/dev/null", dump_rule_cb, NULL);
 
     char cmd_tproxy[64], cmd_tun[64];
-    snprintf(cmd_tproxy, sizeof(cmd_tproxy),
+    int _n1 = snprintf(cmd_tproxy, sizeof(cmd_tproxy),
              "ip route show table %d 2>/dev/null", POLICY_TABLE_TPROXY);
-    snprintf(cmd_tun, sizeof(cmd_tun),
+    int _n2 = snprintf(cmd_tun, sizeof(cmd_tun),
              "ip route show table %d 2>/dev/null", POLICY_TABLE_TUN);
+    if (_n1 < 0 || (size_t)_n1 >= sizeof(cmd_tproxy) ||
+        _n2 < 0 || (size_t)_n2 >= sizeof(cmd_tun))
+        log_msg(LOG_DEBUG, "policy_dump: cmd обрезан");
     exec_cmd_lines(cmd_tproxy, dump_tproxy_cb, NULL);
     exec_cmd_lines(cmd_tun, dump_tun_cb, NULL);
 
