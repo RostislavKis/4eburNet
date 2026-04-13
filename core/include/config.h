@@ -24,6 +24,9 @@ typedef struct {
     uint16_t awg_jmin, awg_jmax;
     char    *awg_i[5];   /* strdup, NULL если не задано. Освобождается в config_free. */
     uint16_t awg_keepalive;
+    uint16_t awg_mtu;              /* AWG MTU, default 1280 */
+    char     awg_dns[64];          /* AWG DNS сервер */
+    char     awg_reserved[64];     /* AWG reserved bytes (base64) */
     char     xhttp_path[128];      /* HTTP путь для XHTTP, default "/" */
     char     xhttp_host[128];      /* Host заголовок для XHTTP */
     /* Reality параметры (DEC-025) */
