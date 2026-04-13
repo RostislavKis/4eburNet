@@ -201,7 +201,7 @@ return view.extend({
             /* Резервное копирование */
             card('💾 Резервное копирование / Восстановление', [
                 E('div', { style: 'font-size:11px;color:#8d96a0;margin-bottom:12px' }, [
-                    _('Бэкап UCI конфига (/etc/config/4eburnet) в /tmp/4eburnet-backup.tar.gz')
+                    _('Бэкап UCI конфига (/etc/config/4eburnet) в /etc/4eburnet/backup.tar.gz')
                 ]),
 
                 /* Статус существующего бэкапа */
@@ -216,12 +216,12 @@ return view.extend({
                         ]),
                         E('div', { style: 'font-size:11px;color:#8d96a0;margin-top:2px' }, [
                             bkp.exists
-                                ? '/tmp/4eburnet-backup.tar.gz (' + Math.floor((bkp.size || 0) / 1024) + ' KB)'
+                                ? '/etc/4eburnet/backup.tar.gz (' + Math.floor((bkp.size || 0) / 1024) + ' KB)'
                                 : _('Нет сохранённого бэкапа')
                         ])
                     ]),
                     bkp.exists ? E('a', {
-                        href: '/tmp/4eburnet-backup.tar.gz',
+                        href: '/etc/4eburnet/backup.tar.gz',
                         download: '4eburnet-backup.tar.gz',
                         class: 'btn cbi-button',
                         style: 'padding:5px 10px;font-size:11px;text-decoration:none;flex-shrink:0'
@@ -252,7 +252,7 @@ return view.extend({
                     }, [_('📦 Создать бэкап')]),
                     E('a', {
                         id: 'backup-dl',
-                        href: '/tmp/4eburnet-backup.tar.gz',
+                        href: '/etc/4eburnet/backup.tar.gz',
                         download: '4eburnet-backup.tar.gz',
                         class: 'btn cbi-button',
                         style: (bkp.exists ? '' : 'display:none;') + 'padding:5px 10px;font-size:11px;text-decoration:none'
@@ -263,7 +263,7 @@ return view.extend({
                 /* Восстановление */
                 E('div', { style: 'border-top:1px solid #30363d;padding-top:14px' }, [
                     E('div', { style: 'font-size:12px;font-weight:600;color:#e6edf3;margin-bottom:10px' }, [
-                        _('Восстановить из /tmp/4eburnet-backup.tar.gz')
+                        _('Восстановить из /etc/4eburnet/backup.tar.gz')
                     ]),
                     E('div', { style: 'font-size:11px;color:#8d96a0;margin-bottom:10px' }, [
                         _('Загрузите бэкап на роутер в /tmp/, затем нажмите «Восстановить».')
@@ -273,11 +273,11 @@ return view.extend({
                         class: 'btn cbi-button-negative',
                         click: function() {
                             var st = sel('restore-result');
-                            if (!confirm(_('Восстановить конфиг из /tmp/4eburnet-backup.tar.gz? Текущий конфиг будет перезаписан.'))) return;
+                            if (!confirm(_('Восстановить конфиг из /etc/4eburnet/backup.tar.gz? Текущий конфиг будет перезаписан.'))) return;
                             var btn = sel('restore-btn');
                             if (btn) btn.disabled = true;
                             if (st) st.textContent = _('Восстановление…');
-                            callRestore('/tmp/4eburnet-backup.tar.gz').then(function(r) {
+                            callRestore('/etc/4eburnet/backup.tar.gz').then(function(r) {
                                 if (btn) btn.disabled = false;
                                 if (r && r.ok) {
                                     if (st) { st.textContent = '✓ ' + r.message; st.style.color = '#3ecf6a'; }
