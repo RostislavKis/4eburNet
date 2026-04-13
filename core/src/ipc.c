@@ -235,7 +235,13 @@ void ipc_process(int server_fd, EburNetState *state)
         return;
     }
 
-    char buf[IPC_RESPONSE_MAX];
+    /* M-03: heap вместо 2048B на MIPS стеке */
+    char *buf = malloc(IPC_RESPONSE_MAX);
+    if (!buf) {
+        ipc_respond(client_fd, "{\"error\":\"OOM\"}");
+        close(client_fd);
+        return;
+    }
 
     switch ((ipc_command_t)hdr.command) {
     case IPC_CMD_STATUS: {
@@ -254,7 +260,7 @@ void ipc_process(int server_fd, EburNetState *state)
         }
         const char *mode = (state->config && state->config->mode[0])
                            ? state->config->mode : "unknown";
-        snprintf(buf, sizeof(buf),
+        snprintf(buf, IPC_RESPONSE_MAX,
                  "{\"status\":\"running\",\"version\":\"%s\","
                  "\"profile\":\"%s\",\"uptime\":%ld,"
                  "\"mode\":\"%s\",\"geo_loaded\":%s}",
@@ -277,7 +283,7 @@ void ipc_process(int server_fd, EburNetState *state)
         break;
 
     case IPC_CMD_STATS:
-        snprintf(buf, sizeof(buf),
+        snprintf(buf, IPC_RESPONSE_MAX,
                  "{\"connections_total\":%llu"
                  ",\"connections_active\":%llu"
                  ",\"dns_queries\":%llu"
@@ -309,13 +315,15 @@ void ipc_process(int server_fd, EburNetState *state)
         break;
 
     case IPC_CMD_GROUP_SELECT: {
-        /* Ожидаем payload: {"group":"name","server":"name"} */
-        char payload[IPC_RESPONSE_MAX + 1] = {0};
+        /* M-04: payload на heap (было 2049B на стеке) */
+        char *payload = calloc(1, IPC_RESPONSE_MAX + 1);
+        if (!payload) { ipc_respond(client_fd, "{\"error\":\"OOM\"}"); break; }
         if (hdr.length > 0) {
             ssize_t pr = ipc_recv_payload(client_fd, payload, hdr.length);
             if (pr < 0) {
                 ipc_respond(client_fd,
                     "{\"status\":\"error\",\"msg\":\"payload read failed\"}");
+                free(payload);
                 break;
             }
             payload[pr] = '\0';
@@ -323,6 +331,7 @@ void ipc_process(int server_fd, EburNetState *state)
         char grp[64] = {0}, srv[64] = {0};
         json_get_str(payload, "group",  grp, sizeof(grp));
         json_get_str(payload, "server", srv, sizeof(srv));
+        free(payload);
         if (grp[0] && srv[0] && g_pgm) {
             /* Найти server_idx по имени сервера в cfg->servers[] */
             int srv_idx = -1;
@@ -361,7 +370,7 @@ void ipc_process(int server_fd, EburNetState *state)
 
     case IPC_CMD_PROVIDER_LIST:
         if (g_rpm) {
-            rule_provider_to_json(g_rpm, buf, sizeof(buf));
+            rule_provider_to_json(g_rpm, buf, IPC_RESPONSE_MAX);
             ipc_respond(client_fd, buf);
         } else {
             ipc_respond(client_fd, "{\"providers\":[]}");
@@ -369,18 +378,22 @@ void ipc_process(int server_fd, EburNetState *state)
         break;
 
     case IPC_CMD_PROVIDER_UPDATE: {
-        char payload[IPC_RESPONSE_MAX + 1] = {0};
+        /* M-04: payload на heap */
+        char *payload = calloc(1, IPC_RESPONSE_MAX + 1);
+        if (!payload) { ipc_respond(client_fd, "{\"error\":\"OOM\"}"); break; }
         if (hdr.length > 0) {
             ssize_t pr = ipc_recv_payload(client_fd, payload, hdr.length);
             if (pr < 0) {
                 ipc_respond(client_fd,
                     "{\"status\":\"error\",\"msg\":\"payload read failed\"}");
+                free(payload);
                 break;
             }
             payload[pr] = '\0';
         }
         char pname[64] = {0};
         json_get_str(payload, "name", pname, sizeof(pname));
+        free(payload);
         if (pname[0] && g_rpm) {
             int r = rule_provider_update(g_rpm, pname);
             if (r == 0)
@@ -446,17 +459,17 @@ rules_send:
     case IPC_CMD_GEO_STATUS:
         if (g_gm) {
             size_t p = 0;
-            p += (size_t)snprintf(buf + p, sizeof(buf) - p,
+            p += (size_t)snprintf(buf + p, IPC_RESPONSE_MAX - p,
                 "{\"region\":\"%s\",\"categories\":[",
                 geo_region_name(g_gm->current_region));
             /* B6-02: резерв 4 байта под "]}\0" — гарантия валидного JSON */
             const size_t geo_reserve = 4;
             for (int gi = 0; gi < g_gm->count &&
-                 p < sizeof(buf) - 128 - geo_reserve; gi++) {
+                 p < IPC_RESPONSE_MAX - 128 - geo_reserve; gi++) {
                 const geo_category_t *gc = &g_gm->categories[gi];
                 if (gi > 0)
-                    p += (size_t)snprintf(buf + p, sizeof(buf) - p, ",");
-                p += (size_t)snprintf(buf + p, sizeof(buf) - p,
+                    p += (size_t)snprintf(buf + p, IPC_RESPONSE_MAX - p, ",");
+                p += (size_t)snprintf(buf + p, IPC_RESPONSE_MAX - p,
                     "{\"name\":\"%s\",\"region\":\"%s\","
                     "\"loaded\":%s,\"v4\":%d,\"v6\":%d,"
                     "\"domains\":%d,\"suffixes\":%d}",
@@ -466,9 +479,9 @@ rules_send:
                     gc->domain_count, gc->suffix_count);
             }
             /* Всегда закрыть JSON — место зарезервировано */
-            if (p >= sizeof(buf) - geo_reserve)
-                p = sizeof(buf) - geo_reserve;
-            p += (size_t)snprintf(buf + p, sizeof(buf) - p, "]}");
+            if (p >= IPC_RESPONSE_MAX - geo_reserve)
+                p = IPC_RESPONSE_MAX - geo_reserve;
+            p += (size_t)snprintf(buf + p, IPC_RESPONSE_MAX - p, "]}");
             ipc_respond(client_fd, buf);
         } else {
             ipc_respond(client_fd, "{\"region\":\"UNKNOWN\",\"categories\":[]}");
@@ -488,7 +501,7 @@ rules_send:
         const EburNetConfig *c = state->config;
         char esc_sni[512];
         json_escape_str(c->dpi_fake_sni, esc_sni, sizeof(esc_sni));
-        snprintf(buf, sizeof(buf),
+        snprintf(buf, IPC_RESPONSE_MAX,
             "{\"enabled\":%s,\"split_pos\":%d,\"fake_ttl\":%d,"
             "\"fake_count\":%d,\"fake_sni\":\"%s\"}",
             c->dpi_enabled ? "true" : "false",
@@ -512,6 +525,7 @@ rules_send:
         break;
     }
 
+    free(buf);
     close(client_fd);
 }
 
