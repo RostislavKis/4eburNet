@@ -64,7 +64,7 @@
 /*  Глобальный контекст (handle_conn вызывается без аргумента ds)      */
 /* ------------------------------------------------------------------ */
 
-/* TODO: передавать контекст явно через параметр вместо глобальных указателей.
+/* TODO(DEC-032): передавать контекст явно через параметр вместо глобальных.
  * Сейчас безопасно — однопоточная архитектура, один экземпляр (M-09). */
 #if CONFIG_EBURNET_STLS
 #include <wolfssl/options.h>
@@ -1487,6 +1487,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
             break;
 
         case RELAY_HALF_CLOSE:
+            /* fallthrough — half-close обрабатывается как active для чтения */
         case RELAY_ACTIVE:
             if (ep->is_client && (ev & EPOLLIN)) {
                 /* Данные от клиента → upstream */
