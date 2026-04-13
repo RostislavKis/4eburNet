@@ -184,7 +184,7 @@ async function ebLoadGroupsMini() {
     const srvs = g.servers || [];
     const avail = srvs.some(s => s.available);
     const sel = srvs[g.selected] || srvs[0] || {};
-    const lat = sel.latency || 0;
+    const lat = sel.latency_ms || 0;
     return `
     <div class="eb-srow ${g.selected ? 'sel' : ''}">
       <div class="eb-sdot ${avail ? 'ok' : 'er'}"></div>

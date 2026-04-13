@@ -212,7 +212,7 @@ return view.extend({
                                 var srvs = g.servers || [];
                                 var avail = srvs.some(function(s) { return s.available; });
                                 var sel = srvs[g.selected] || srvs[0] || {};
-                                var lat = sel.latency || 0;
+                                var lat = sel.latency_ms || 0;
                                 return E('div', {
                                     style: 'display:flex;align-items:center;gap:8px;'
                                          + 'padding:5px 8px;background:rgba(255,255,255,.03);'
