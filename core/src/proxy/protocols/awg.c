@@ -369,8 +369,8 @@ int awg_handshake_start(awg_state_t *awg,
 
 int awg_process_incoming(awg_state_t *awg)
 {
-    uint8_t pkt[2048];
-    ssize_t n = recv(awg->udp_fd, pkt, sizeof(pkt), MSG_DONTWAIT);
+    uint8_t *pkt = awg->work_buf;
+    ssize_t n = recv(awg->udp_fd, pkt, sizeof(awg->work_buf), MSG_DONTWAIT);
     if (n <= 0) return (int)n;
 
     /* Определить тип по AWG header */
@@ -425,14 +425,14 @@ ssize_t awg_send(awg_state_t *awg, const uint8_t *data, size_t len)
     /* Ограничение по MTU: header(16) + data + tag(16) + S4 padding */
     if (len > 1420) len = 1420;
 
-    uint8_t pkt[1536];
+    uint8_t *pkt = awg->work_buf;
     size_t pkt_len;
 
     if (noise_encrypt(&awg->noise, data, len, pkt, &pkt_len) != 0)
         return -1;
 
     awg_obfuscate_header(pkt, awg->cfg.h4_min, awg->cfg.h4_max);
-    pkt_len = awg_add_padding(pkt, pkt_len, awg->cfg.s4, sizeof(pkt));
+    pkt_len = awg_add_padding(pkt, pkt_len, awg->cfg.s4, sizeof(awg->work_buf));
 
     ssize_t sent = send(awg->udp_fd, pkt, pkt_len, 0);
     if (sent > 0) awg->last_send = time(NULL);
@@ -466,12 +466,12 @@ void awg_tick(awg_state_t *awg)
                        awg->cfg.preshared_key, awg->cfg.has_psk,
                        awg->cfg.tai_utc_offset);
 
-            uint8_t init[1536];
-            size_t init_len = sizeof(init);
+            uint8_t *init = awg->work_buf;
+            size_t init_len = sizeof(awg->work_buf);
             if (noise_handshake_init_create(&awg->noise, init, &init_len) == 0) {
                 awg_obfuscate_header(init, awg->cfg.h1_min, awg->cfg.h1_max);
                 init_len = awg_add_padding(init, init_len, awg->cfg.s1,
-                                            sizeof(init));
+                                            sizeof(awg->work_buf));
                 send(awg->udp_fd, init, init_len, 0);
                 awg->last_handshake = time(NULL);
             }

@@ -45,6 +45,8 @@ typedef struct awg_state {
     /* Буфер приёма */
     uint8_t       recv_buf[2048];
     size_t        recv_len;
+    /* B1-05: рабочий буфер для send/recv/handshake (MIPS стек 8KB) */
+    uint8_t       work_buf[2048];
 } awg_state_t;
 
 /* Декодировать base64 ключ (44 символа → 32 байта) */
