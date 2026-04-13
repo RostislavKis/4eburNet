@@ -438,9 +438,15 @@ nft_result_t nft_tproxy_enable(uint16_t port, nft_proto_t proto)
     default:            proto_match = "meta l4proto { tcp, udp }"; break;
     }
 
-    /* mark-based TPROXY: пометить пакеты → ip rule → table 100 → lo */
-    char pre_rules[1024];
-    snprintf(pre_rules, sizeof(pre_rules),
+    /* B1-03: буферы на heap — 2×1024 = 2KB на MIPS стеке */
+    char *pre_rules = malloc(1024);
+    char *fwd_rules = malloc(1024);
+    if (!pre_rules || !fwd_rules) {
+        free(pre_rules); free(fwd_rules);
+        return NFT_ERR_EXEC;
+    }
+
+    snprintf(pre_rules, 1024,
         "\n"
         "        ip daddr @" NFT_SET_PROXY " %s"
             " meta mark set 0x%02x accept\n"
@@ -449,8 +455,7 @@ nft_result_t nft_tproxy_enable(uint16_t port, nft_proto_t proto)
         proto_match, NFT_MARK_PROXY,
         proto_match, NFT_MARK_PROXY);
 
-    char fwd_rules[1024];
-    snprintf(fwd_rules, sizeof(fwd_rules),
+    snprintf(fwd_rules, 1024,
         "\n"
         "        ip daddr @" NFT_SET_PROXY " %s"
             " meta mark set 0x%02x accept\n"
@@ -460,6 +465,7 @@ nft_result_t nft_tproxy_enable(uint16_t port, nft_proto_t proto)
         proto_match, NFT_MARK_PROXY);
 
     nft_result_t rc = apply_mode(pre_rules, fwd_rules);
+    free(pre_rules); free(fwd_rules);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "TPROXY включён (порт %u)", port);
     return rc;
@@ -550,9 +556,15 @@ nft_result_t nft_mode_set_rules(void)
      *   block → local → bypass → proxy+tproxy → accept
      */
 
-    /* mark-based TPROXY: пометить пакеты → ip rule → table 100 → lo */
-    char pre_rules[1024];
-    snprintf(pre_rules, sizeof(pre_rules),
+    /* B1-03: буферы на heap — 2×1024 = 2KB на MIPS стеке */
+    char *pre_rules = malloc(1024);
+    char *fwd_rules = malloc(1024);
+    if (!pre_rules || !fwd_rules) {
+        free(pre_rules); free(fwd_rules);
+        return NFT_ERR_EXEC;
+    }
+
+    snprintf(pre_rules, 1024,
         "\n"
         "        ip daddr @" NFT_SET_PROXY
             " meta l4proto { tcp, udp }"
@@ -562,8 +574,7 @@ nft_result_t nft_mode_set_rules(void)
             " meta mark set 0x%02x accept\n",
         NFT_MARK_PROXY, NFT_MARK_PROXY);
 
-    char fwd_rules[1024];
-    snprintf(fwd_rules, sizeof(fwd_rules),
+    snprintf(fwd_rules, 1024,
         "\n"
         "        ip daddr @" NFT_SET_PROXY
             " meta l4proto { tcp, udp }"
@@ -574,6 +585,7 @@ nft_result_t nft_mode_set_rules(void)
         NFT_MARK_PROXY, NFT_MARK_PROXY);
 
     nft_result_t rc = apply_mode(pre_rules, fwd_rules);
+    free(pre_rules); free(fwd_rules);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "Режим маршрутизации: rules (mark+iproute2)");
     return rc;
@@ -592,22 +604,28 @@ nft_result_t nft_mode_set_global(void)
      *   block → local → bypass → mark (всё)
      */
 
-    /* mark-based TPROXY: весь TCP/UDP → fwmark → ip rule → table 100 → lo */
-    char pre_rules[1024];
-    snprintf(pre_rules, sizeof(pre_rules),
+    /* B1-03: буферы на heap */
+    char *pre_rules = malloc(1024);
+    char *fwd_rules = malloc(1024);
+    if (!pre_rules || !fwd_rules) {
+        free(pre_rules); free(fwd_rules);
+        return NFT_ERR_EXEC;
+    }
+
+    snprintf(pre_rules, 1024,
         "\n"
         "        meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
         NFT_MARK_PROXY);
 
-    char fwd_rules[1024];
-    snprintf(fwd_rules, sizeof(fwd_rules),
+    snprintf(fwd_rules, 1024,
         "\n"
         "        meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
         NFT_MARK_PROXY);
 
     nft_result_t rc = apply_mode(pre_rules, fwd_rules);
+    free(pre_rules); free(fwd_rules);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "Режим маршрутизации: global");
     return rc;
@@ -638,21 +656,28 @@ nft_result_t nft_mode_set_tun(void)
      * Порядок правил:
      *   block → local → bypass → mark (всё остальное)
      */
-    char pre_rules[512];
-    snprintf(pre_rules, sizeof(pre_rules),
+    /* B1-03: буферы на heap */
+    char *pre_rules = malloc(512);
+    char *fwd_rules = malloc(512);
+    if (!pre_rules || !fwd_rules) {
+        free(pre_rules); free(fwd_rules);
+        return NFT_ERR_EXEC;
+    }
+
+    snprintf(pre_rules, 512,
         "\n"
         "        meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
         NFT_MARK_TUN);
 
-    char fwd_rules[512];
-    snprintf(fwd_rules, sizeof(fwd_rules),
+    snprintf(fwd_rules, 512,
         "\n"
         "        meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
         NFT_MARK_TUN);
 
     nft_result_t rc = apply_mode(pre_rules, fwd_rules);
+    free(pre_rules); free(fwd_rules);
     if (rc == NFT_OK)
         log_msg(LOG_INFO, "Режим маршрутизации: tun");
     return rc;

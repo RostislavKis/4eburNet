@@ -437,6 +437,10 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    /* B7-01: master_epoll объявлен до init-блока —
+     * goto cleanup безопасен из любой точки инициализации */
+    int master_epoll = -1;
+
     /* Инициализация таблиц маршрутизации */
     if (nft_init() != NFT_OK) {
         log_msg(LOG_WARN,
@@ -650,7 +654,6 @@ int main(int argc, char *argv[])
     }
 
     /* Master epoll: один epoll_wait вместо 3 отдельных + usleep (H-01/H-10) */
-    int master_epoll = -1;
     master_epoll = epoll_create1(EPOLL_CLOEXEC);
     if (master_epoll < 0) {
         log_msg(LOG_ERROR, "epoll_create1: %s", strerror(errno));
