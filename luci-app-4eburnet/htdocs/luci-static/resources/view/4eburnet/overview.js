@@ -145,6 +145,22 @@ return view.extend({
                 ])
             ]) : E('span'),
 
+            /* B5-01: предупреждение при пустых geo-данных в режиме rules */
+            (status.mode === 'rules' && status.geo_loaded === false) ? E('div', {
+                style: 'background:rgba(240,180,41,.06);border:1px solid rgba(240,180,41,.3);'
+                     + 'border-radius:5px;padding:10px 14px;margin-bottom:14px;'
+                     + 'display:flex;align-items:center;gap:10px'
+            }, [
+                E('span', {style: 'font-size:16px'}, ['⚠']),
+                E('div', {}, [
+                    E('div', {style: 'font-weight:600;color:#f0b429;font-size:12px'},
+                        [_('GeoIP не загружен')]),
+                    E('div', {style: 'font-size:11px;color:#8d96a0;margin-top:3px'}, [
+                        _('В режиме rules трафик не перехватывается. Обновите GeoIP через LuCI.')
+                    ])
+                ])
+            ]) : E('span'),
+
             /* Статусные карточки */
             E('div', {
                 style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));'
