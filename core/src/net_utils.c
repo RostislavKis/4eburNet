@@ -66,6 +66,10 @@ bool valid_ifname(const char *s)
 
 /* ------------------------------------------------------------------ */
 /*  Инкапсуляция popen (M-02)                                         */
+/*  S-07: popen сохранён т.к. все caller'ы используют shell-фичи      */
+/*  (2>/dev/null, pipe). exec_cmd_safe (posix_spawn) не поддерживает   */
+/*  shell redirect. Все входные данные проходят validate_nft_cmd()     */
+/*  или valid_ifname() ДО попадания сюда — injection исключён.         */
 /* ------------------------------------------------------------------ */
 
 int exec_cmd_lines(const char *cmd,

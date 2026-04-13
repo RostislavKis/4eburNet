@@ -298,7 +298,8 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         strncpy(srv->protocol, value, sizeof(srv->protocol) - 1);
         srv->protocol[sizeof(srv->protocol) - 1] = '\0';
     } else if (strcmp(key, "address") == 0) {
-        /* P3-02: проверка на shell-спецсимволы (nft injection) */
+        /* P3-02: WARNING но не reject — address используется только через
+         * TLS/WireGuard API, никогда не передаётся в shell из C (DEC-033) */
         if (strpbrk(value, ";|&`$(){}[]<>\\\"'"))
             log_msg(LOG_WARN, "config: address содержит спецсимволы");
         strncpy(srv->address, value, sizeof(srv->address) - 1);
@@ -323,7 +324,8 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         strncpy(srv->uuid, value, sizeof(srv->uuid) - 1);
         srv->uuid[sizeof(srv->uuid) - 1] = '\0';
     } else if (strcmp(key, "password") == 0) {
-        /* P3-02: password — shell-спецсимволы предупреждение */
+        /* P3-02: WARNING но не reject — password передаётся только через
+         * TLS/WireGuard API, не в shell-строку (DEC-033) */
         if (strpbrk(value, ";|&`$()\\"))
             log_msg(LOG_WARN, "config: password содержит shell-спецсимволы");
         strncpy(srv->password, value, sizeof(srv->password) - 1);
@@ -692,6 +694,22 @@ int config_load(const char *path, EburNetConfig *cfg)
 
             strip_quotes(key);
             strip_quotes(value);
+
+            /* S-04: UCI spec — option names только [a-zA-Z0-9_] */
+            {
+                bool valid_key = true;
+                for (const char *p = key; *p; p++) {
+                    if (!isalnum((unsigned char)*p) && *p != '_') {
+                        valid_key = false;
+                        break;
+                    }
+                }
+                if (!valid_key) {
+                    log_msg(LOG_WARN, "Строка %d: невалидный UCI ключ '%s'",
+                            line_num, key);
+                    continue;
+                }
+            }
 
             switch (section) {
             case SECTION_EBURNET:

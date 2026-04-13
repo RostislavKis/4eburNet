@@ -307,12 +307,22 @@ static int cdn_do_update(const struct EburNetConfig *cfg, bool reload_filter)
                              ? cfg->cdn_fastly_url
                              : "https://api.fastly.com/public-ip-list";
 
-    /* PID в именах временных файлов — защита от параллельных вызовов */
-    char tmp_v4[64], tmp_v6[64], tmp_fst[64];
-    int pid = (int)getpid();
-    snprintf(tmp_v4,  sizeof(tmp_v4),  "/tmp/cdn_cf_v4_%d.txt",   pid);
-    snprintf(tmp_v6,  sizeof(tmp_v6),  "/tmp/cdn_cf_v6_%d.txt",   pid);
-    snprintf(tmp_fst, sizeof(tmp_fst), "/tmp/cdn_fastly_%d.json",  pid);
+    /* S-05: mkstemp вместо PID-based — защита от symlink-атак */
+    char tmp_v4[]  = "/tmp/cdn_cf_v4_XXXXXX";
+    char tmp_v6[]  = "/tmp/cdn_cf_v6_XXXXXX";
+    char tmp_fst[] = "/tmp/cdn_fastly_XXXXXX";
+    int fd_v4  = mkstemp(tmp_v4);
+    int fd_v6  = mkstemp(tmp_v6);
+    int fd_fst = mkstemp(tmp_fst);
+    if (fd_v4 < 0 || fd_v6 < 0 || fd_fst < 0) {
+        log_msg(LOG_ERROR, "cdn_updater: mkstemp провалился");
+        if (fd_v4  >= 0) { close(fd_v4);  unlink(tmp_v4); }
+        if (fd_v6  >= 0) { close(fd_v6);  unlink(tmp_v6); }
+        if (fd_fst >= 0) { close(fd_fst); unlink(tmp_fst); }
+        return -1;
+    }
+    /* Закрыть fd — файлы будут заполнены http fetch */
+    close(fd_v4); close(fd_v6); close(fd_fst);
 
     log_msg(LOG_INFO, "cdn_updater: начинаю обновление CDN IP...");
 
