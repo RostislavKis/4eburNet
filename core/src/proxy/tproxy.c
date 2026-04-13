@@ -263,6 +263,13 @@ static void tproxy_accept_tcp(tproxy_state_t *ts, int listen_fd,
             break;
         }
 
+        /* S-06: таймаут на клиентском TCP сокете (дополнение к epoll) */
+        {
+            struct timeval tv = { .tv_sec = 60, .tv_usec = 0 };
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        }
+
         tproxy_conn_t conn = {
             .fd          = client,
             .proto       = IPPROTO_TCP,

@@ -87,10 +87,10 @@ function uci_set(config, section, option, value) {
 function is_running() {
     let f = fs.open('/var/run/4eburnet.pid', 'r');
     if (!f) return false;
-    let pid = int(f.read('line'));
+    let ipid = int(f.read('line'));
     f.close();
-    if (!pid) return false;
-    return system('kill -0 ' + pid + ' 2>/dev/null') == 0;
+    if (!ipid || ipid <= 0) return false;
+    return system('kill -0 ' + ipid + ' 2>/dev/null') == 0;
 }
 
 // Определить пакетный менеджер
@@ -241,7 +241,7 @@ const methods = {
             if (!match(base, /^https?:\/\/[a-zA-Z0-9.\-_]+(:[0-9]+)?(\/[a-zA-Z0-9.\-_\/]*)?$/))
                 return { ok: false, error: 'invalid geo_url: ' + base };
 
-            system('mkdir -p ' + geo_dir);
+            system("mkdir -p '" + geo_dir + "'");
             let files = ['geoip-ru.lst', 'geosite-ru.lst', 'geosite-ads.lst'];
             let results = {};
             for (let i = 0; i < length(files); i++) {
@@ -249,8 +249,8 @@ const methods = {
                 let target = geo_dir + '/' + f;
                 let tmp    = target + '.tmp';
 
-                let rc = system('uclient-fetch -q -T 30 -O ' + tmp +
-                                ' ' + base + '/' + f + ' 2>/dev/null');
+                let rc = system("uclient-fetch -q -T 30 -O '" + tmp +
+                                "' '" + base + '/' + f + "' 2>/dev/null");
                 if (rc != 0) {
                     fs.unlink(tmp);
                     results[f] = 'error';
@@ -269,7 +269,7 @@ const methods = {
                 }
 
                 /* Атомарная замена: mv на одной FS = rename(2) */
-                if (system('mv -f ' + tmp + ' ' + target) == 0)
+                if (system("mv -f '" + tmp + "' '" + target + "'") == 0)
                     results[f] = 'ok';
                 else {
                     fs.unlink(tmp);
