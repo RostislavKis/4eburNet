@@ -54,7 +54,7 @@ CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static
 CFLAGS += -Werror
 WOLFSSL_PREFIX ?= /usr/local/musl-wolfssl
 INCLUDES = -Iinclude -I$(WOLFSSL_PREFIX)/include
-LDFLAGS = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm -Wl,--gc-sections
+LDFLAGS = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm -latomic -Wl,--gc-sections
 SRCDIR = src
 BUILDDIR = ../../build
 SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c $(SRCDIR)/stats.c \
