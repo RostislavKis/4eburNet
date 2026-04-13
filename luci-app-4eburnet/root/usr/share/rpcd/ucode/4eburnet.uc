@@ -130,11 +130,12 @@ function ipc_json(cmd_name, payload) {
     if (payload) {
         // Payload через tmp файл + stdin redirect (нет shell injection)
         tmp = '/tmp/.4eburnet-ipc-' + time() + '-' + math.floor(math.random() * 0xFFFFFF) + '.json';
+        /* P3-01: создать файл с правами 0600 до записи (без TOCTOU окна) */
+        system('install -m 0600 /dev/null "' + tmp + '"');
         let wf = fs.open(tmp, 'w');
         if (!wf) return { error: 'write tmp failed' };
         wf.write('' + payload);
         wf.close();
-        fs.chmod(tmp, 0o600);
         cmdline += ' < ' + tmp;
     }
 
@@ -876,11 +877,12 @@ const methods = {
 
             /* Записать content во временный файл если передан напрямую */
             if (content) {
+                /* P3-01: создать файл с правами 0600 до записи */
+                system('install -m 0600 /dev/null "' + tmp_in + '"');
                 let f = fs.open(tmp_in, 'w');
                 if (!f) return { ok: false, error: 'cannot write tmp file' };
                 f.write(content);
                 f.close();
-                fs.chmod(tmp_in, 0o600);
             }
 
             /* Валидация fmt по allowlist — подстановка в shell без кавычек */
