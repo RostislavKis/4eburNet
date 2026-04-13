@@ -76,6 +76,10 @@ async function ebPollStatus() {
   set('s-mode',   d.mode || '—');
   set('hero-uptime', 'Аптайм: ' + uptimeStr);
   set('hero-mode',   d.mode || '—');
+  if (d.version) {
+    set('hero-ver', 'v' + d.version);
+    set('eb-logo-ver', 'v' + d.version);
+  }
 
   const hs = document.getElementById('hero-status');
   if (hs) {

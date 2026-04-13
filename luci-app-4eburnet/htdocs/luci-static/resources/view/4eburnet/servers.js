@@ -11,7 +11,12 @@ var callServerAdd    = rpc.declare({
              'reality_pbk', 'reality_sid',
              'hy2_obfs_password', 'hy2_sni', 'hy2_insecure',
              'hy2_up_mbps', 'hy2_down_mbps',
-             'stls_password', 'stls_sni']
+             'stls_password', 'stls_sni',
+             'awg_private_key', 'awg_public_key', 'awg_psk',
+             'awg_jc', 'awg_jmin', 'awg_jmax',
+             'awg_s1', 'awg_s2', 'awg_s3', 'awg_s4',
+             'awg_h1', 'awg_h2', 'awg_h3', 'awg_h4',
+             'awg_mtu', 'awg_dns', 'awg_reserved']
 });
 var callServerDelete = rpc.declare({
     object: '4eburnet', method: 'server_delete',
@@ -204,6 +209,41 @@ return view.extend({
             mkInp('add-stls-sni', 'SNI реального сервера (www.microsoft.com)', false)
         ]);
 
+        /* AWG (AmneziaWG) поля */
+        var rowAwgKeys = E('div', {id: 'row-awg-keys', style: 'display:none'}, [
+            E('div', {style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px'}, [
+                mkInp('add-awg-privkey', 'Private Key (base64)', true),
+                mkInp('add-awg-pubkey',  'Public Key (base64)',  true)
+            ]),
+            E('div', {style: 'margin-top:6px'}, [
+                mkInp('add-awg-psk', 'Pre-Shared Key (опционально)', false)
+            ])
+        ]);
+        var rowAwgJunk = E('div', {id: 'row-awg-junk', style: 'display:none'}, [
+            E('div', {style: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px'}, [
+                mkInp('add-awg-jc',   'Jc (0-255)',     false),
+                mkInp('add-awg-jmin', 'Jmin (0-65535)', false),
+                mkInp('add-awg-jmax', 'Jmax (0-65535)', false)
+            ])
+        ]);
+        var rowAwgSH = E('div', {id: 'row-awg-sh', style: 'display:none'}, [
+            E('div', {style: 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px'}, [
+                mkInp('add-awg-s1', 'S1', false), mkInp('add-awg-s2', 'S2', false),
+                mkInp('add-awg-s3', 'S3', false), mkInp('add-awg-s4', 'S4', false)
+            ]),
+            E('div', {style: 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-top:6px'}, [
+                mkInp('add-awg-h1', 'H1', false), mkInp('add-awg-h2', 'H2', false),
+                mkInp('add-awg-h3', 'H3', false), mkInp('add-awg-h4', 'H4', false)
+            ])
+        ]);
+        var rowAwgExtra = E('div', {id: 'row-awg-extra', style: 'display:none'}, [
+            E('div', {style: 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px'}, [
+                mkInp('add-awg-mtu',      'MTU (1280)',    false),
+                mkInp('add-awg-dns',      'DNS (1.1.1.1)', false),
+                mkInp('add-awg-reserved', 'Reserved (base64)', false)
+            ])
+        ]);
+
         function updateFields() {
             var p = protoSel.value;
             var t = transportSel.value;
@@ -236,9 +276,18 @@ return view.extend({
             var stlsWrap = document.getElementById('stls-wrap');
             if (stlsWrap) stlsWrap.style.display = isStls ? '' : 'none';
 
-            /* Скрыть transport для Hysteria2/ShadowTLS */
+            /* AWG поля */
+            var isAwg = (p === 'awg');
+            ['row-awg-keys', 'row-awg-junk', 'row-awg-sh', 'row-awg-extra'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.style.display = isAwg ? '' : 'none';
+            });
+            var awgWrap = document.getElementById('awg-wrap');
+            if (awgWrap) awgWrap.style.display = isAwg ? '' : 'none';
+
+            /* Скрыть transport для Hysteria2/ShadowTLS/AWG */
             var transportRow = document.getElementById('row-transport');
-            if (transportRow) transportRow.style.display = (isHy2 || isStls) ? 'none' : '';
+            if (transportRow) transportRow.style.display = (isHy2 || isStls || isAwg) ? 'none' : '';
         }
 
         transportSel.addEventListener('change', function() { updateFields(); });
@@ -330,6 +379,17 @@ return view.extend({
                     rowStlsSni
                 ]),
 
+                E('div', {id: 'awg-wrap', style: 'display:none;margin-bottom:10px'}, [
+                    E('div', {style: 'font-size:10px;color:#545d68;margin-bottom:3px'}, [_('WireGuard / AWG ключи')]),
+                    rowAwgKeys,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('Amnezia параметры (junk)')]),
+                    rowAwgJunk,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('S1-S4 / H1-H4')]),
+                    rowAwgSH,
+                    E('div', {style: 'font-size:10px;color:#545d68;margin:6px 0 3px'}, [_('MTU / DNS / Reserved')]),
+                    rowAwgExtra
+                ]),
+
                 E('div', {style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap'}, [
                     E('button', {
                         class: 'btn cbi-button',
@@ -349,6 +409,10 @@ return view.extend({
                             }
                             if (proto === 'shadowtls' && (!gv('add-stls-password') || !gv('add-stls-sni'))) {
                                 showStatus('\u2715 ' + _('Для ShadowTLS обязательны PSK и SNI'), false);
+                                return;
+                            }
+                            if (proto === 'awg' && (!gv('add-awg-privkey') || !gv('add-awg-pubkey'))) {
+                                showStatus('\u2715 ' + _('Для AWG обязательны Private и Public Key'), false);
                                 return;
                             }
 
@@ -383,7 +447,12 @@ return view.extend({
                                 transport, authUuid, authPwd,
                                 pbk, sid,
                                 hy2Obfs, hy2Sni, hy2Insec, hy2Up, hy2Down,
-                                stlsPass, stlsSni
+                                stlsPass, stlsSni,
+                                gv('add-awg-privkey'), gv('add-awg-pubkey'), gv('add-awg-psk'),
+                                gv('add-awg-jc'), gv('add-awg-jmin'), gv('add-awg-jmax'),
+                                gv('add-awg-s1'), gv('add-awg-s2'), gv('add-awg-s3'), gv('add-awg-s4'),
+                                gv('add-awg-h1'), gv('add-awg-h2'), gv('add-awg-h3'), gv('add-awg-h4'),
+                                gv('add-awg-mtu'), gv('add-awg-dns'), gv('add-awg-reserved')
                             ).then(function(r) {
                                 if (r && r.ok) {
                                     showStatus('✓ ' + _('Сервер добавлен'), true);
@@ -392,7 +461,12 @@ return view.extend({
                                      'add-uuid','add-password','add-pbk','add-sid',
                                      'add-hy2-password','add-hy2-obfs-password',
                                      'add-hy2-sni','add-hy2-up','add-hy2-down',
-                                     'add-stls-password','add-stls-sni'
+                                     'add-stls-password','add-stls-sni',
+                                     'add-awg-privkey','add-awg-pubkey','add-awg-psk',
+                                     'add-awg-jc','add-awg-jmin','add-awg-jmax',
+                                     'add-awg-s1','add-awg-s2','add-awg-s3','add-awg-s4',
+                                     'add-awg-h1','add-awg-h2','add-awg-h3','add-awg-h4',
+                                     'add-awg-mtu','add-awg-dns','add-awg-reserved'
                                     ].forEach(function(id) {
                                         var el = document.getElementById(id);
                                         if (el) el.value = '';
