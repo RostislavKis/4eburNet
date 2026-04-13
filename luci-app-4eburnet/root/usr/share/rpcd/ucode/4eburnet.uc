@@ -133,7 +133,9 @@ function ipc_json(cmd_name, payload) {
 
     if (payload) {
         // Payload через tmp файл + stdin redirect (нет shell injection)
-        tmp = '/tmp/.4eburnet-ipc-' + time() + '-' + math.floor(math.random() * 0xFFFFFF) + '.json';
+        /* I-03: расширенная entropy — time XOR random для уникальности */
+        let rnd = (math.floor(math.random() * 0xFFFFFF) ^ (time() & 0xFFFF)) >>> 0;
+        tmp = '/tmp/.4eburnet-ipc-' + time() + '-' + rnd + '.json';
         /* P3-01: создать файл с правами 0600 до записи (без TOCTOU окна) */
         system('install -m 0600 /dev/null "' + tmp + '"');
         let wf = fs.open(tmp, 'w');

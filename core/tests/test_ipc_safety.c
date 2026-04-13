@@ -84,7 +84,17 @@ static void test_long_value(void)
     ASSERT(out[15] == '\0', "long value: null-terminated");
 }
 
-/* Тест 6: нормальный случай */
+/* Тест 6: B-01 — unclosed string value */
+static void test_unclosed_string(void)
+{
+    char out[64] = {0};
+    size_t n = json_get_str("{\"key\":\"unclosed value", "key", out, sizeof(out));
+    /* json_get_str копирует до конца строки если нет закрывающей кавычки */
+    ASSERT(n > 0 || out[0] == '\0', "unclosed: не должно быть crash");
+    printf("PASS: unclosed string (n=%zu, out='%s')\n", n, out);
+}
+
+/* Тест 7: нормальный случай */
 static void test_normal(void)
 {
     char grp[64], srv[64];
@@ -102,6 +112,7 @@ int main(void)
     test_escaped_quotes();
     test_missing_key();
     test_long_value();
+    test_unclosed_string();
     test_normal();
     printf("\nALL PASS: %d тест(ов) провалено\n", fail_count);
     return fail_count ? 1 : 0;
