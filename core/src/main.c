@@ -136,10 +136,24 @@ static pid_t check_pid_file(void)
     int pid_int = 0;
     if (fscanf(f, "%d", &pid_int) == 1 && pid_int > 0) {
         pid = (pid_t)pid_int;
-        /* Проверяем, жив ли процесс */
-        if (kill(pid, 0) == 0) {
-            fclose(f);
-            return pid;  /* процесс жив */
+        /* Проверяем, жив ли процесс (не мы сами — procd пишет PID за нас) */
+        if (kill(pid, 0) == 0 && pid != getpid()) {
+            /* Защита от PID reuse: проверить что это именно 4eburnetd */
+            char comm[32] = {0};
+            char comm_path[48];
+            snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", (int)pid);
+            int cfd = open(comm_path, O_RDONLY | O_CLOEXEC);
+            if (cfd >= 0) {
+                read(cfd, comm, sizeof(comm) - 1);
+                close(cfd);
+                char *nl = strchr(comm, '\n');
+                if (nl) *nl = '\0';
+            }
+            if (strcmp(comm, "4eburnetd") == 0) {
+                fclose(f);
+                return pid;  /* другой экземпляр 4eburnetd жив */
+            }
+            /* PID занят другим процессом — stale файл, перезаписать */
         }
     }
 
