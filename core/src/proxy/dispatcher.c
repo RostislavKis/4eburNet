@@ -1274,18 +1274,368 @@ void dispatcher_handle_udp(tproxy_conn_t *conn,
 }
 
 /* ------------------------------------------------------------------ */
-/*  dispatcher_tick — обработка событий relay                          */
+/*  C-06: декомпозированные обработчики relay state                    */
 /* ------------------------------------------------------------------ */
 
-/*
- * Главный цикл обработки relay соединений. Одна итерация = один epoll_wait.
- * Почему монолитная: все состояния relay (connect, TLS handshake, relay data,
- * half-close) обрабатываются в одном месте для O(1) dispatch через epoll data.ptr.
- */
-/* C-06: CC ~25, 594 строки — relay state machine.
- * Декомпозиция отложена: 20+ case-ов используют shared state (ds, r, now).
- * Выделение потребует передачи 4+ параметров без выигрыша в читаемости.
- * TODO(DEC-034): рефакторинг при добавлении нового протокола. */
+/* TLS handshake + VLESS response (нет continue — безопасно вынесены) */
+static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
+                              relay_ep_t *ep, uint32_t ev)
+{
+    if (r->state == RELAY_TLS_SHAKE) {
+        if (ep->is_client) return;
+        if (!(ev & (EPOLLIN | EPOLLOUT))) return;
+
+        tls_step_result_t tls_rc = tls_connect_step(&r->tls);
+        if (tls_rc == TLS_OK) {
+            const ServerConfig *server = NULL;
+            if (g_config && r->server_idx >= 0)
+                server = config_get_server(g_config, r->server_idx);
+
+            /* DEC-025: диагностика Reality shortId */
+            if (server && server->reality_short_id[0]) {
+                uint8_t rnd[32];
+                int rn = tls_get_client_random(&r->tls, rnd, sizeof(rnd));
+                if (rn >= 8) {
+                    char hex[17] = {0};
+                    for (int hi = 0; hi < 8; hi++) {
+                        int _n = snprintf(hex + hi * 2, 3, "%02x", rnd[hi]);
+                        if (_n < 0 || _n >= 3)
+                            log_msg(LOG_DEBUG, "snprintf truncated (non-critical): %s:%d", __FILE__, __LINE__);
+                    }
+                    log_msg(LOG_DEBUG,
+                            "Reality shortId=%s clientRandom[0:8]=%s",
+                            server->reality_short_id, hex);
+                } else {
+                    log_msg(LOG_DEBUG,
+                            "Reality shortId=%s (clientRandom недоступен)",
+                            server->reality_short_id);
+                }
+            }
+
+            if (!server) {
+                relay_free(ds, r);
+                return;
+            }
+
+            if (strcmp(server->protocol, "trojan") == 0) {
+                if (trojan_handshake_start(&r->tls, &r->dst,
+                                            server->password) < 0) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                    return;
+                }
+                dispatcher_server_result(ds, r->server_idx, true);
+                r->state = RELAY_ACTIVE;
+                log_msg(LOG_DEBUG, "relay: Trojan активен");
+            } else {
+                if (vless_handshake_start(&r->tls, &r->dst,
+                                           server->uuid) < 0) {
+                    dispatcher_server_result(ds, r->server_idx, false);
+                    relay_free(ds, r);
+                    return;
+                }
+                r->state = RELAY_VLESS_SHAKE;
+                r->vless_resp_len = 0;
+            }
+
+            struct epoll_event mod = {
+                .events   = EPOLLIN | EPOLLET,
+                .data.ptr = &r->ep_upstream,
+            };
+            epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                      r->upstream_fd, &mod);
+        } else if (tls_rc == TLS_ERR) {
+            dispatcher_server_result(ds, r->server_idx, false);
+            relay_free(ds, r);
+        }
+    } else {
+        /* RELAY_VLESS_SHAKE */
+        if (ep->is_client) return;
+        if (!(ev & EPOLLIN)) return;
+
+        int vrc = vless_read_response_step(&r->tls,
+            r->vless_resp_buf, &r->vless_resp_len);
+        if (vrc == 0) {
+            dispatcher_server_result(ds, r->server_idx, true);
+            r->state = RELAY_ACTIVE;
+            log_msg(LOG_DEBUG, "relay: VLESS установлен, relay активен");
+        } else if (vrc < 0) {
+            dispatcher_server_result(ds, r->server_idx, false);
+            relay_free(ds, r);
+        }
+    }
+}
+
+/* Активный relay — двунаправленная передача */
+static void relay_handle_active(dispatcher_state_t *ds, relay_conn_t *r,
+                                 relay_ep_t *ep, uint32_t ev, time_t now)
+{
+    if (ep->is_client && (ev & EPOLLIN)) {
+        for (;;) {
+            ssize_t transferred = relay_transfer(ds, r, true);
+            if (transferred > 0) {
+                r->bytes_in += transferred;
+                r->last_active = now;
+                continue;
+            }
+            if (transferred == 0) {
+                relay_do_half_close(r, true);
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                r->state = RELAY_CLOSING;
+            }
+            break;
+        }
+    }
+
+    if (!ep->is_client && (ev & EPOLLIN)) {
+        for (;;) {
+            ssize_t transferred = relay_transfer(ds, r, false);
+            if (transferred > 0) {
+                r->bytes_out += transferred;
+                r->last_active = now;
+                continue;
+            }
+            if (transferred == 0) {
+                relay_do_half_close(r, false);
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                r->state = RELAY_CLOSING;
+            }
+            break;
+        }
+    }
+
+    if (r->state == RELAY_CLOSING)
+        relay_free(ds, r);
+}
+
+/* XHTTP state machine (6 состояний, goto→return) */
+static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
+                                relay_ep_t *ep, uint32_t ev,
+                                const struct epoll_event *cur_event,
+                                time_t now)
+{
+    switch (r->state) {
+    case RELAY_XHTTP_DN_CONNECT:
+        if (!ep->is_client && (ev & EPOLLOUT) &&
+            cur_event->data.ptr == &r->ep_download) {
+            int err = 0;
+            socklen_t errlen = sizeof(err);
+            getsockopt(r->download_fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
+            if (err != 0) {
+                log_msg(LOG_WARN, "XHTTP: download connect: %s", strerror(err));
+                relay_free(ds, r);
+                return;
+            }
+            struct epoll_event mod = {
+                .events = EPOLLIN | EPOLLOUT | EPOLLET,
+                .data.ptr = &r->ep_upstream,
+            };
+            epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD, r->upstream_fd, &mod);
+            r->state = RELAY_XHTTP_UP_TLS;
+        }
+        return;
+
+    case RELAY_XHTTP_UP_TLS:
+        if (cur_event->data.ptr != &r->ep_upstream) return;
+        if (!(ev & (EPOLLIN | EPOLLOUT))) return;
+        {
+            tls_step_result_t tr = xhttp_upload_tls_step(r->xhttp);
+            if (tr == TLS_OK) {
+                struct epoll_event mod = {
+                    .events = EPOLLIN | EPOLLOUT | EPOLLET,
+                    .data.ptr = &r->ep_download,
+                };
+                epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD, r->download_fd, &mod);
+                r->state = RELAY_XHTTP_DN_TLS;
+            } else if (tr == TLS_ERR) {
+                dispatcher_server_result(ds, r->server_idx, false);
+                relay_free(ds, r);
+            }
+        }
+        return;
+
+    case RELAY_XHTTP_DN_TLS:
+        if (cur_event->data.ptr != &r->ep_download) return;
+        if (!(ev & (EPOLLIN | EPOLLOUT))) return;
+        {
+            tls_step_result_t tr = xhttp_download_tls_step(r->xhttp);
+            if (tr == TLS_OK) {
+                r->state = RELAY_XHTTP_UP_REQ;
+                const ServerConfig *srv = NULL;
+                if (g_config && r->server_idx >= 0)
+                    srv = config_get_server(g_config, r->server_idx);
+                if (!srv || xhttp_send_upload_request(r->xhttp,
+                        &r->dst, srv->uuid) < 0) {
+                    relay_free(ds, r);
+                    return;
+                }
+                if (xhttp_send_download_request(r->xhttp) < 0) {
+                    relay_free(ds, r);
+                    return;
+                }
+                r->state = RELAY_XHTTP_DN_REQ;
+            } else if (tr == TLS_ERR) {
+                dispatcher_server_result(ds, r->server_idx, false);
+                relay_free(ds, r);
+            }
+        }
+        return;
+
+    case RELAY_XHTTP_UP_REQ:
+        return;
+
+    case RELAY_XHTTP_DN_REQ:
+        if (cur_event->data.ptr != &r->ep_download) return;
+        if (!(ev & EPOLLIN)) return;
+        {
+            int prc = xhttp_parse_response_step(r->xhttp);
+            if (prc == 0) {
+                dispatcher_server_result(ds, r->server_idx, true);
+                r->state = RELAY_XHTTP_ACTIVE;
+                log_msg(LOG_DEBUG, "XHTTP: relay активен");
+            } else if (prc < 0) {
+                dispatcher_server_result(ds, r->server_idx, false);
+                relay_free(ds, r);
+            }
+        }
+        return;
+
+    case RELAY_XHTTP_ACTIVE:
+        if (ep->is_client && (ev & EPOLLIN)) {
+            for (;;) {
+                ssize_t n = read(r->client_fd,
+                                 ds->relay_buf, ds->relay_buf_size);
+                if (n > 0) {
+                    ssize_t sent = xhttp_send_chunk(r->xhttp, ds->relay_buf, n);
+                    if (sent > 0) {
+                        r->bytes_in += sent;
+                        r->last_active = now;
+                        continue;
+                    }
+                }
+                if (n == 0) {
+                    relay_do_half_close(r, true);
+                } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    r->state = RELAY_CLOSING;
+                }
+                break;
+            }
+        }
+        if (cur_event->data.ptr == &r->ep_download && (ev & EPOLLIN)) {
+            for (;;) {
+                ssize_t n = xhttp_recv_chunk(
+                    r->xhttp, ds->relay_buf, ds->relay_buf_size);
+                if (n > 0) {
+                    ssize_t wr = write(r->client_fd, ds->relay_buf, (size_t)n);
+                    if (wr < 0) {
+                        if (errno != EAGAIN && errno != EPIPE)
+                            log_msg(LOG_DEBUG, "relay: XHTTP write ошибка: %s",
+                                    strerror(errno));
+                        relay_free(ds, r);
+                        return;
+                    }
+                    if (wr < n) {
+                        log_msg(LOG_DEBUG, "relay: XHTTP partial write %zd/%zd",
+                                wr, (ssize_t)n);
+                        relay_free(ds, r);
+                        return;
+                    }
+                    r->bytes_out += (uint64_t)wr;
+                    r->last_active = now;
+                    continue;
+                }
+                if (n == 0) {
+                    relay_do_half_close(r, false);
+                } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    r->state = RELAY_CLOSING;
+                }
+                break;
+            }
+        }
+        if (r->state == RELAY_CLOSING)
+            relay_free(ds, r);
+        return;
+
+    default:
+        return;
+    }
+}
+
+#if CONFIG_EBURNET_AWG
+/* AWG state machine (Noise handshake + relay) */
+static void relay_handle_awg(dispatcher_state_t *ds, relay_conn_t *r,
+                              relay_ep_t *ep, uint32_t ev, time_t now)
+{
+    if (r->state == RELAY_AWG_HANDSHAKE) {
+        if (!ep->is_client && r->awg) {
+            int arc = awg_process_incoming(r->awg);
+            if (arc == 1) {
+                dispatcher_server_result(ds, r->server_idx, true);
+                r->state = RELAY_AWG_ACTIVE;
+                log_msg(LOG_DEBUG, "relay: AWG активен");
+            } else if (arc < 0) {
+                dispatcher_server_result(ds, r->server_idx, false);
+                relay_free(ds, r);
+            } else {
+                awg_tick(r->awg);
+            }
+        }
+        return;
+    }
+
+    /* RELAY_AWG_ACTIVE */
+    if (ep->is_client && (ev & EPOLLIN)) {
+        for (;;) {
+            ssize_t n = read(r->client_fd,
+                             ds->relay_buf, ds->relay_buf_size);
+            if (n > 0) {
+                awg_send(r->awg, ds->relay_buf, n);
+                r->bytes_in += n;
+                r->last_active = now;
+                continue;
+            }
+            if (n == 0) relay_do_half_close(r, true);
+            else if (errno != EAGAIN) r->state = RELAY_CLOSING;
+            break;
+        }
+    }
+    if (!ep->is_client && (ev & EPOLLIN) && r->awg) {
+        int arc = awg_process_incoming(r->awg);
+        if (arc == 2) {
+            uint8_t *buf = ds->relay_buf;
+            size_t   buf_sz = ds->relay_buf_size;
+            ssize_t n = awg_recv(r->awg, buf, buf_sz);
+            if (n > 0) {
+                ssize_t wr = write(r->client_fd, buf, (size_t)n);
+                if (wr < 0) {
+                    if (errno != EAGAIN && errno != EPIPE)
+                        log_msg(LOG_DEBUG, "relay: AWG write ошибка: %s",
+                                strerror(errno));
+                    relay_free(ds, r);
+                    return;
+                }
+                if (wr < n) {
+                    log_msg(LOG_DEBUG, "relay: AWG partial write %zd/%zd",
+                            wr, (ssize_t)n);
+                    relay_free(ds, r);
+                    return;
+                }
+                r->bytes_out += (uint64_t)wr;
+                r->last_active = now;
+            }
+        } else if (arc < 0) {
+            r->state = RELAY_CLOSING;
+        }
+    }
+    if (r->awg) awg_tick(r->awg);
+    if (r->state == RELAY_CLOSING)
+        relay_free(ds, r);
+}
+#endif /* CONFIG_EBURNET_AWG */
+
+/* ------------------------------------------------------------------ */
+/*  dispatcher_tick — обработка событий relay (C-06 декомпозиция)       */
+/* ------------------------------------------------------------------ */
 void dispatcher_tick(dispatcher_state_t *ds)
 {
     if (ds->epoll_fd < 0)
@@ -1401,375 +1751,28 @@ void dispatcher_tick(dispatcher_state_t *ds)
             break;
 
         case RELAY_TLS_SHAKE:
-            /* TLS handshake — один шаг за tick (C-03) */
-            if (ep->is_client) break;
-            if (!(ev & (EPOLLIN | EPOLLOUT))) break;
-            {
-                tls_step_result_t tls_rc = tls_connect_step(&r->tls);
-                if (tls_rc == TLS_OK) {
-                    const ServerConfig *server = NULL;
-                    if (g_config && r->server_idx >= 0)
-                        server = config_get_server(g_config, r->server_idx);
-
-                    /* DEC-025: диагностика Reality shortId */
-                    if (server && server->reality_short_id[0]) {
-                        uint8_t rnd[32];
-                        int rn = tls_get_client_random(&r->tls, rnd, sizeof(rnd));
-                        if (rn >= 8) {
-                            char hex[17] = {0};
-                            for (int hi = 0; hi < 8; hi++) {
-                                int _n = snprintf(hex + hi * 2, 3, "%02x", rnd[hi]);
-                                if (_n < 0 || _n >= 3)
-                                    log_msg(LOG_DEBUG, "snprintf truncated (non-critical): %s:%d", __FILE__, __LINE__);
-                            }
-                            log_msg(LOG_DEBUG,
-                                    "Reality shortId=%s clientRandom[0:8]=%s",
-                                    server->reality_short_id, hex);
-                        } else {
-                            log_msg(LOG_DEBUG,
-                                    "Reality shortId=%s (clientRandom недоступен)",
-                                    server->reality_short_id);
-                        }
-                    }
-
-                    if (!server) {
-                        relay_free(ds, r);
-                        break;
-                    }
-
-                    if (strcmp(server->protocol, "trojan") == 0) {
-                        /* Trojan: header → сразу ACTIVE (нет response) */
-                        if (trojan_handshake_start(&r->tls, &r->dst,
-                                                    server->password) < 0) {
-                            dispatcher_server_result(ds, r->server_idx, false);
-                            relay_free(ds, r);
-                            break;
-                        }
-                        dispatcher_server_result(ds, r->server_idx, true);
-                        r->state = RELAY_ACTIVE;
-                        log_msg(LOG_DEBUG, "relay: Trojan активен");
-                    } else {
-                        /* VLESS: header → ждём response */
-                        if (vless_handshake_start(&r->tls, &r->dst,
-                                                   server->uuid) < 0) {
-                            dispatcher_server_result(ds, r->server_idx, false);
-                            relay_free(ds, r);
-                            break;
-                        }
-                        r->state = RELAY_VLESS_SHAKE;
-                        r->vless_resp_len = 0;
-                    }
-
-                    /* upstream: ждём EPOLLIN */
-                    struct epoll_event mod = {
-                        .events   = EPOLLIN | EPOLLET,
-                        .data.ptr = &r->ep_upstream,
-                    };
-                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
-                              r->upstream_fd, &mod);
-                } else if (tls_rc == TLS_ERR) {
-                    dispatcher_server_result(ds, r->server_idx, false);
-                    relay_free(ds, r);
-                }
-                /* TLS_WANT_IO → ждём следующего epoll события */
-            }
-            break;
-
         case RELAY_VLESS_SHAKE:
-            /* VLESS response — один шаг за tick (C-04) */
-            if (ep->is_client) break;
-            if (!(ev & EPOLLIN)) break;
-            {
-                int vrc = vless_read_response_step(&r->tls,
-                    r->vless_resp_buf, &r->vless_resp_len);
-                if (vrc == 0) {
-                    /* VLESS готов → relay активен */
-                    dispatcher_server_result(ds, r->server_idx, true);
-                    r->state = RELAY_ACTIVE;
-                    log_msg(LOG_DEBUG,
-                        "relay: VLESS установлен, relay активен");
-                } else if (vrc < 0) {
-                    dispatcher_server_result(ds, r->server_idx, false);
-                    relay_free(ds, r);
-                }
-                /* vrc == 1 → ждём данных */
-            }
+            relay_handle_tls(ds, r, ep, ev);
             break;
 
         case RELAY_HALF_CLOSE:
-            /* fallthrough — half-close обрабатывается как active для чтения */
         case RELAY_ACTIVE:
-            if (ep->is_client && (ev & EPOLLIN)) {
-                /* Данные от клиента → upstream */
-                for (;;) {
-                    ssize_t transferred = relay_transfer(
-                        ds, r, true);
-                    if (transferred > 0) {
-                        r->bytes_in += transferred;
-                        r->last_active = now;
-                        continue;
-                    }
-                    if (transferred == 0) {
-                        relay_do_half_close(r, true);
-                    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        r->state = RELAY_CLOSING;
-                    }
-                    break;
-                }
-            }
-
-            if (!ep->is_client && (ev & EPOLLIN)) {
-                /* Данные от upstream → клиент */
-                for (;;) {
-                    ssize_t transferred = relay_transfer(
-                        ds, r, false);
-                    if (transferred > 0) {
-                        r->bytes_out += transferred;
-                        r->last_active = now;
-                        continue;
-                    }
-                    if (transferred == 0) {
-                        relay_do_half_close(r, false);
-                    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        r->state = RELAY_CLOSING;
-                    }
-                    break;
-                }
-            }
-
-            if (r->state == RELAY_CLOSING)
-                relay_free(ds, r);
+            relay_handle_active(ds, r, ep, ev, now);
             break;
-
-        /* --- XHTTP состояния --- */
 
         case RELAY_XHTTP_DN_CONNECT:
-            /* download fd TCP connect завершён (EPOLLOUT) */
-            if (!ep->is_client && (ev & EPOLLOUT) &&
-                events[i].data.ptr == &r->ep_download) {
-                int err = 0;
-                socklen_t errlen = sizeof(err);
-                getsockopt(r->download_fd, SOL_SOCKET, SO_ERROR,
-                           &err, &errlen);
-                if (err != 0) {
-                    log_msg(LOG_WARN, "XHTTP: download connect: %s",
-                            strerror(err));
-                    relay_free(ds, r);
-                    break;
-                }
-                /* Оба fd подключены → начать upload TLS */
-                struct epoll_event mod = {
-                    .events = EPOLLIN | EPOLLOUT | EPOLLET,
-                    .data.ptr = &r->ep_upstream,
-                };
-                epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
-                          r->upstream_fd, &mod);
-                r->state = RELAY_XHTTP_UP_TLS;
-            }
-            break;
-
         case RELAY_XHTTP_UP_TLS:
-            if (events[i].data.ptr != &r->ep_upstream) break;
-            if (!(ev & (EPOLLIN | EPOLLOUT))) break;
-            {
-                tls_step_result_t tr = xhttp_upload_tls_step(r->xhttp);
-                if (tr == TLS_OK) {
-                    /* Upload TLS готов → download TLS */
-                    struct epoll_event mod = {
-                        .events = EPOLLIN | EPOLLOUT | EPOLLET,
-                        .data.ptr = &r->ep_download,
-                    };
-                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
-                              r->download_fd, &mod);
-                    r->state = RELAY_XHTTP_DN_TLS;
-                } else if (tr == TLS_ERR) {
-                    dispatcher_server_result(ds, r->server_idx, false);
-                    relay_free(ds, r);
-                }
-            }
-            break;
-
         case RELAY_XHTTP_DN_TLS:
-            if (events[i].data.ptr != &r->ep_download) break;
-            if (!(ev & (EPOLLIN | EPOLLOUT))) break;
-            {
-                tls_step_result_t tr = xhttp_download_tls_step(r->xhttp);
-                if (tr == TLS_OK) {
-                    r->state = RELAY_XHTTP_UP_REQ;
-                    /* Сразу отправляем POST */
-                    const ServerConfig *srv = NULL;
-                    if (g_config && r->server_idx >= 0)
-                        srv = config_get_server(g_config, r->server_idx);
-                    if (!srv || xhttp_send_upload_request(r->xhttp,
-                            &r->dst, srv->uuid) < 0) {
-                        relay_free(ds, r);
-                        break;
-                    }
-                    /* Отправляем GET */
-                    if (xhttp_send_download_request(r->xhttp) < 0) {
-                        relay_free(ds, r);
-                        break;
-                    }
-                    r->state = RELAY_XHTTP_DN_REQ;
-                } else if (tr == TLS_ERR) {
-                    dispatcher_server_result(ds, r->server_idx, false);
-                    relay_free(ds, r);
-                }
-            }
-            break;
-
         case RELAY_XHTTP_UP_REQ:
-            /* Не должен попасть сюда — переход сразу в DN_REQ */
-            break;
-
         case RELAY_XHTTP_DN_REQ:
-            /* Парсим HTTP 200 OK от download */
-            if (events[i].data.ptr != &r->ep_download) break;
-            if (!(ev & EPOLLIN)) break;
-            {
-                int prc = xhttp_parse_response_step(r->xhttp);
-                if (prc == 0) {
-                    dispatcher_server_result(ds, r->server_idx, true);
-                    r->state = RELAY_XHTTP_ACTIVE;
-                    log_msg(LOG_DEBUG, "XHTTP: relay активен");
-                } else if (prc < 0) {
-                    dispatcher_server_result(ds, r->server_idx, false);
-                    relay_free(ds, r);
-                }
-            }
-            break;
-
         case RELAY_XHTTP_ACTIVE:
-            /* client → upload (chunked POST) */
-            if (ep->is_client && (ev & EPOLLIN)) {
-                for (;;) {
-                    ssize_t n = read(r->client_fd,
-                                     ds->relay_buf, ds->relay_buf_size);
-                    if (n > 0) {
-                        ssize_t sent = xhttp_send_chunk(
-                            r->xhttp, ds->relay_buf, n);
-                        if (sent > 0) {
-                            r->bytes_in += sent;
-                            r->last_active = now;
-                            continue;
-                        }
-                    }
-                    if (n == 0) {
-                        relay_do_half_close(r, true);
-                    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        r->state = RELAY_CLOSING;
-                    }
-                    break;
-                }
-            }
-            /* download → client (chunked GET) */
-            if (events[i].data.ptr == &r->ep_download && (ev & EPOLLIN)) {
-                for (;;) {
-                    ssize_t n = xhttp_recv_chunk(
-                        r->xhttp, ds->relay_buf, ds->relay_buf_size);
-                    if (n > 0) {
-                        ssize_t wr = write(r->client_fd, ds->relay_buf, (size_t)n);
-                        if (wr < 0) {
-                            if (errno != EAGAIN && errno != EPIPE)
-                                log_msg(LOG_DEBUG, "relay: XHTTP write ошибка: %s",
-                                        strerror(errno));
-                            relay_free(ds, r);
-                            goto next_event_xhttp;
-                        }
-                        /* M-07: partial write fatal для chunked stream */
-                        if (wr < n) {
-                            log_msg(LOG_DEBUG, "relay: XHTTP partial write %zd/%zd",
-                                    wr, (ssize_t)n);
-                            relay_free(ds, r);
-                            goto next_event_xhttp;
-                        }
-                        r->bytes_out += (uint64_t)wr;
-                        r->last_active = now;
-                        continue;
-                    }
-                    if (n == 0) {
-                        relay_do_half_close(r, false);
-                    } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        r->state = RELAY_CLOSING;
-                    }
-                    break;
-                }
-            }
-            if (r->state == RELAY_CLOSING)
-                relay_free(ds, r);
-            next_event_xhttp:
+            relay_handle_xhttp(ds, r, ep, ev, &events[i], now);
             break;
-
-        /* --- AWG состояния --- */
 
 #if CONFIG_EBURNET_AWG
         case RELAY_AWG_HANDSHAKE:
-            if (!ep->is_client && r->awg) {
-                int arc = awg_process_incoming(r->awg);
-                if (arc == 1) {
-                    dispatcher_server_result(ds, r->server_idx, true);
-                    r->state = RELAY_AWG_ACTIVE;
-                    log_msg(LOG_DEBUG, "relay: AWG активен");
-                } else if (arc < 0) {
-                    dispatcher_server_result(ds, r->server_idx, false);
-                    relay_free(ds, r);
-                } else {
-                    awg_tick(r->awg);
-                }
-            }
-            break;
-
         case RELAY_AWG_ACTIVE:
-            if (ep->is_client && (ev & EPOLLIN)) {
-                /* client → AWG */
-                for (;;) {
-                    ssize_t n = read(r->client_fd,
-                                     ds->relay_buf, ds->relay_buf_size);
-                    if (n > 0) {
-                        awg_send(r->awg, ds->relay_buf, n);
-                        r->bytes_in += n;
-                        r->last_active = now;
-                        continue;
-                    }
-                    if (n == 0) relay_do_half_close(r, true);
-                    else if (errno != EAGAIN) r->state = RELAY_CLOSING;
-                    break;
-                }
-            }
-            if (!ep->is_client && (ev & EPOLLIN) && r->awg) {
-                /* AWG → client */
-                int arc = awg_process_incoming(r->awg);
-                if (arc == 2) {
-                    /* heap буфер relay_buf вместо 2KB стека (audit v8 F7) */
-                    uint8_t *buf = ds->relay_buf;
-                    size_t   buf_sz = ds->relay_buf_size;
-                    ssize_t n = awg_recv(r->awg, buf, buf_sz);
-                    if (n > 0) {
-                        ssize_t wr = write(r->client_fd, buf, (size_t)n);
-                        if (wr < 0) {
-                            if (errno != EAGAIN && errno != EPIPE)
-                                log_msg(LOG_DEBUG, "relay: AWG write ошибка: %s",
-                                        strerror(errno));
-                            relay_free(ds, r);
-                            break;
-                        }
-                        /* M-08: partial write fatal для UDP framing */
-                        if (wr < n) {
-                            log_msg(LOG_DEBUG, "relay: AWG partial write %zd/%zd",
-                                    wr, (ssize_t)n);
-                            relay_free(ds, r);
-                            break;
-                        }
-                        r->bytes_out += (uint64_t)wr;
-                        r->last_active = now;
-                    }
-                } else if (arc < 0) {
-                    r->state = RELAY_CLOSING;
-                }
-            }
-            if (r->awg) awg_tick(r->awg);
-            if (r->state == RELAY_CLOSING)
-                relay_free(ds, r);
+            relay_handle_awg(ds, r, ep, ev, now);
             break;
 #endif /* CONFIG_EBURNET_AWG */
 
