@@ -444,8 +444,13 @@ int proxy_group_to_json(const proxy_group_manager_t *pgm,
             esc_name, gs->type, gs->selected_idx);
         for (int i = 0; i < gs->server_count && (size_t)pos < buflen - 1; i++) {
             if (i > 0) JS(",");
-            JS("{\"idx\":%d,\"available\":%s,\"latency\":%u,\"fails\":%u}",
+            const ServerConfig *sc = config_get_server(pgm->cfg,
+                                         gs->servers[i].server_idx);
+            char esc_sname[128];
+            json_escape_str(sc ? sc->name : "", esc_sname, sizeof(esc_sname));
+            JS("{\"idx\":%d,\"name\":\"%s\",\"available\":%s,\"latency_ms\":%u,\"fails\":%u}",
                 gs->servers[i].server_idx,
+                esc_sname,
                 gs->servers[i].available ? "true" : "false",
                 gs->servers[i].latency_ms,
                 gs->servers[i].fail_count);
