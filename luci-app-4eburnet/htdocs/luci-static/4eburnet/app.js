@@ -86,6 +86,30 @@ async function ebPollStatus() {
     hs.textContent = d.running ? '● Активен' : '● Остановлен';
     hs.style.color = d.running ? 'var(--eb-ok)' : 'var(--eb-er)';
   }
+
+  /* J8: живые stats — connections + DNS */
+  const st = await ebGet('/stats');
+  if (st && !st.error) {
+    set('s-conns',       String(st.connections_active  || 0));
+    set('s-conns-total', 'из ' + String(st.connections_total || 0));
+    set('s-dns',         String(st.dns_queries || 0));
+    set('s-dns-cache',   'кэш: ' + String(st.dns_cached || 0));
+  }
+
+  /* J8: живой count групп */
+  const gr = await ebGet('/groups');
+  if (gr && !gr.error && gr.groups) {
+    const avail = gr.groups.filter(
+      g => (g.servers || []).some(s => s.available)
+    ).length;
+    set('s-groups', avail + '/' + gr.groups.length);
+  }
+
+  /* J8: GeoIP warning в режиме rules */
+  const warnRu = document.getElementById('warn-ru');
+  if (warnRu)
+    warnRu.style.display =
+      (d.mode === 'rules' && d.geo_loaded === false) ? '' : 'none';
 }
 
 function ebFmtUptime(sec) {
