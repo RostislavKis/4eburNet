@@ -255,7 +255,7 @@ int dpi_filter_init(const char *dpi_dir)
     dpi_filter_free();
 
     if (!dpi_dir || dpi_dir[0] == '\0')
-        dpi_dir = "/etc/4eburnet/dpi";
+        dpi_dir = EBURNET_DPI_DIR;
 
     char path[512];
 

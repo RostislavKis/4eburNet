@@ -79,7 +79,7 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
     if (fd < 0) return -1;
 
     /* Таймаут 1 сек для защиты event loop (C-02) */
-    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    struct timeval tv = { .tv_sec = TIMEOUT_DNS_SEC, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
@@ -181,7 +181,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
         if (*p == '\r' || *p == '\n') return -1;
 
     /* Base64url encode DNS запроса (heap — стек MIPS 8KB) */
-    char *b64 = malloc(8192);
+    char *b64 = malloc(DNS_DOH_B64_SIZE);
     if (!b64) {
         log_msg(LOG_ERROR, "dns_doh: нет памяти для b64");
         return -1;
@@ -260,8 +260,8 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     }
 
     /* HTTP GET запрос (L-15: heap вместо стека) */
-    char *http_req = malloc(2048);
-    uint8_t *http_buf = malloc(8192);
+    char *http_req = malloc(DNS_DOH_REQ_SIZE);
+    uint8_t *http_buf = malloc(DNS_DOH_B64_SIZE);
     if (!http_req || !http_buf) {
         free(http_req); free(http_buf); free(b64);
         tls_close(&tls); close(fd);
