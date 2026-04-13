@@ -1,4 +1,5 @@
 #include "ipc.h"
+#include "config.h"
 #include "constants.h"
 #include "stats.h"
 #include "net_utils.h"
@@ -240,10 +241,20 @@ void ipc_process(int server_fd, EburNetState *state)
         case DEVICE_NORMAL: profile = "NORMAL"; break;
         case DEVICE_FULL:   profile = "FULL";   break;
         }
+        /* B5-01: geo_loaded + mode в статусе */
+        bool geo_ok = false;
+        if (g_gm) {
+            for (int gi = 0; gi < g_gm->count; gi++)
+                if (g_gm->categories[gi].loaded) { geo_ok = true; break; }
+        }
+        const char *mode = (state->config && state->config->mode[0])
+                           ? state->config->mode : "unknown";
         snprintf(buf, sizeof(buf),
                  "{\"status\":\"running\",\"version\":\"%s\","
-                 "\"profile\":\"%s\",\"uptime\":%ld}",
-                 EBURNET_VERSION, profile, (long)uptime);
+                 "\"profile\":\"%s\",\"uptime\":%ld,"
+                 "\"mode\":\"%s\",\"geo_loaded\":%s}",
+                 EBURNET_VERSION, profile, (long)uptime,
+                 mode, geo_ok ? "true" : "false");
         ipc_respond(client_fd, buf);
         break;
     }
