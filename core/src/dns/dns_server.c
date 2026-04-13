@@ -51,7 +51,8 @@ int dns_server_init(dns_server_t *ds, const EburNetConfig *cfg)
     }
 
     int yes = 1;
-    setsockopt(ds->udp_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    if (setsockopt(ds->udp_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
+        log_msg(LOG_WARN, "dns: SO_REUSEADDR(UDP): %s", strerror(errno));
 
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
@@ -73,7 +74,8 @@ int dns_server_init(dns_server_t *ds, const EburNetConfig *cfg)
         return -1;
     }
 
-    setsockopt(ds->tcp_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    if (setsockopt(ds->tcp_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
+        log_msg(LOG_WARN, "dns: SO_REUSEADDR(TCP): %s", strerror(errno));
 
     if (bind(ds->tcp_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         log_msg(LOG_ERROR, "DNS: bind(TCP :%u): %s", port, strerror(errno));
@@ -260,9 +262,10 @@ static void async_doh_dot_cb(void *ctx, const uint8_t *resp,
             int reply_len = dns_build_forward_reply(
                 &c->query, resp, resp_len, reply, DNS_MAX_PACKET);
             if (reply_len > 0) {
-                sendto(c->ds->udp_fd, reply, reply_len, 0,
-                       (struct sockaddr *)&c->client_addr,
-                       c->client_addrlen);
+                if (sendto(c->ds->udp_fd, reply, reply_len, 0,
+                           (struct sockaddr *)&c->client_addr,
+                           c->client_addrlen) < 0)
+                    log_msg(LOG_WARN, "dns: sendto (async): %s", strerror(errno));
                 uint32_t ttl = dns_extract_min_ttl(resp, resp_len);
                 int max_ttl = c->ds->cfg->dns.cache_ttl_max;
                 int min_ttl = c->ds->cfg->dns.cache_ttl_min;
@@ -596,8 +599,9 @@ skip_rate:;
                     nodata[2] = 0x81;  /* QR=1 RD=1 */
                     nodata[3] = 0x80;  /* RA=1 RCODE=0 */
                     nodata[6] = 0; nodata[7] = 0;  /* ANCOUNT=0 */
-                    sendto(ds->udp_fd, nodata, nd_len, 0,
-                           (struct sockaddr *)&client_addr, client_len);
+                    if (sendto(ds->udp_fd, nodata, nd_len, 0,
+                               (struct sockaddr *)&client_addr, client_len) < 0)
+                        log_msg(LOG_WARN, "dns: sendto (NODATA): %s", strerror(errno));
                     log_msg(LOG_DEBUG, "fake-ip: %s AAAA → NODATA", q.qname);
                 }
                 free(nodata);
@@ -1121,9 +1125,10 @@ static void handle_upstream_response(dns_server_t *ds, int fd)
                             tcp_client_close(ds, tc);
                     }
                 } else {
-                    sendto(ds->udp_fd, nx, nx_len, 0,
-                           (struct sockaddr *)&p->client_addr,
-                           p->client_addrlen);
+                    if (sendto(ds->udp_fd, nx, nx_len, 0,
+                               (struct sockaddr *)&p->client_addr,
+                               p->client_addrlen) < 0)
+                        log_msg(LOG_WARN, "dns: sendto (parallel): %s", strerror(errno));
                 }
             }
             free(nx);

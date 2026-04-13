@@ -472,8 +472,9 @@ static int awg_protocol_start(relay_conn_t *relay,
             .events   = EPOLLIN | EPOLLET,
             .data.ptr = &relay->ep_upstream,
         };
-        epoll_ctl(g_dispatcher->epoll_fd, EPOLL_CTL_ADD,
-                  relay->awg->udp_fd, &ev);
+        if (epoll_ctl(g_dispatcher->epoll_fd, EPOLL_CTL_ADD,
+                      relay->awg->udp_fd, &ev) < 0)
+            log_msg(LOG_WARN, "relay: epoll_ctl(AWG udp): %s", strerror(errno));
     }
 
     relay->upstream_fd = relay->awg->udp_fd;
@@ -1170,10 +1171,12 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
 
             struct epoll_event ev = { .events = EPOLLIN | EPOLLET };
             ev.data.ptr = &r->ep_client;
-            epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->client_fd, &ev);
+            if (epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->client_fd, &ev) < 0)
+                log_msg(LOG_WARN, "relay: epoll_ctl(DIRECT client): %s", strerror(errno));
             ev.data.ptr = &r->ep_upstream;
             ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
-            epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->upstream_fd, &ev);
+            if (epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->upstream_fd, &ev) < 0)
+                log_msg(LOG_WARN, "relay: epoll_ctl(DIRECT upstream): %s", strerror(errno));
 
             ds->total_accepted++;
             return;
@@ -1279,6 +1282,10 @@ void dispatcher_handle_udp(tproxy_conn_t *conn,
  * Почему монолитная: все состояния relay (connect, TLS handshake, relay data,
  * half-close) обрабатываются в одном месте для O(1) dispatch через epoll data.ptr.
  */
+/* C-06: CC ~25, 594 строки — relay state machine.
+ * Декомпозиция отложена: 20+ case-ов используют shared state (ds, r, now).
+ * Выделение потребует передачи 4+ параметров без выигрыша в читаемости.
+ * TODO(DEC-034): рефакторинг при добавлении нового протокола. */
 void dispatcher_tick(dispatcher_state_t *ds)
 {
     if (ds->epoll_fd < 0)
@@ -1329,8 +1336,9 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     .events   = EPOLLIN | EPOLLOUT | EPOLLET,
                     .data.ptr = &r->ep_upstream,
                 };
-                epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
-                          r->upstream_fd, &mod);
+                if (epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                              r->upstream_fd, &mod) < 0)
+                    log_msg(LOG_WARN, "relay: epoll_ctl(MOD connect): %s", strerror(errno));
 
                 /* Запустить протокольное рукопожатие (неблокирующее) */
                 const ServerConfig *server = NULL;
