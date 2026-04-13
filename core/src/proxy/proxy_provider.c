@@ -7,6 +7,7 @@
 #include "net_utils.h"
 #include "resource_manager.h"
 #include "4eburnet.h"
+#include "constants.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -620,7 +621,7 @@ void proxy_provider_handle_fetch(proxy_provider_manager_t *ppm,
                     ps->name, cnt);
         } else {
             log_msg(LOG_WARN, "proxy_provider[%s]: fetch провалился", ps->name);
-            ps->next_update = time(NULL) + 60;  /* retry через минуту */
+            ps->next_update = time(NULL) + TIMEOUT_PROVIDER_RETRY_SEC;
         }
         return;
     }
@@ -661,7 +662,7 @@ void proxy_provider_tick(proxy_provider_manager_t *ppm)
             } else {
                 log_msg(LOG_WARN, "proxy_provider[%s]: spawn fetch провалился",
                         ps->name);
-                ps->next_update = now + 60;  /* retry через минуту */
+                ps->next_update = now + TIMEOUT_PROVIDER_RETRY_SEC;
             }
         }
         break;  /* один провайдер за тик */

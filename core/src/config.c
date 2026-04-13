@@ -498,7 +498,7 @@ int config_load(const char *path, EburNetConfig *cfg)
     cfg->dpi_split_pos    = 1;
     cfg->dpi_fake_ttl     = 5;
     cfg->dpi_fake_repeats = 8;
-{   int _n = snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), "www.google.com");
+{   int _n = snprintf(cfg->dpi_fake_sni, sizeof(cfg->dpi_fake_sni), EBURNET_DPI_DEFAULT_FAKE_SNI);
     if (_n < 0 || (size_t)_n >= sizeof(cfg->dpi_fake_sni))
         log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
 }
