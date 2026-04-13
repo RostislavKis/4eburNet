@@ -298,6 +298,9 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         strncpy(srv->protocol, value, sizeof(srv->protocol) - 1);
         srv->protocol[sizeof(srv->protocol) - 1] = '\0';
     } else if (strcmp(key, "address") == 0) {
+        /* P3-02: проверка на shell-спецсимволы (nft injection) */
+        if (strpbrk(value, ";|&`$(){}[]<>\\\"'"))
+            log_msg(LOG_WARN, "config: address содержит спецсимволы");
         strncpy(srv->address, value, sizeof(srv->address) - 1);
         srv->address[sizeof(srv->address) - 1] = '\0';
     } else if (strcmp(key, "port") == 0) {
@@ -313,9 +316,16 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         }
         srv->port = (uint16_t)port_val;
     } else if (strcmp(key, "uuid") == 0) {
+        /* P3-02: UUID формат: 36 символов, hex + дефисы */
+        if (strlen(value) == 36 &&
+            strspn(value, "0123456789abcdefABCDEF-") != 36)
+            log_msg(LOG_WARN, "config: UUID содержит невалидные символы");
         strncpy(srv->uuid, value, sizeof(srv->uuid) - 1);
         srv->uuid[sizeof(srv->uuid) - 1] = '\0';
     } else if (strcmp(key, "password") == 0) {
+        /* P3-02: password — shell-спецсимволы предупреждение */
+        if (strpbrk(value, ";|&`$()\\"))
+            log_msg(LOG_WARN, "config: password содержит shell-спецсимволы");
         strncpy(srv->password, value, sizeof(srv->password) - 1);
         srv->password[sizeof(srv->password) - 1] = '\0';
     } else if (strcmp(key, "transport") == 0) {
