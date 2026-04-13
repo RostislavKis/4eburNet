@@ -211,9 +211,10 @@ const methods = {
 
     restart: {
         call: function(req) {
-            // Запустить stop+start асинхронно — не блокируем rpcd
+            /* P4-05: poll PID вместо фиксированного sleep 1 */
             system("sh -c '/etc/init.d/4eburnet stop 2>/dev/null; "
-                 + "sleep 1; /etc/init.d/4eburnet start 2>/dev/null' &");
+                 + "for i in 1 2 3 4 5; do [ -f /var/run/4eburnet.pid ] || break; sleep 0.2; done; "
+                 + "/etc/init.d/4eburnet start 2>/dev/null' &");
             return { ok: true };
         }
     },
@@ -286,8 +287,8 @@ const methods = {
             let table_ok = false;
             let lines = file_lines('/proc/net/fib_rules');
             for (let i = 0; i < length(lines); i++) {
-                // строка содержит "mark: 0x1" → правило fwmark 0x01 существует
-                if (index(lines[i], 'mark: 0x1') >= 0) {
+                /* P4-06: точное совпадение fwmark 0x1 (не 0x10/0x1f) */
+                if (match(lines[i], /mark:\s+0x0*1(\s|\/|$)/)) {
                     routing_ok = true;
                     break;
                 }

@@ -470,7 +470,7 @@ void hysteria2_conn_free(hysteria2_conn_t *conn)
     free(conn);
 }
 
-/* ── QUIC/TLS соединение (каркас — TODO: wolfSSL QUIC handshake) ──────── */
+/* ── QUIC/TLS соединение (wolfSSL QUIC API + Salamander obfuscation) ──── */
 
 /*
  * Открыть UDP сокет к серверу и вернуть fd.
