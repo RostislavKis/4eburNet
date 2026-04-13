@@ -64,6 +64,8 @@ typedef enum {
     IPC_CMD_RULES_LIST      = 25, /* список traffic rules */
     IPC_CMD_GEO_STATUS      = 26, /* статус geo менеджера */
     IPC_CMD_CDN_UPDATE      = 30, /* принудительное обновление CDN IP */
+    IPC_CMD_DPI_GET         = 40, /* текущие DPI настройки */
+    IPC_CMD_DPI_SET         = 41, /* изменить DPI настройки */
 } ipc_command_t;
 
 /* Коды ответов IPC */

@@ -117,14 +117,18 @@ const IPC_CMDS = {
     'groups': true, 'group-select': true, 'group-test': true,
     'providers': true, 'provider-update': true, 'rules': true,
     'geo-status': true, 'cdn-update': true,
+    'dpi-get': true, 'dpi-set': true,
 };
+
+/* P6-03: таймаут IPC вызова (секунды) */
+const IPC_TIMEOUT_SEC = 5;
 
 // Вызвать 4eburnetd --ipc <cmd> [payload] через CLI
 // Возвращает распарсённый JSON объект или { error: '...' }
 function ipc_json(cmd_name, payload) {
     if (!IPC_CMDS[cmd_name]) return { error: 'unknown command: ' + cmd_name };
 
-    let cmdline = EBURNETD + ' --ipc ' + cmd_name;
+    let cmdline = 'timeout ' + IPC_TIMEOUT_SEC + ' ' + EBURNETD + ' --ipc ' + cmd_name;
     let tmp = null;
 
     if (payload) {
