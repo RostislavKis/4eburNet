@@ -6,6 +6,7 @@
 #include "proxy/proxy_group.h"
 #include "net_utils.h"
 #include "4eburnet.h"
+#include "constants.h"
 #include "resource_manager.h"
 #include <regex.h>
 
@@ -78,7 +79,7 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg)
         }
         gs->tolerance_ms = gc->tolerance_ms;
         gs->interval = gc->interval > 0 ? gc->interval : 300;
-        gs->next_check = time(NULL) + 3;  /* первая проверка через 3 сек */
+        gs->next_check = time(NULL) + TIMEOUT_HEALTH_FIRST_SEC;
 
         /* Итерировать массив серверов группы */
         int total_configured = 0;

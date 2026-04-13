@@ -12,6 +12,7 @@
 #include "proxy/protocols/awg.h"
 #include "config.h"
 #include "4eburnet.h"
+#include "constants.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -319,7 +320,7 @@ int awg_handshake_start(awg_state_t *awg,
 
     /* Отправить Jc junk пакетов (heap — стек MIPS 8KB) */
     if (awg->cfg.jc > 0) {
-        uint8_t *junk = malloc(1500);
+        uint8_t *junk = malloc(AWG_JUNK_MAX_SIZE);
         if (!junk) {
             log_msg(LOG_ERROR, "AWG: нет памяти для junk");
             return -1;
@@ -329,7 +330,7 @@ int awg_handshake_start(awg_state_t *awg,
                 ? (uint16_t)rand_in_range(awg->cfg.jmin, awg->cfg.jmax)
                 : awg->cfg.jmin;
             if (jlen > 0) {
-                if (jlen > 1500) jlen = 1500;
+                if (jlen > AWG_JUNK_MAX_SIZE) jlen = AWG_JUNK_MAX_SIZE;
                 random_fill(junk, jlen);
                 send(awg->udp_fd, junk, jlen, 0);
             }
@@ -339,7 +340,7 @@ int awg_handshake_start(awg_state_t *awg,
     }
 
     /* Noise Init handshake (heap — стек MIPS 8KB) */
-    uint8_t *init_pkt = malloc(1536);
+    uint8_t *init_pkt = malloc(AWG_HANDSHAKE_SIZE);
     if (!init_pkt) {
         log_msg(LOG_ERROR, "AWG: нет памяти для init_pkt");
         return -1;

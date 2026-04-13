@@ -7,6 +7,7 @@
 
 #if CONFIG_EBURNET_DPI || CONFIG_EBURNET_STLS
 
+#include "4eburnet.h"
 #include "dpi/dpi_payload.h"
 
 #include <string.h>
@@ -62,7 +63,7 @@ int dpi_make_tls_clienthello_ex(uint8_t *buf, int buf_size,
                                  uint8_t *out_random)
 {
     if (!buf || buf_size < 300) return -1;
-    if (!sni || sni[0] == '\0') sni = "www.google.com";
+    if (!sni || sni[0] == '\0') sni = EBURNET_DPI_DEFAULT_FAKE_SNI;
 
     int sni_len = 0;
     while (sni[sni_len] && sni_len < 253) sni_len++;

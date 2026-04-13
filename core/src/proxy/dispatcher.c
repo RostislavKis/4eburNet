@@ -885,15 +885,15 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
                                  ? g_config->dpi_fake_repeats : 8;
             {   int _n = snprintf(strat.fake_sni, sizeof(strat.fake_sni), "%s",
                          (g_config && g_config->dpi_fake_sni[0])
-                         ? g_config->dpi_fake_sni : "www.google.com");
+                         ? g_config->dpi_fake_sni : EBURNET_DPI_DEFAULT_FAKE_SNI);
                 if (_n < 0 || (size_t)_n >= sizeof(strat.fake_sni))
                     log_msg(LOG_WARN, "DPI: fake_sni обрезан: %s:%d", __FILE__, __LINE__);
             }
 
             /* fake+TTL: malloc чтобы не переполнять стек MIPS (8KB) */
-            uint8_t *fake_buf = malloc(1300);
+            uint8_t *fake_buf = malloc(DPI_FAKE_PKT_SIZE);
             if (fake_buf) {
-                int fake_len = dpi_make_fake_payload(fake_buf, 1300,
+                int fake_len = dpi_make_fake_payload(fake_buf, DPI_FAKE_PKT_SIZE,
                                                       DPI_PROTO_TCP,
                                                       strat.fake_sni);
                 if (fake_len > 0) {
@@ -1045,7 +1045,7 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
 
     /* splice удалён: shared pipe = data corruption (H-12, C-05) */
 
-    ds->health_reset_at = time(NULL) + 30;  /* первый health reset через 30 сек */
+    ds->health_reset_at = time(NULL) + TIMEOUT_HEALTH_RESET_SEC;
 
     log_msg(LOG_INFO, "Диспетчер запущен (макс. %d соединений, буфер: %zu)",
             ds->conns_max, ds->relay_buf_size);
@@ -1857,7 +1857,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
     {
         time_t now_t = now;
         if (now_t >= ds->health_reset_at && ds->health_count > 0) {
-            ds->health_reset_at = now_t + 30;
+            ds->health_reset_at = now_t + TIMEOUT_HEALTH_RESET_SEC;
             for (int i = 0; i < ds->health_count; i++) {
                 if (!ds->health[i].available) {
                     ds->health[i].available  = true;

@@ -14,6 +14,7 @@
 
 #include "crypto/tls.h"
 #include "4eburnet.h"
+#include "constants.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -332,7 +333,7 @@ int tls_connect(tls_conn_t *conn, int fd, const tls_config_t *config)
         fd_set rfds, wfds;
         FD_ZERO(&rfds); FD_ZERO(&wfds);
         FD_SET(fd, &rfds); FD_SET(fd, &wfds);
-        struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+        struct timeval tv = { .tv_sec = 0, .tv_usec = TIMEOUT_TLS_POLL_US };
         select(fd + 1, &rfds, &wfds, NULL, &tv);
     }
 
