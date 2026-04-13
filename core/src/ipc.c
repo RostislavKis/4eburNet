@@ -411,7 +411,13 @@ void ipc_process(int server_fd, EburNetState *state)
                     tr->type, esc_val, esc_tgt, tr->priority);
             }
             IPC_SNPRINTF("]}");
+            goto rules_send;
 rules_trunc:
+            /* B6-01: при truncation — валидный JSON вместо обрезанного */
+            log_msg(LOG_WARN, "ipc: rules list truncated");
+            snprintf(rbuf, need,
+                "{\"rules\":[],\"truncated\":true}");
+rules_send:
 #undef IPC_SNPRINTF
             if (pos > 0 && pos < need) rbuf[pos] = '\0';
             ipc_respond(client_fd, rbuf);
@@ -427,23 +433,26 @@ rules_trunc:
             p += (size_t)snprintf(buf + p, sizeof(buf) - p,
                 "{\"region\":\"%s\",\"categories\":[",
                 geo_region_name(g_gm->current_region));
+            /* B6-02: резерв 4 байта под "]}\0" — гарантия валидного JSON */
+            const size_t geo_reserve = 4;
             for (int gi = 0; gi < g_gm->count &&
-                 p < sizeof(buf) - 128; gi++) {
+                 p < sizeof(buf) - 128 - geo_reserve; gi++) {
                 const geo_category_t *gc = &g_gm->categories[gi];
-                if (gi > 0 && p < sizeof(buf) - 2)
+                if (gi > 0)
                     p += (size_t)snprintf(buf + p, sizeof(buf) - p, ",");
-                if (p < sizeof(buf) - 128)
-                    p += (size_t)snprintf(buf + p, sizeof(buf) - p,
-                        "{\"name\":\"%s\",\"region\":\"%s\","
-                        "\"loaded\":%s,\"v4\":%d,\"v6\":%d,"
-                        "\"domains\":%d,\"suffixes\":%d}",
-                        gc->name, geo_region_name(gc->region),
-                        gc->loaded ? "true" : "false",
-                        gc->v4_count, gc->v6_count,
-                        gc->domain_count, gc->suffix_count);
+                p += (size_t)snprintf(buf + p, sizeof(buf) - p,
+                    "{\"name\":\"%s\",\"region\":\"%s\","
+                    "\"loaded\":%s,\"v4\":%d,\"v6\":%d,"
+                    "\"domains\":%d,\"suffixes\":%d}",
+                    gc->name, geo_region_name(gc->region),
+                    gc->loaded ? "true" : "false",
+                    gc->v4_count, gc->v6_count,
+                    gc->domain_count, gc->suffix_count);
             }
-            if (p < sizeof(buf) - 2)
-                p += (size_t)snprintf(buf + p, sizeof(buf) - p, "]}");
+            /* Всегда закрыть JSON — место зарезервировано */
+            if (p >= sizeof(buf) - geo_reserve)
+                p = sizeof(buf) - geo_reserve;
+            p += (size_t)snprintf(buf + p, sizeof(buf) - p, "]}");
             ipc_respond(client_fd, buf);
         } else {
             ipc_respond(client_fd, "{\"region\":\"UNKNOWN\",\"categories\":[]}");
