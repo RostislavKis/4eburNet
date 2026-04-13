@@ -477,6 +477,28 @@ rules_send:
             "{\"status\":\"ok\",\"msg\":\"cdn update scheduled\"}");
         log_msg(LOG_INFO, "IPC: запрошено обновление CDN IP");
         break;
+
+    case IPC_CMD_DPI_GET: {
+        /* P6-01: вернуть текущие DPI настройки */
+        const EburNetConfig *c = state->config;
+        char esc_sni[512];
+        json_escape_str(c->dpi_fake_sni, esc_sni, sizeof(esc_sni));
+        snprintf(buf, sizeof(buf),
+            "{\"enabled\":%s,\"split_pos\":%d,\"fake_ttl\":%d,"
+            "\"fake_count\":%d,\"fake_sni\":\"%s\"}",
+            c->dpi_enabled ? "true" : "false",
+            c->dpi_split_pos, c->dpi_fake_ttl,
+            c->dpi_fake_repeats, esc_sni);
+        ipc_respond(client_fd, buf);
+        break;
+    }
+
+    case IPC_CMD_DPI_SET:
+        /* DPI настройки меняются через UCI + reload — здесь только подтверждение */
+        state->reload = true;
+        ipc_respond(client_fd, "{\"status\":\"ok\",\"msg\":\"reload scheduled\"}");
+        log_msg(LOG_INFO, "IPC: запрошено обновление DPI настроек (reload)");
+        break;
 #endif
 
     default:

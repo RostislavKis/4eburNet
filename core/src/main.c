@@ -217,6 +217,8 @@ static int handle_client_command(const char *cmd)
         { "geo-status",      IPC_CMD_GEO_STATUS      },
 #if CONFIG_EBURNET_DPI
         { "cdn-update",      IPC_CMD_CDN_UPDATE      },
+        { "dpi-get",         IPC_CMD_DPI_GET         },
+        { "dpi-set",         IPC_CMD_DPI_SET         },
 #endif
         { NULL, 0 }
     };
