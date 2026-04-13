@@ -53,7 +53,8 @@ static ssize_t ipc_recv_payload(int fd, char *buf, size_t n)
         .tv_sec  = IPC_RECV_TIMEOUT_MS / 1000,
         .tv_usec = (IPC_RECV_TIMEOUT_MS % 1000) * 1000,
     };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+        log_msg(LOG_WARN, "ipc: SO_RCVTIMEO: %s", strerror(errno));
 
     size_t received = 0;
     while (received < n) {
@@ -546,8 +547,10 @@ int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
 
     /* Таймаут 3с на connect/read/write — защита от зависшего демона */
     struct timeval tv = { .tv_sec = TIMEOUT_IPC_CLIENT_SEC, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+        log_msg(LOG_WARN, "ipc client: SO_RCVTIMEO: %s", strerror(errno));
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
+        log_msg(LOG_WARN, "ipc client: SO_SNDTIMEO: %s", strerror(errno));
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
