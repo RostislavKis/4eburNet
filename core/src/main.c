@@ -606,10 +606,18 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
         proxy_provider_load_all(&ppm_state);
-        if (geo_manager_init(&geo_state, cfg_ptr) == 0)
+        if (geo_manager_init(&geo_state, cfg_ptr) == 0) {
             geo_load_region_categories(&geo_state, cfg_ptr);
-        else
+            /* B5-01: предупредить при пустых geo-данных в режиме rules */
+            bool any_loaded = false;
+            for (int gi = 0; gi < geo_state.count; gi++)
+                if (geo_state.categories[gi].loaded) { any_loaded = true; break; }
+            if (!any_loaded && strcmp(cfg_ptr->mode, "rules") == 0)
+                log_msg(LOG_WARN, "GeoIP: наборы данных пусты — "
+                    "в режиме rules трафик может не перехватываться");
+        } else {
             log_msg(LOG_WARN, "GeoIP: не удалось инициализировать");
+        }
         if (rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
                               &geo_state) < 0) {
             log_msg(LOG_ERROR, "rules_engine: инициализация провалилась");
