@@ -206,9 +206,17 @@ document.addEventListener('click', e => {
 });
 
 // ── Page init ──────────────────────────────────────────────────────
+/* P8-03: сохранить ID интервалов для cleanup при навигации */
+let ebStatusTimer = null;
+
+function ebStopPolling() {
+  if (ebStatusTimer) { clearInterval(ebStatusTimer); ebStatusTimer = null; }
+  if (ebLogInterval)  { clearInterval(ebLogInterval); ebLogInterval = null; }
+}
+
 async function ebInitPage(pageId) {
   await ebPollStatus();
-  setInterval(ebPollStatus, 2000);
+  ebStatusTimer = setInterval(ebPollStatus, 2000);
 
   if (pageId === 'overview') {
     ebRefreshWan();
@@ -314,13 +322,15 @@ async function ebLoadGroups() {
     const test = e.target.closest('[data-action="test"]');
     if (test) {
       ebPost('/groups', {action:'test', group: test.dataset.group})
-        .then(r => ebNotify('HC ' + r.ok, 'ok'));
+        .then(r => ebNotify('HC ' + (r.ok || 'done'), 'ok'))
+        .catch(e => ebNotify('HC ошибка: ' + e, 'err'));
       return;
     }
     const sel = e.target.closest('[data-action="select"]');
     if (sel) {
       ebPost('/groups/select', {group: sel.dataset.group, idx: parseInt(sel.dataset.idx, 10)})
-        .then(() => { ebNotify(sel.dataset.sname + ' выбран', 'ok'); ebLoadGroups(); });
+        .then(() => { ebNotify(sel.dataset.sname + ' выбран', 'ok'); ebLoadGroups(); })
+        .catch(e => ebNotify('Select ошибка: ' + e, 'err'));
     }
   });
 }

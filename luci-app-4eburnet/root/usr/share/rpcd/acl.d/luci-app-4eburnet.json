@@ -10,7 +10,13 @@
           "adblock_status", "dns_get", "dpi_get"
         ]
       },
-      "uci": { "4eburnet": ["*"] }
+      "uci": {
+        "4eburnet": [
+          "main", "server", "proxy_group", "traffic_rule",
+          "dns", "dns_rule", "dns_policy", "proxy_provider",
+          "rule_provider", "device"
+        ]
+      }
     },
     "write": {
       "ubus": {
@@ -23,7 +29,13 @@
           "subscription_import"
         ]
       },
-      "uci": { "4eburnet": ["*"] }
+      "uci": {
+        "4eburnet": [
+          "main", "server", "proxy_group", "traffic_rule",
+          "dns", "dns_rule", "dns_policy", "proxy_provider",
+          "rule_provider", "device"
+        ]
+      }
     }
   }
 }
