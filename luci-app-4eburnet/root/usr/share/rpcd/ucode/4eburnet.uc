@@ -244,7 +244,8 @@ const methods = {
                 return { ok: false, error: 'invalid geo_url: ' + base };
 
             system("mkdir -p '" + geo_dir + "'");
-            let files = ['geoip-ru.lst', 'geosite-ru.lst', 'geosite-ads.lst'];
+            let files = ['geoip-ru.lst', 'geosite-ru.lst', 'geosite-ads.lst',
+                         'geosite-trackers.lst', 'geosite-threats.lst'];
             let results = {};
             for (let i = 0; i < length(files); i++) {
                 let f = files[i];
@@ -783,7 +784,7 @@ const methods = {
             if (match(section, /[^\w]/)) return { ok: false, error: 'invalid section' };
 
             let allowed = {
-                main: { enabled:1, mode:1, log_level:1, lan_interface:1, tun_interface:1, region:1, geo_dir:1, geo_url:1 },
+                main: { enabled:1, mode:1, log_level:1, lan_interface:1, region:1, geo_dir:1, geo_url:1 },
                 dns:  { upstream_bypass:1, upstream_proxy:1, doh_enabled:1, doh_url:1,
                         doh_ip:1, fake_ip_enabled:1, bogus_nxdomain:1 }
             };
@@ -807,12 +808,20 @@ const methods = {
         call: function(req) {
             let dns = uci_get_section('4eburnet', 'dns');
             let enabled = (dns['fake_ip_enabled'] == '1');
-            let ads = file_lines('/etc/4eburnet/geo/geosite-ads.lst');
+            let ads      = file_lines('/etc/4eburnet/geo/geosite-ads.lst');
+            let trackers = file_lines('/etc/4eburnet/geo/geosite-trackers.lst');
+            let threats  = file_lines('/etc/4eburnet/geo/geosite-threats.lst');
+            /* Живые счётчики из демона */
+            let st = is_running() ? ipc_json('stats') : {};
             return {
                 enabled,
-                ads_count: length(ads),
-                geo_file:  '/etc/4eburnet/geo/geosite-ads.lst',
-                has_list:  length(ads) > 0
+                ads_count:      length(ads),
+                trackers_count: length(trackers),
+                threats_count:  length(threats),
+                has_list:       length(ads) > 0,
+                blocked_ads:      st.blocked_ads      ?? 0,
+                blocked_trackers: st.blocked_trackers  ?? 0,
+                blocked_threats:  st.blocked_threats   ?? 0,
             };
         }
     },

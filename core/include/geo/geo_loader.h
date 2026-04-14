@@ -51,6 +51,15 @@ typedef struct ptrie_node {
     bool               terminal;  /* true = здесь есть CIDR запись */
 } ptrie_node_t;
 
+/* ── Тип категории для adblock счётчиков ─────────────────────────────────── */
+
+typedef enum {
+    GEO_CAT_GENERIC  = 0,
+    GEO_CAT_ADS      = 1,  /* geosite-ads.lst */
+    GEO_CAT_TRACKERS = 2,  /* geosite-trackers.lst */
+    GEO_CAT_THREATS  = 3,  /* geosite-threats.lst */
+} geo_cat_type_t;
+
 /* ── Категория (один файл/провайдер) ────────────────────────────────────── */
 
 typedef struct {
@@ -78,6 +87,7 @@ typedef struct {
     ptrie_node_t *trie_v4;  /* Patricia trie для IPv4 (NULL = не построен) */
 
     bool loaded;
+    geo_cat_type_t cat_type; /* adblock категория — определяется по имени файла */
 } geo_category_t;
 
 /* ── Менеджер гео-баз ───────────────────────────────────────────────────── */
@@ -146,5 +156,8 @@ geo_region_t geo_match_ip(const geo_manager_t *gm,
  * Возвращает первый совпавший регион или GEO_REGION_UNKNOWN.
  */
 geo_region_t geo_match_domain(const geo_manager_t *gm, const char *domain);
+
+/* Найти adblock-категорию домена (для stats счётчиков) */
+geo_cat_type_t geo_match_domain_cat(const geo_manager_t *gm, const char *domain);
 
 #endif /* GEO_LOADER_H */
