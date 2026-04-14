@@ -33,8 +33,15 @@ static int fetch_with_ip_cache(const char *url, const char *cache_path,
         char h[256] = {0};
         uint16_t p = 443;
         net_parse_url_host(url, h, sizeof(h), &p);
-        if (h[0])
-            net_resolve_host(h, p, resolved_ip, ip_size, resolved_family);
+        if (h[0]) {
+            /* DEC-031: прямой DNS запрос к bypass — без рекурсии через демон */
+            const char *bypass = "1.1.1.1";
+            extern const char *g_dns_bypass_ip;
+            if (g_dns_bypass_ip && g_dns_bypass_ip[0])
+                bypass = g_dns_bypass_ip;
+            net_resolve_host_direct(h, bypass,
+                                    resolved_ip, ip_size, resolved_family);
+        }
     }
     if (!resolved_ip[0]) {
         log_msg(LOG_WARN, "fetch_with_ip_cache: не удалось резолвить хост из %s",
