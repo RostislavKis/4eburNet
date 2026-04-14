@@ -347,6 +347,119 @@ int net_resolve_host(const char *host, uint16_t port,
     return 0;
 }
 
+/* DEC-031: прямой UDP DNS запрос минуя системный resolver.
+ * Решает рекурсию: демон → getaddrinfo → 127.0.0.1 → демон.
+ * dns_ip — IP DNS сервера (bypass), timeout 3 сек. */
+int net_resolve_host_direct(const char *hostname, const char *dns_ip,
+                            char *out_ip, size_t out_size, int *out_family)
+{
+    if (!hostname || !hostname[0] || !dns_ip || !dns_ip[0])
+        return -1;
+
+    /* Fast path: уже IP */
+    struct in_addr a4;
+    if (inet_pton(AF_INET, hostname, &a4) == 1) {
+        snprintf(out_ip, out_size, "%s", hostname);
+        if (out_family) *out_family = AF_INET;
+        return 0;
+    }
+
+    /* Построить DNS A-запрос */
+    uint8_t pkt[512];
+    size_t pos = 0;
+
+    /* Header: ID=0xABCD, RD=1, QDCOUNT=1 */
+    pkt[pos++] = 0xAB; pkt[pos++] = 0xCD;  /* ID */
+    pkt[pos++] = 0x01; pkt[pos++] = 0x00;  /* Flags: RD=1 */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x01;  /* QDCOUNT=1 */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x00;  /* ANCOUNT=0 */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x00;  /* NSCOUNT=0 */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x00;  /* ARCOUNT=0 */
+
+    /* QNAME: label-encoded hostname */
+    const char *p = hostname;
+    while (*p) {
+        const char *dot = strchr(p, '.');
+        size_t llen = dot ? (size_t)(dot - p) : strlen(p);
+        if (llen > 63 || pos + llen + 2 > sizeof(pkt) - 4) return -1;
+        pkt[pos++] = (uint8_t)llen;
+        memcpy(pkt + pos, p, llen);
+        pos += llen;
+        p = dot ? dot + 1 : p + llen;
+    }
+    pkt[pos++] = 0x00;  /* root label */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x01;  /* QTYPE=A */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x01;  /* QCLASS=IN */
+
+    /* UDP socket → dns_ip:53 */
+    int fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd < 0) return -1;
+
+    struct timeval tv = { .tv_sec = 3, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in sa = {
+        .sin_family = AF_INET,
+        .sin_port   = htons(53),
+    };
+    if (inet_pton(AF_INET, dns_ip, &sa.sin_addr) != 1) {
+        close(fd); return -1;
+    }
+
+    if (sendto(fd, pkt, pos, 0, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+        close(fd); return -1;
+    }
+
+    uint8_t resp[512];
+    ssize_t rn = recv(fd, resp, sizeof(resp), 0);
+    close(fd);
+
+    if (rn < 12) return -1;
+
+    /* Проверить RCODE=0 и ANCOUNT >= 1 */
+    uint8_t rcode = resp[3] & 0x0F;
+    uint16_t ancount = ((uint16_t)resp[6] << 8) | resp[7];
+    if (rcode != 0 || ancount == 0) return -1;
+
+    /* Пропустить Question section */
+    size_t rpos = 12;
+    while (rpos < (size_t)rn && resp[rpos] != 0) {
+        if (resp[rpos] >= 0xC0) { rpos += 2; break; }  /* pointer */
+        rpos += 1 + resp[rpos];  /* label */
+    }
+    if (resp[rpos] == 0) rpos++;  /* null label */
+    rpos += 4;  /* QTYPE + QCLASS */
+
+    /* Парсить Answer: найти первый A record (TYPE=1, CLASS=1) */
+    for (uint16_t ai = 0; ai < ancount && rpos + 10 < (size_t)rn; ai++) {
+        /* Name: может быть pointer (0xC0xx) или label */
+        if (rpos < (size_t)rn && resp[rpos] >= 0xC0)
+            rpos += 2;
+        else {
+            while (rpos < (size_t)rn && resp[rpos] != 0)
+                rpos += 1 + resp[rpos];
+            rpos++;  /* null label */
+        }
+        if (rpos + 10 > (size_t)rn) break;
+        uint16_t rtype  = ((uint16_t)resp[rpos] << 8) | resp[rpos+1];
+        uint16_t rdlen  = ((uint16_t)resp[rpos+8] << 8) | resp[rpos+9];
+        rpos += 10;  /* skip TYPE(2)+CLASS(2)+TTL(4)+RDLENGTH(2) */
+
+        if (rtype == 1 && rdlen == 4 && rpos + 4 <= (size_t)rn) {
+            /* A record → 4 bytes IPv4 */
+            snprintf(out_ip, out_size, "%u.%u.%u.%u",
+                     resp[rpos], resp[rpos+1], resp[rpos+2], resp[rpos+3]);
+            if (out_family) *out_family = AF_INET;
+            log_msg(LOG_DEBUG, "net_resolve_direct: %s → %s (via %s)",
+                    hostname, out_ip, dns_ip);
+            return 0;
+        }
+        rpos += rdlen;
+    }
+
+    return -1;  /* нет A record */
+}
+
 /*
  * Общий TLS GET + сохранение в файл.
  * fd: уже подключённый сокет (передаётся в tls_connect, затем close).
@@ -525,11 +638,27 @@ int net_http_fetch(const char *url, const char *dest_path)
 static void child_do_fetch(const char *url, const char *dest_path,
                            int pipe_wr)
 {
-    int rc = net_http_fetch(url, dest_path);
+    /* DEC-031: uclient-fetch вместо собственного TLS — совместимость с
+     * провайдерами (accessbyme.com, arza.top) чьи серверы требуют
+     * full TLS chain validation не реализованную в wolfSSL static build */
+    const char *argv[] = {
+        "uclient-fetch", "-q", "-T", "15", "-O", dest_path, url, NULL
+    };
+    pid_t pid = fork();
+    if (pid == 0) {
+        execvp("uclient-fetch", (char *const *)argv);
+        _exit(127);
+    }
+    int rc = -1;
+    if (pid > 0) {
+        int status;
+        waitpid(pid, &status, 0);
+        rc = WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+    }
     const char *msg = (rc == 0) ? "OK\n" : "ERR\n";
     write(pipe_wr, msg, strlen(msg));
     close(pipe_wr);
-    _exit(0);  /* _exit: не flush stdio, не run atexit */
+    _exit(0);
 }
 
 int net_spawn_fetch(const char *url, const char *dest_path)
