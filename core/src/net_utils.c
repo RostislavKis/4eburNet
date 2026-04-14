@@ -7,6 +7,11 @@
 
 #include "net_utils.h"
 #include "constants.h"
+#if CONFIG_EBURNET_AWG
+#include <time.h>
+#include "proxy/protocols/awg.h"
+#include "config.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -704,3 +709,74 @@ int net_spawn_udp_ping(const char *ip, uint16_t port, int timeout_ms)
     fcntl(fds[0], F_SETFL, O_NONBLOCK);
     return fds[0];
 }
+
+#if CONFIG_EBURNET_AWG
+/* BL-08: AWG Noise handshake health check — проверяет реальный протокол */
+static void child_do_awg_handshake(const void *server_cfg,
+                                    int tai_utc_offset,
+                                    int timeout_ms, int pipe_wr)
+{
+    awg_state_t awg;
+    if (awg_init(&awg, server_cfg, tai_utc_offset) < 0) {
+        write(pipe_wr, "ERR\n", 4); _exit(0);
+    }
+
+    const ServerConfig *srv = server_cfg;
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+
+    if (awg_handshake_start(&awg, srv->address, srv->port) < 0) {
+        awg_close(&awg);
+        write(pipe_wr, "ERR\n", 4); _exit(0);
+    }
+
+    /* poll для Noise handshake response */
+    struct pollfd pfd = { .fd = awg.udp_fd, .events = POLLIN };
+    int pr = poll(&pfd, 1, timeout_ms);
+    if (pr <= 0) {
+        awg_close(&awg);
+        write(pipe_wr, "ERR\n", 4); _exit(0);
+    }
+
+    int rc = awg_process_incoming(&awg);
+    struct timespec t2;
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    int64_t ms = (int64_t)(t2.tv_sec - t1.tv_sec) * 1000
+               + (int64_t)(t2.tv_nsec - t1.tv_nsec) / 1000000;
+
+    awg_close(&awg);
+
+    if (rc == 1) {
+        char buf[32];
+        int n = snprintf(buf, sizeof(buf), "OK %lld\n", (long long)ms);
+        if (n > 0) write(pipe_wr, buf, (size_t)n);
+    } else {
+        write(pipe_wr, "ERR\n", 4);
+    }
+    _exit(0);
+}
+
+int net_spawn_awg_check(const void *server_cfg,
+                        int tai_utc_offset, int timeout_ms)
+{
+    if (!server_cfg) return -1;
+
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) < 0) return -1;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]); close(fds[1]); return -1;
+    }
+    if (pid == 0) {
+        close(fds[0]);
+        fcntl(fds[1], F_SETFD, 0);
+        child_do_awg_handshake(server_cfg, tai_utc_offset,
+                               timeout_ms, fds[1]);
+        _exit(1);
+    }
+    close(fds[1]);
+    fcntl(fds[0], F_SETFL, O_NONBLOCK);
+    return fds[0];
+}
+#endif /* CONFIG_EBURNET_AWG */
