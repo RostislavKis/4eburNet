@@ -235,15 +235,30 @@ return view.extend({
             ])
         ]);
 
-        /* Заполнить stat cards начальными данными */
+        /* Заполнить stat cards — оба набора ID (overview.js + app.js dashboard) */
+        function fillStats(st, gr) {
+            setTxt('stat-conns',  String(st.connections_active || 0));
+            setTxt('stat-conns-s', _('Всего: ') + (st.connections_total || 0));
+            setTxt('stat-dns',    String(st.dns_queries || 0));
+            setTxt('stat-dns-s',  _('Кэш: ') + (st.dns_cached || 0));
+            setTxt('stat-groups', String((gr.groups || []).length || '—'));
+            /* app.js HTM elements (s-* prefix) */
+            setTxt('s-conns',       String(st.connections_active || 0));
+            setTxt('s-conns-total', _('из ') + (st.connections_total || 0));
+            setTxt('s-dns',         String(st.dns_queries || 0));
+            setTxt('s-dns-cache',   _('кэш: ') + (st.dns_cached || 0));
+            setTxt('s-groups',      String((gr.groups || []).length || '—'));
+            setTxt('s-blocked-ads',      String(st.blocked_ads || 0));
+            setTxt('s-blocked-trackers', String(st.blocked_trackers || 0));
+            setTxt('s-blocked-threats',  String(st.blocked_threats || 0));
+        }
         setTxt('stat-status', status.running ? _('Активен') : _('Остановлен'));
         setTxt('stat-uptime', status.running ? fmtUptime(status.uptime) : '');
         setTxt('stat-mode',   status.mode || '—');
-        setTxt('stat-conns',  String(stats.connections_active || 0));
-        setTxt('stat-conns-s', _('Всего: ') + (stats.connections_total || 0));
-        setTxt('stat-dns',    String(stats.dns_queries || 0));
-        setTxt('stat-dns-s',  _('Кэш: ') + (stats.dns_cached || 0));
-        setTxt('stat-groups', String((groups.groups || []).length || '—'));
+        setTxt('s-status',    status.running ? _('Активен') : _('Стоп'));
+        setTxt('s-uptime',    _('Аптайм: ') + fmtUptime(status.uptime));
+        setTxt('s-mode',      status.mode || '—');
+        fillStats(stats, groups);
 
         /* Polling через setInterval с cleanup при уходе со страницы.
            clearInterval вызывается в handleReset — LuCI дёргает его при
@@ -263,6 +278,13 @@ return view.extend({
                 setTxt('hero-uptime', d.running ? 'Аптайм: ' + fmtUptime(d.uptime) : '—');
                 setTxt('stat-status', d.running ? _('Активен') : _('Остановлен'));
                 setTxt('stat-uptime', d.running ? fmtUptime(d.uptime) : '');
+                setTxt('s-status', d.running ? _('Активен') : _('Стоп'));
+                setTxt('s-uptime', _('Аптайм: ') + fmtUptime(d.uptime));
+                setTxt('s-mode',   d.mode || '—');
+                /* Stats polling */
+                callStats().then(function(st) {
+                    if (st) fillStats(st, groups);
+                }).catch(function() {});
             }).catch(function() { /* status poll — не критично */ });
         }, 3000);
 
