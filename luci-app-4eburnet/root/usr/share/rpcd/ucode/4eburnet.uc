@@ -296,23 +296,10 @@ const methods = {
 
     tproxy_status: {
         call: function(req) {
-            // Проверяем mark-based routing через /proc (без fork/popen)
-            // /proc/net/fib_rules содержит ip rule list
-            let routing_ok = false;
-            let table_ok = false;
-            let lines = file_lines('/proc/net/fib_rules');
-            for (let i = 0; i < length(lines); i++) {
-                /* P4-06: точное совпадение fwmark 0x1 (не 0x10/0x1f) */
-                if (match(lines[i], /mark:\s+0x0*1(\s|\/|$)/)) {
-                    routing_ok = true;
-                    break;
-                }
-            }
-            // /proc/net/rt_local: локальный маршрут table=255 (local table)
-            // таблица 100 через /proc/net/rt_cache или проверяем файл маршрутов
-            // упрощённо: если routing_ok=true, значит table 100 настроена демоном
-            table_ok = routing_ok;
-            return { available: true, routing_ok: routing_ok, table_ok: table_ok };
+            /* P4: ip rule show вместо /proc/net/fib_rules (не существует на 6.6) */
+            let out = shell_all('ip rule show 2>/dev/null');
+            let routing_ok = !!(out && match(out, /fwmark\s+0x0*1\b/));
+            return { available: true, routing_ok, table_ok: routing_ok };
         }
     },
 

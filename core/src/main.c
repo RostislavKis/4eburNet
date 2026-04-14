@@ -252,9 +252,11 @@ static int handle_client_command(const char *cmd)
         return 1;
     }
 
-    char *buf = malloc(4096);
+    /* P4: IPC client buffer — достаточно для groups JSON (122 серверов) */
+    size_t bufsz = 65536;
+    char *buf = malloc(bufsz);
     if (!buf) { fprintf(stderr, "{\"error\":\"OOM\"}\n"); return 1; }
-    if (ipc_send_command(ipc_cmd, buf, 4096) < 0) {
+    if (ipc_send_command(ipc_cmd, buf, bufsz) < 0) {
         free(buf);
         fprintf(stderr, "{\"error\":\"ipc failed\"}\n");
         return 1;

@@ -447,9 +447,11 @@ int proxy_group_to_json(const proxy_group_manager_t *pgm,
         if (g > 0) JS(",");
         char esc_name[128];
         json_escape_str(gs->name, esc_name, sizeof(esc_name));
-        JS("{\"name\":\"%s\",\"type\":%d,\"selected\":%d,\"servers\":[",
-            esc_name, gs->type, gs->selected_idx);
-        for (int i = 0; i < gs->server_count && (size_t)pos < buflen - 1; i++) {
+        /* P4: ограничить серверы в JSON (IPC 64KB лимит при 122+ серверах) */
+        int json_max_srv = gs->server_count < 16 ? gs->server_count : 16;
+        JS("{\"name\":\"%s\",\"type\":%d,\"selected\":%d,\"total_servers\":%d,\"servers\":[",
+            esc_name, gs->type, gs->selected_idx, gs->server_count);
+        for (int i = 0; i < json_max_srv && (size_t)pos < buflen - 1; i++) {
             if (i > 0) JS(",");
             const ServerConfig *sc = config_get_server(pgm->cfg,
                                          gs->servers[i].server_idx);
