@@ -130,6 +130,71 @@ def fetch_geosite_ads(out_path: str) -> int:
     return len(domains)
 
 
+# ── GeoSite Trackers (EasyPrivacy) ─────────────────────────────────────
+
+def fetch_geosite_trackers(out_path: str) -> int:
+    """Скачать список трекеров/аналитики из EasyPrivacy (firebog)."""
+    url = 'https://v.firebog.net/hosts/Easyprivacy.txt'
+    print(f'  Скачиваю geosite-trackers из EasyPrivacy...', end=' ', flush=True)
+
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': '4eburNet/1.0'})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read().decode('utf-8', errors='replace')
+    except (URLError, OSError) as e:
+        print(f'ОШИБКА: {e}')
+        return -1
+
+    domains = []
+    for line in data.splitlines():
+        line = line.strip()
+        if line and not line.startswith('#') and '.' in line:
+            domains.append(line.lower())
+
+    domains = sorted(set(domains))
+    with open(out_path, 'w') as f:
+        f.write('\n'.join(domains) + '\n')
+
+    print(f'{len(domains)} доменов')
+    return len(domains)
+
+
+# ── GeoSite Threats (URLhaus hostnames) ────────────────────────────────
+
+def fetch_geosite_threats(out_path: str) -> int:
+    """Скачать список malware/phishing хостов из URLhaus."""
+    url = 'https://urlhaus.abuse.ch/downloads/text_online/'
+    print(f'  Скачиваю geosite-threats из URLhaus...', end=' ', flush=True)
+
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': '4eburNet/1.0'})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read().decode('utf-8', errors='replace')
+    except (URLError, OSError) as e:
+        print(f'ОШИБКА: {e}')
+        return -1
+
+    from urllib.parse import urlparse
+    domains = set()
+    for line in data.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        try:
+            host = urlparse(line).hostname
+            if host and '.' in host:
+                domains.add(host.lower())
+        except Exception:
+            pass
+
+    domains = sorted(domains)
+    with open(out_path, 'w') as f:
+        f.write('\n'.join(domains) + '\n')
+
+    print(f'{len(domains)} доменов')
+    return len(domains)
+
+
 # ── Rule-sets из YAML ─────────────────────────────────────────────────
 
 def convert_yaml_rulesets(filter_dir: str) -> int:
@@ -265,6 +330,16 @@ def main():
     n = fetch_geosite_ads(os.path.join(geo_dir, 'geosite-ads.lst'))
     if n < 0:
         print('  [FAIL] geosite-ads.lst')
+
+    # GeoSite Trackers
+    n = fetch_geosite_trackers(os.path.join(geo_dir, 'geosite-trackers.lst'))
+    if n < 0:
+        print('  [FAIL] geosite-trackers.lst')
+
+    # GeoSite Threats
+    n = fetch_geosite_threats(os.path.join(geo_dir, 'geosite-threats.lst'))
+    if n < 0:
+        print('  [FAIL] geosite-threats.lst')
 
     print()
 
