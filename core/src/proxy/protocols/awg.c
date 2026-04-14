@@ -216,6 +216,8 @@ int awg_init(awg_state_t *awg, const void *server_config,
         awg->cfg.i[ii] = srv->awg_i[ii];
 
     awg->cfg.keepalive = srv->awg_keepalive;
+    awg->cfg.j1    = srv->awg_j1;    /* P1: junk template, NULL = random */
+    awg->cfg.itime = srv->awg_itime; /* P1: init resend timeout, 0 = 5с */
     awg->cfg.tai_utc_offset = tai_utc_offset;
 
     /* Noise init */
@@ -331,7 +333,16 @@ int awg_handshake_start(awg_state_t *awg,
                 : awg->cfg.jmin;
             if (jlen > 0) {
                 if (jlen > AWG_JUNK_MAX_SIZE) jlen = AWG_JUNK_MAX_SIZE;
-                random_fill(junk, jlen);
+                /* P1: j1 template вместо random если задан */
+                if (awg->cfg.j1 && awg->cfg.j1[0]) {
+                    uint8_t tpl[64]; size_t tlen = sizeof(tpl);
+                    awg_cps_build(awg->cfg.j1, tpl, &tlen);
+                    /* Заполнить junk шаблоном с повтором */
+                    for (uint16_t off = 0; off < jlen; off++)
+                        junk[off] = tlen > 0 ? tpl[off % tlen] : 0;
+                } else {
+                    random_fill(junk, jlen);
+                }
                 send(awg->udp_fd, junk, jlen, 0);
             }
         }
@@ -457,8 +468,9 @@ ssize_t awg_recv(awg_state_t *awg, uint8_t *buf, size_t buflen)
 void awg_tick(awg_state_t *awg)
 {
     if (!awg->handshake_done) {
-        /* Ретрай handshake каждые 5 сек */
-        if (time(NULL) - awg->last_handshake > 5) {
+        /* P1: itime из конфига или дефолтный 5 сек */
+        int retry_sec = awg->cfg.itime > 0 ? awg->cfg.itime : 5;
+        if (time(NULL) - awg->last_handshake > retry_sec) {
             log_msg(LOG_DEBUG, "AWG: handshake ретрай");
             /* Переинициализировать noise для нового handshake */
             noise_init(&awg->noise,
