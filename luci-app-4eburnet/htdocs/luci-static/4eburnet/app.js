@@ -94,6 +94,10 @@ async function ebPollStatus() {
     set('s-conns-total', 'из ' + String(st.connections_total || 0));
     set('s-dns',         String(st.dns_queries || 0));
     set('s-dns-cache',   'кэш: ' + String(st.dns_cached || 0));
+    /* A6: adblock счётчики */
+    set('s-blocked-ads',      String(st.blocked_ads      || 0));
+    set('s-blocked-trackers', String(st.blocked_trackers  || 0));
+    set('s-blocked-threats',  String(st.blocked_threats   || 0));
   }
 
   /* J8: живой count групп */

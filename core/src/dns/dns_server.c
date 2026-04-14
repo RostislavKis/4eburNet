@@ -9,6 +9,7 @@
 #include "dns/dns_rules.h"
 #include "dns/dns_upstream.h"
 #include "stats.h"
+#include "geo/geo_loader.h"
 #include "dns/dns_resolver.h"
 #include "net_utils.h"
 #include "4eburnet.h"
@@ -512,6 +513,16 @@ skip_rate:;
 
     /* BLOCK — мгновенный NXDOMAIN, без upstream */
     if (action == DNS_ACTION_BLOCK) {
+        /* A3: инкремент adblock счётчика по категории */
+        geo_cat_type_t bcat = ds->geo_manager
+            ? geo_match_domain_cat(ds->geo_manager, q.qname)
+            : GEO_CAT_GENERIC;
+        switch (bcat) {
+        case GEO_CAT_ADS:      stats_blocked_ads();      break;
+        case GEO_CAT_TRACKERS: stats_blocked_trackers();  break;
+        case GEO_CAT_THREATS:  stats_blocked_threats();   break;
+        default:               stats_blocked_ads();       break;
+        }
         uint8_t *reply = malloc(DNS_MAX_PACKET);
         if (!reply) goto out;
         int nx_len = dns_build_nxdomain(&q, reply, DNS_MAX_PACKET);
@@ -519,7 +530,8 @@ skip_rate:;
             if (sendto(ds->udp_fd, reply, nx_len, 0,
                        (struct sockaddr *)&client_addr, client_len) < 0)
                 log_msg(LOG_DEBUG, "DNS: sendto: %s", strerror(errno));
-            log_msg(LOG_DEBUG, "DNS: %s -> NXDOMAIN (blocked)", q.qname);
+            log_msg(LOG_DEBUG, "DNS: %s -> NXDOMAIN (blocked, cat=%d)",
+                    q.qname, bcat);
         }
         free(reply);
         goto out;
@@ -901,6 +913,16 @@ static void tcp_client_dispatch(dns_server_t *ds, dns_tcp_client_t *tc)
     dns_action_t action = dns_rules_match(q.qname);
 
     if (action == DNS_ACTION_BLOCK) {
+        /* A3: adblock счётчик (TCP path) */
+        geo_cat_type_t bcat = ds->geo_manager
+            ? geo_match_domain_cat(ds->geo_manager, q.qname)
+            : GEO_CAT_GENERIC;
+        switch (bcat) {
+        case GEO_CAT_ADS:      stats_blocked_ads();      break;
+        case GEO_CAT_TRACKERS: stats_blocked_trackers();  break;
+        case GEO_CAT_THREATS:  stats_blocked_threats();   break;
+        default:               stats_blocked_ads();       break;
+        }
         uint8_t *resp = malloc(DNS_MAX_PACKET);
         if (!resp) { tcp_client_close(ds, tc); return; }
         int nx_len = dns_build_nxdomain(&q, resp, DNS_MAX_PACKET);
