@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 
 import * as fs     from 'fs';
@@ -83,14 +82,19 @@ function uci_set(config, section, option, value) {
     return true;
 }
 
-// Проверить жив ли демон
+// Проверить жив ли демон (P3: без system() — не блокировать rpcd)
 function is_running() {
     let f = fs.open('/var/run/4eburnet.pid', 'r');
     if (!f) return false;
     let ipid = int(f.read('line'));
     f.close();
     if (!ipid || ipid <= 0) return false;
-    return system('kill -0 ' + ipid + ' 2>/dev/null') == 0;
+    /* Проверить /proc/PID/comm вместо system(kill) */
+    let cf = fs.open('/proc/' + ipid + '/comm', 'r');
+    if (!cf) return false;
+    let comm = trim(cf.read('line') ?? '');
+    cf.close();
+    return comm == '4eburnetd';
 }
 
 // Определить пакетный менеджер
@@ -121,20 +125,24 @@ const IPC_CMDS = {
 };
 
 /* P6-03: таймаут IPC вызова (секунды) */
-const IPC_TIMEOUT_SEC = 5;
+const IPC_TIMEOUT_SEC = 2;  /* P3: уменьшено с 5с — rpcd worker блокируется на это время */
 
 // Вызвать 4eburnetd --ipc <cmd> [payload] через CLI
 // Возвращает распарсённый JSON объект или { error: '...' }
 function ipc_json(cmd_name, payload) {
     if (!IPC_CMDS[cmd_name]) return { error: 'unknown command: ' + cmd_name };
+    /* P3: быстрый выход если демон не запущен — не блокировать rpcd */
+    if (!is_running()) return { error: 'daemon not running' };
 
-    let cmdline = 'timeout ' + IPC_TIMEOUT_SEC + ' ' + EBURNETD + ' --ipc ' + cmd_name;
+    /* P3: timeout команда может отсутствовать на OpenWrt — полагаемся
+     * на SO_RCVTIMEO в демоне (500ms) + IPC header timeout */
+    let cmdline = EBURNETD + ' --ipc ' + cmd_name;
     let tmp = null;
 
     if (payload) {
         // Payload через tmp файл + stdin redirect (нет shell injection)
         /* I-03: расширенная entropy — time XOR random для уникальности */
-        let rnd = (math.floor(math.random() * 0xFFFFFF) ^ (time() & 0xFFFF)) >>> 0;
+        let rnd = (math.floor(math.random() * 0xFFFFFF) ^ (time() & 0xFFFF)) & 0xFFFFFF;
         tmp = '/tmp/.4eburnet-ipc-' + time() + '-' + rnd + '.json';
         /* P3-01: создать файл с правами 0600 до записи (без TOCTOU окна) */
         system('install -m 0600 /dev/null "' + tmp + '"');
@@ -808,17 +816,18 @@ const methods = {
         call: function(req) {
             let dns = uci_get_section('4eburnet', 'dns');
             let enabled = (dns['fake_ip_enabled'] == '1');
-            let ads      = file_lines('/etc/4eburnet/geo/geosite-ads.lst');
-            let trackers = file_lines('/etc/4eburnet/geo/geosite-trackers.lst');
-            let threats  = file_lines('/etc/4eburnet/geo/geosite-threats.lst');
+            /* P3: count_lines вместо file_lines — не грузить 800K строк в rpcd */
+            let ads_n      = count_lines('/etc/4eburnet/geo/geosite-ads.lst');
+            let trackers_n = count_lines('/etc/4eburnet/geo/geosite-trackers.lst');
+            let threats_n  = count_lines('/etc/4eburnet/geo/geosite-threats.lst');
             /* Живые счётчики из демона */
             let st = is_running() ? ipc_json('stats') : {};
             return {
                 enabled,
-                ads_count:      length(ads),
-                trackers_count: length(trackers),
-                threats_count:  length(threats),
-                has_list:       length(ads) > 0,
+                ads_count:      ads_n,
+                trackers_count: trackers_n,
+                threats_count:  threats_n,
+                has_list:       ads_n > 0,
                 blocked_ads:      st.blocked_ads      ?? 0,
                 blocked_trackers: st.blocked_trackers  ?? 0,
                 blocked_threats:  st.blocked_threats   ?? 0,
