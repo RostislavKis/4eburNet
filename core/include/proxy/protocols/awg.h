@@ -26,8 +26,12 @@ typedef struct {
     uint16_t jmin, jmax;
     /* CPS init packets (hex строки, до ~4KB каждый) */
     char    *i[5];  /* NULL если не задано. НЕ владеет памятью — указатель на ServerConfig.awg_i[] */
+    /* Junk template (P1: если задан — использовать вместо random) */
+    const char *j1;  /* hex blob строка, NULL = random_fill */
     /* Keepalive */
     uint16_t keepalive;
+    /* Init resend timeout (P1: 0 = дефолтный 5с) */
+    uint16_t itime;
     /* TAI-UTC offset для Noise handshake (L-03) */
     int      tai_utc_offset;
 } awg_config_t;

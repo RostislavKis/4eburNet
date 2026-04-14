@@ -27,6 +27,8 @@ typedef struct {
     uint16_t awg_mtu;              /* AWG MTU, default 1280 */
     char     awg_dns[64];          /* AWG DNS сервер */
     char     awg_reserved[64];     /* AWG reserved bytes (base64) */
+    char    *awg_j1;              /* junk template hex blob — strdup, NULL если нет */
+    uint16_t awg_itime;           /* init resend timeout сек, 0 = дефолтный (5с) */
     char     xhttp_path[128];      /* HTTP путь для XHTTP, default "/" */
     char     xhttp_host[128];      /* Host заголовок для XHTTP */
     /* Reality параметры (DEC-025) */
@@ -204,6 +206,7 @@ typedef enum {
     RULE_TYPE_MATCH          = 5,
     RULE_TYPE_GEOIP          = 6,   /* GEOIP,RU,DIRECT */
     RULE_TYPE_GEOSITE        = 7,   /* GEOSITE,ru,proxy */
+    RULE_TYPE_DST_PORT       = 8,   /* DST-PORT,443,DIRECT */
 } rule_type_t;
 
 typedef struct {
@@ -230,7 +233,6 @@ typedef struct EburNetConfig {
     int            dns_policy_count;
     int            tai_utc_offset;      /* TAI-UTC в секундах, default 37 */
     char           lan_interface[32];   /* "br-lan" — для netdev hook */
-    char           tun_iface[16];       /* UCI: main.tun_interface, default TUN_IFACE_DEFAULT */
     device_config_t      *devices;
     int                   device_count;
     ProxyGroupConfig     *proxy_groups;
