@@ -608,11 +608,8 @@ int main(int argc, char *argv[])
     } else {
         dispatcher_set_context(&dispatcher_state, cfg_ptr);
 
-        /* Proxy groups + rule/proxy providers + rules engine */
-        if (proxy_group_init(&pgm_state, cfg_ptr) < 0) {
-            log_msg(LOG_ERROR, "proxy_group: инициализация провалилась");
-            goto cleanup;
-        }
+        /* P2: providers ДО groups — серверы должны быть загружены
+         * к моменту proxy_group_init (groups итерирует provider_servers) */
         if (rule_provider_init(&rpm_state, cfg_ptr) < 0) {
             log_msg(LOG_ERROR, "rule_provider: инициализация провалилась");
             goto cleanup;
@@ -627,6 +624,11 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
         proxy_provider_load_all(&ppm_state);
+        /* Groups после providers — видят provider_servers */
+        if (proxy_group_init(&pgm_state, cfg_ptr) < 0) {
+            log_msg(LOG_ERROR, "proxy_group: инициализация провалилась");
+            goto cleanup;
+        }
         if (geo_manager_init(&geo_state, cfg_ptr) == 0) {
             geo_load_region_categories(&geo_state, cfg_ptr);
             /* B5-01: предупредить при пустых geo-данных в режиме rules */
@@ -915,14 +917,15 @@ int main(int argc, char *argv[])
                 }
                 rules_engine_free(&re_state);
                 geo_manager_free(&geo_state);
+                proxy_group_free(&pgm_state);
                 proxy_provider_free(&ppm_state);
                 rule_provider_free(&rpm_state);
-                proxy_group_free(&pgm_state);
-                proxy_group_init(&pgm_state, cfg_ptr);
+                /* P2: providers ДО groups при reload */
                 rule_provider_init(&rpm_state, cfg_ptr);
                 rule_provider_load_all(&rpm_state);
                 proxy_provider_init(&ppm_state, cfg_ptr);
                 proxy_provider_load_all(&ppm_state);
+                proxy_group_init(&pgm_state, cfg_ptr);
                 if (geo_manager_init(&geo_state, cfg_ptr) == 0)
                     geo_load_region_categories(&geo_state, cfg_ptr);
                 rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
