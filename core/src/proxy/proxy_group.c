@@ -339,12 +339,19 @@ void proxy_group_tick(proxy_group_manager_t *pgm)
         int idx = gs->servers[i].server_idx;
         const ServerConfig *srv = config_get_server(pgm->cfg, idx);
         if (srv) {
-            /* UDP-протоколы (AWG, Hysteria2) — UDP probe вместо TCP */
-            bool udp_proto = (strcmp(srv->protocol, "awg") == 0 ||
-                              strcmp(srv->protocol, "hysteria2") == 0);
-            int pfd = udp_proto
-                ? net_spawn_udp_ping(srv->address, srv->port, gs->timeout_ms)
-                : net_spawn_tcp_ping(srv->address, srv->port, gs->timeout_ms);
+            int pfd;
+#if CONFIG_EBURNET_AWG
+            if (strcmp(srv->protocol, "awg") == 0)
+                pfd = net_spawn_awg_check(srv, pgm->cfg->tai_utc_offset,
+                                          gs->timeout_ms);
+            else
+#endif
+            if (strcmp(srv->protocol, "hysteria2") == 0)
+                pfd = net_spawn_udp_ping(srv->address, srv->port,
+                                         gs->timeout_ms);
+            else
+                pfd = net_spawn_tcp_ping(srv->address, srv->port,
+                                         gs->timeout_ms);
             if (pfd >= 0) {
                 gs->hc_pipe_fd    = pfd;
                 gs->hc_server_idx = i;
