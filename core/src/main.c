@@ -582,11 +582,7 @@ int main(int argc, char *argv[])
      * B3-01: при холодной загрузке WAN может не быть —
      * hotplug (40-4eburnet) восстановит ip rules при ifup */
     policy_check_conflicts();
-    if (strcmp(cfg_ptr->mode, "tun") == 0) {
-        if (policy_init_tun(cfg_ptr->tun_iface) != POLICY_OK)
-            log_msg(LOG_WARN, "policy: tun routing не применён — "
-                "hotplug восстановит при поднятии WAN");
-    } else if (strcmp(cfg_ptr->mode, "direct") == 0) {
+    if (strcmp(cfg_ptr->mode, "direct") == 0) {
         /* в direct режиме правила маршрутизации не нужны */
     } else {
         /* rules и global используют TPROXY */
@@ -643,6 +639,8 @@ int main(int argc, char *argv[])
         }
         dispatcher_set_rules_engine(&re_state);
         ipc_set_3x_context(&pgm_state, &rpm_state, &re_state, &geo_state);
+        /* A3: geo_manager для adblock категоризации в DNS */
+        dns_state.geo_manager = &geo_state;
     }
 
     /* Установка обработчиков сигналов (M-10: SA_RESTART) */

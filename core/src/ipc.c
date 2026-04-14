@@ -288,11 +288,17 @@ void ipc_process(int server_fd, EburNetState *state)
                  "{\"connections_total\":%llu"
                  ",\"connections_active\":%llu"
                  ",\"dns_queries\":%llu"
-                 ",\"dns_cached\":%llu}",
+                 ",\"dns_cached\":%llu"
+                 ",\"blocked_ads\":%llu"
+                 ",\"blocked_trackers\":%llu"
+                 ",\"blocked_threats\":%llu}",
                  (unsigned long long)atomic_load(&g_stats.connections_total),
                  (unsigned long long)atomic_load(&g_stats.connections_active),
                  (unsigned long long)atomic_load(&g_stats.dns_queries_total),
-                 (unsigned long long)atomic_load(&g_stats.dns_cached_total));
+                 (unsigned long long)atomic_load(&g_stats.dns_cached_total),
+                 (unsigned long long)atomic_load(&g_stats.blocked_ads),
+                 (unsigned long long)atomic_load(&g_stats.blocked_trackers),
+                 (unsigned long long)atomic_load(&g_stats.blocked_threats));
         ipc_respond(client_fd, buf);
         break;
 
