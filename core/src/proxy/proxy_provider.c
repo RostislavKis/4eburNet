@@ -378,30 +378,21 @@ int proxy_provider_max_servers(DeviceProfile profile, int configured_max)
 }
 
 /* Разрешить хост из URL → IP кэш, затем скачать без getaddrinfo */
+/* P2: sync fetch удалён — system(uclient-fetch) создавал deadlock
+ * (блокировал event loop → DNS recursion через :53 → таймаут).
+ * Все fetch через async path (net_spawn_fetch в tick). */
 static int fetch_with_ip_cache(const char *url, const char *cache_path,
                                 char *resolved_ip, size_t ip_size,
                                 int *resolved_family)
 {
-    if (!resolved_ip[0]) {
-        char h[256] = {0};
-        uint16_t p = 443;
-        net_parse_url_host(url, h, sizeof(h), &p);
-        if (h[0]) {
-            /* DEC-031: прямой DNS запрос к bypass — без рекурсии через демон */
-            const char *bypass = "1.1.1.1";  /* fallback */
-            extern const char *g_dns_bypass_ip;
-            if (g_dns_bypass_ip && g_dns_bypass_ip[0])
-                bypass = g_dns_bypass_ip;
-            net_resolve_host_direct(h, bypass,
-                                    resolved_ip, ip_size, resolved_family);
-        }
-    }
-    if (!resolved_ip[0]) {
-        log_msg(LOG_WARN, "fetch_with_ip_cache: не удалось резолвить хост из %s",
-                url);
-        return -1;
-    }
-    return net_http_fetch_ip(url, resolved_ip, *resolved_family, cache_path);
+    (void)url; (void)resolved_ip; (void)ip_size; (void)resolved_family;
+    /* Не скачиваем — только проверяем кэш-файл.
+     * Реальный fetch через async (net_spawn_fetch в proxy_provider_tick).
+     * BL-03 retry timer обеспечит загрузку через 60с после старта. */
+    struct stat st;
+    if (stat(cache_path, &st) == 0 && st.st_size > 0)
+        return 0;  /* кэш существует — парсить его */
+    return -1;  /* нет кэша — ждём async fetch */
 }
 
 int proxy_provider_init(proxy_provider_manager_t *ppm, EburNetConfig *cfg)
