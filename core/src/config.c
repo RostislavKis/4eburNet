@@ -138,10 +138,6 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         int _n = snprintf(cfg->lan_interface, sizeof(cfg->lan_interface), "%s", value);
         if (_n < 0 || (size_t)_n >= sizeof(cfg->lan_interface))
             log_msg(LOG_WARN, "config: обрезано: lan_interface");
-    } else if (strcmp(key, "tun_interface") == 0) {
-        int _n = snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", value);
-        if (_n < 0 || (size_t)_n >= sizeof(cfg->tun_iface))
-            log_msg(LOG_WARN, "config: обрезано: tun_iface");
     } else if (strcmp(key, "tai_utc_offset") == 0) {
         char *ep; long v = strtol(value, &ep, 10);
         if (ep != value && *ep == '\0' && v >= 0 && v <= 200)
@@ -440,6 +436,11 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
         snprintf(srv->awg_dns, sizeof(srv->awg_dns), "%s", value);
     } else if (strcmp(key, "awg_reserved") == 0) {
         snprintf(srv->awg_reserved, sizeof(srv->awg_reserved), "%s", value);
+    } else if (strcmp(key, "awg_j1") == 0) {
+        free(srv->awg_j1);
+        srv->awg_j1 = strdup(value);
+    } else if (strcmp(key, "awg_itime") == 0) {
+        srv->awg_itime = (uint16_t)strtoul(value, NULL, 10);
     /* Hysteria2-специфичные опции */
     } else if (strcmp(key, "hy2_obfs_password") == 0) {
         strncpy(srv->hy2_obfs_password, value,
@@ -521,10 +522,6 @@ int config_load(const char *path, EburNetConfig *cfg)
         log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
 }
     cfg->tai_utc_offset   = 37;  /* с 2017-01-01, https://www.ietf.org/timezones/data/leap-seconds.list */
-{   int _n = snprintf(cfg->tun_iface, sizeof(cfg->tun_iface), "%s", TUN_IFACE_DEFAULT);
-    if (_n < 0 || (size_t)_n >= sizeof(cfg->tun_iface))
-        log_msg(LOG_DEBUG, "config: обрезано (некритично): %d", __LINE__);
-}
     /* DPI bypass defaults */
     cfg->dpi_enabled      = true;
     cfg->dpi_split_pos    = 1;
@@ -1076,6 +1073,7 @@ int config_load(const char *path, EburNetConfig *cfg)
                         else if (strcmp(value, "MATCH") == 0)    tr->type = RULE_TYPE_MATCH;
                         else if (strcmp(value, "GEOIP") == 0)    tr->type = RULE_TYPE_GEOIP;
                         else if (strcmp(value, "GEOSITE") == 0)  tr->type = RULE_TYPE_GEOSITE;
+                        else if (strcmp(value, "DST-PORT") == 0) tr->type = RULE_TYPE_DST_PORT;
                     }
                     else if (strcmp(key, "value") == 0) {
                         int _n = snprintf(tr->value, sizeof(tr->value), "%s", value);
@@ -1283,12 +1281,15 @@ cleanup_fail:
 
 void config_free(EburNetConfig *cfg)
 {
-    /* Освободить динамические awg_i поля серверов */
-    for (int s = 0; s < cfg->server_count; s++)
+    /* Освободить динамические awg поля серверов */
+    for (int s = 0; s < cfg->server_count; s++) {
         for (int i = 0; i < 5; i++) {
             free(cfg->servers[s].awg_i[i]);
             cfg->servers[s].awg_i[i] = NULL;
         }
+        free(cfg->servers[s].awg_j1);
+        cfg->servers[s].awg_j1 = NULL;
+    }
     for (int gi = 0; gi < cfg->proxy_group_count; gi++) {
         ProxyGroupConfig *g = &cfg->proxy_groups[gi];
         free(g->providers); g->providers = NULL;

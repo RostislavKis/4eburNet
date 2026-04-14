@@ -407,6 +407,19 @@ rule_match_result_t rules_engine_match(rules_engine_t *re,
                     matched = true;
             }
             break;
+        case RULE_TYPE_DST_PORT:
+            /* P1: DST-PORT,443,DIRECT — матч по порту назначения */
+            if (dst) {
+                uint16_t dport = 0;
+                if (dst->ss_family == AF_INET)
+                    dport = ntohs(((const struct sockaddr_in *)dst)->sin_port);
+                else if (dst->ss_family == AF_INET6)
+                    dport = ntohs(((const struct sockaddr_in6 *)dst)->sin6_port);
+                uint16_t rule_port = (uint16_t)strtoul(tr->value, NULL, 10);
+                if (dport > 0 && dport == rule_port)
+                    matched = true;
+            }
+            break;
         default:
             break;
         }

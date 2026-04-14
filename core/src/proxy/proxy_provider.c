@@ -445,6 +445,236 @@ void proxy_provider_free(proxy_provider_manager_t *ppm)
     memset(ppm, 0, sizeof(*ppm));
 }
 
+/* ── P1: Clash YAML proxy parser ─────────────────────────────────────── */
+
+/* Удалить ведущие/концевые пробелы и кавычки */
+static const char *yaml_strip(const char *s, char *buf, size_t bsz) {
+    while (*s == ' ' || *s == '\t') s++;
+    size_t len = strlen(s);
+    while (len > 0 && (s[len-1] == '\r' || s[len-1] == '\n' ||
+                        s[len-1] == ' ')) len--;
+    /* Убрать кавычки */
+    if (len >= 2 && ((s[0] == '"' && s[len-1] == '"') ||
+                     (s[0] == '\'' && s[len-1] == '\''))) {
+        s++; len -= 2;
+    }
+    if (len >= bsz) len = bsz - 1;
+    memcpy(buf, s, len);
+    buf[len] = '\0';
+    return buf;
+}
+
+/* Парсить YAML массив [a, b, c] → вернуть первый элемент */
+static void yaml_array_first(const char *val, char *out, size_t outsz) {
+    out[0] = '\0';
+    const char *start = strchr(val, '[');
+    if (!start) { snprintf(out, outsz, "%s", val); return; }
+    start++;
+    while (*start == ' ') start++;
+    const char *end = start;
+    while (*end && *end != ',' && *end != ']') end++;
+    size_t len = (size_t)(end - start);
+    while (len > 0 && start[len-1] == ' ') len--;
+    if (len >= outsz) len = outsz - 1;
+    memcpy(out, start, len);
+    out[len] = '\0';
+}
+
+/* Парсить [240, 220, 224] → "240,220,224" */
+static void yaml_array_join(const char *val, char *out, size_t outsz) {
+    out[0] = '\0';
+    const char *p = strchr(val, '[');
+    if (!p) return;
+    p++;
+    size_t pos = 0;
+    while (*p && *p != ']' && pos < outsz - 1) {
+        if (*p == ' ') { p++; continue; }
+        out[pos++] = *p++;
+    }
+    out[pos] = '\0';
+}
+
+/* Flush текущий сервер в массив */
+static int yaml_flush_server(ServerConfig *s, ServerConfig *arr,
+                              int *count, int max, const char *prov_name) {
+    if (!s->name[0] || !s->protocol[0]) return 0;
+    if (!s->address[0] || !s->port) {
+        log_msg(LOG_WARN, "proxy_provider[%s]: пропущен %s (нет address/port)",
+                prov_name, s->name);
+        return 0;
+    }
+    if (*count >= max) return 0;
+    snprintf(s->source_provider, sizeof(s->source_provider), "%s", prov_name);
+    s->enabled = true;
+    arr[(*count)++] = *s;
+    return 1;
+}
+
+/* Парсить Clash YAML proxies: секцию */
+static int parse_clash_yaml_proxies(const char *buf, size_t len,
+                                     ServerConfig *servers, int max,
+                                     const char *provider_name)
+{
+    int count = 0;
+    ServerConfig cur;
+    memset(&cur, 0, sizeof(cur));
+    bool in_proxies = false;
+    bool in_reality = false;
+    bool in_awg = false;
+
+    const char *p = buf;
+    const char *end = buf + len;
+    char vbuf[512];
+
+    while (p < end) {
+        /* Получить строку */
+        const char *nl = memchr(p, '\n', (size_t)(end - p));
+        size_t llen = nl ? (size_t)(nl - p) : (size_t)(end - p);
+        char line[1024];
+        if (llen >= sizeof(line)) llen = sizeof(line) - 1;
+        memcpy(line, p, llen);
+        line[llen] = '\0';
+        p = nl ? nl + 1 : end;
+
+        /* Убрать \r */
+        size_t ll = strlen(line);
+        while (ll > 0 && line[ll-1] == '\r') line[--ll] = '\0';
+
+        /* Проверить proxies: секцию */
+        if (!in_proxies) {
+            if (strncmp(line, "proxies:", 8) == 0) in_proxies = true;
+            continue;
+        }
+
+        /* Новый top-level key → выход из proxies */
+        if (ll > 0 && line[0] != ' ' && line[0] != '-' && line[0] != '#') {
+            yaml_flush_server(&cur, servers, &count, max, provider_name);
+            break;
+        }
+
+        /* Определить indent */
+        int indent = 0;
+        while (indent < (int)ll && line[indent] == ' ') indent++;
+        const char *key = line + indent;
+
+        /* Новый прокси: "- name:" или "  - name:" */
+        if (key[0] == '-' && key[1] == ' ') {
+            yaml_flush_server(&cur, servers, &count, max, provider_name);
+            memset(&cur, 0, sizeof(cur));
+            in_reality = false;
+            in_awg = false;
+            key += 2;
+            while (*key == ' ') key++;
+        }
+
+        /* key: value */
+        const char *colon = strchr(key, ':');
+        if (!colon) continue;
+        size_t klen = (size_t)(colon - key);
+        const char *val = colon + 1;
+        while (*val == ' ') val++;
+
+        /* Sub-block detection */
+        if (klen == 12 && strncmp(key, "reality-opts", 12) == 0)
+            { in_reality = true; in_awg = false; continue; }
+        if (klen == 17 && strncmp(key, "amnezia-wg-option", 17) == 0)
+            { in_awg = true; in_reality = false; continue; }
+
+        yaml_strip(val, vbuf, sizeof(vbuf));
+
+        /* Базовые поля прокси */
+        if (!in_reality && !in_awg) {
+            if (klen == 4 && strncmp(key, "name", 4) == 0)
+                snprintf(cur.name, sizeof(cur.name), "%s", vbuf);
+            else if (klen == 4 && strncmp(key, "type", 4) == 0) {
+                if (strcmp(vbuf, "vless") == 0)     snprintf(cur.protocol, sizeof(cur.protocol), "vless");
+                else if (strcmp(vbuf, "trojan") == 0) snprintf(cur.protocol, sizeof(cur.protocol), "trojan");
+                else if (strcmp(vbuf, "ss") == 0)     snprintf(cur.protocol, sizeof(cur.protocol), "shadowsocks");
+                else if (strcmp(vbuf, "wireguard") == 0) snprintf(cur.protocol, sizeof(cur.protocol), "awg");
+                else if (strcmp(vbuf, "hysteria2") == 0)  snprintf(cur.protocol, sizeof(cur.protocol), "hysteria2");
+                else snprintf(cur.protocol, sizeof(cur.protocol), "%s", vbuf);
+            }
+            else if (klen == 6 && strncmp(key, "server", 6) == 0)
+                snprintf(cur.address, sizeof(cur.address), "%s", vbuf);
+            else if (klen == 4 && strncmp(key, "port", 4) == 0)
+                cur.port = (uint16_t)strtoul(vbuf, NULL, 10);
+            else if (klen == 4 && strncmp(key, "uuid", 4) == 0)
+                snprintf(cur.uuid, sizeof(cur.uuid), "%s", vbuf);
+            else if (klen == 8 && strncmp(key, "password", 8) == 0)
+                snprintf(cur.password, sizeof(cur.password), "%s", vbuf);
+            else if (klen == 4 && strncmp(key, "flow", 4) == 0) {
+                if (strstr(vbuf, "xtls") || strstr(vbuf, "vision"))
+                    snprintf(cur.transport, sizeof(cur.transport), "reality");
+            }
+            else if (klen == 11 && strncmp(key, "private-key", 11) == 0)
+                snprintf(cur.awg_private_key, sizeof(cur.awg_private_key), "%s", vbuf);
+            else if (klen == 10 && strncmp(key, "public-key", 10) == 0)
+                snprintf(cur.awg_public_key, sizeof(cur.awg_public_key), "%s", vbuf);
+            else if (klen == 8 && strncmp(key, "reserved", 8) == 0)
+                yaml_array_join(val, cur.awg_reserved, sizeof(cur.awg_reserved));
+            else if (klen == 3 && strncmp(key, "mtu", 3) == 0)
+                cur.awg_mtu = (uint16_t)strtoul(vbuf, NULL, 10);
+            else if (klen == 3 && strncmp(key, "dns", 3) == 0)
+                yaml_array_first(val, cur.awg_dns, sizeof(cur.awg_dns));
+            else if (klen == 3 && strncmp(key, "psk", 3) == 0)
+                snprintf(cur.awg_psk, sizeof(cur.awg_psk), "%s", vbuf);
+            else if (klen == 3 && strncmp(key, "sni", 3) == 0)
+                snprintf(cur.hy2_sni, sizeof(cur.hy2_sni), "%s", vbuf);
+            else if (klen == 18 && strncmp(key, "client-fingerprint", 18) == 0)
+                { /* fingerprint — Chrome по умолчанию, игнорируем */ }
+        }
+        /* Reality sub-block */
+        else if (in_reality) {
+            if (klen == 10 && strncmp(key, "public-key", 10) == 0)
+                snprintf(cur.reality_pbk, sizeof(cur.reality_pbk), "%s", vbuf);
+            else if (klen == 8 && strncmp(key, "short-id", 8) == 0)
+                snprintf(cur.reality_short_id, sizeof(cur.reality_short_id), "%s", vbuf);
+            /* Другой ключ без большего indent → выход из reality */
+            if (indent <= 4) in_reality = false;
+        }
+        /* AWG sub-block */
+        else if (in_awg) {
+            if (klen == 2 && strncmp(key, "jc", 2) == 0)
+                cur.awg_jc = (uint8_t)strtoul(vbuf, NULL, 10);
+            else if (klen == 4 && strncmp(key, "jmin", 4) == 0)
+                cur.awg_jmin = (uint16_t)strtoul(vbuf, NULL, 10);
+            else if (klen == 4 && strncmp(key, "jmax", 4) == 0)
+                cur.awg_jmax = (uint16_t)strtoul(vbuf, NULL, 10);
+            else if (klen == 2 && key[0] == 's' && key[1] >= '1' && key[1] <= '4') {
+                uint16_t v = (uint16_t)strtoul(vbuf, NULL, 10);
+                switch (key[1]) {
+                case '1': cur.awg_s1 = v; break; case '2': cur.awg_s2 = v; break;
+                case '3': cur.awg_s3 = v; break; case '4': cur.awg_s4 = v; break;
+                }
+            }
+            else if (klen == 2 && key[0] == 'h' && key[1] >= '1' && key[1] <= '4') {
+                switch (key[1]) {
+                case '1': snprintf(cur.awg_h1, sizeof(cur.awg_h1), "%s", vbuf); break;
+                case '2': snprintf(cur.awg_h2, sizeof(cur.awg_h2), "%s", vbuf); break;
+                case '3': snprintf(cur.awg_h3, sizeof(cur.awg_h3), "%s", vbuf); break;
+                case '4': snprintf(cur.awg_h4, sizeof(cur.awg_h4), "%s", vbuf); break;
+                }
+            }
+            else if (klen == 2 && key[0] == 'i' && key[1] >= '1' && key[1] <= '5') {
+                int ii = key[1] - '1';
+                free(cur.awg_i[ii]);
+                cur.awg_i[ii] = strdup(vbuf);
+            }
+            else if (klen == 2 && strncmp(key, "j1", 2) == 0) {
+                free(cur.awg_j1);
+                cur.awg_j1 = strdup(vbuf);
+            }
+            else if (klen == 5 && strncmp(key, "itime", 5) == 0)
+                cur.awg_itime = (uint16_t)strtoul(vbuf, NULL, 10);
+            /* Другой ключ без большего indent → выход из awg */
+            if (indent <= 4) in_awg = false;
+        }
+    }
+    /* Flush последний сервер */
+    yaml_flush_server(&cur, servers, &count, max, provider_name);
+    return count;
+}
+
 /* Разобрать файл кэша провайдера и заполнить provider_servers.
  * Вызывается из load_all и tick после успешной загрузки. */
 static int provider_parse_file(proxy_provider_manager_t *ppm, int idx)
@@ -477,54 +707,63 @@ static int provider_parse_file(proxy_provider_manager_t *ppm, int idx)
             fclose(f); f = NULL;
             raw[nread] = '\0';
 
-            /* Найти первую непустую строку */
-            const char *first = raw;
-            while (*first == ' ' || *first == '\t' ||
-                   *first == '\n' || *first == '\r') first++;
+            /* P1: auto-detect формат файла */
+            bool is_clash = (strstr(raw, "proxies:") != NULL);
 
-            bool is_plain = (strncmp(first, "vless://",    8)  == 0 ||
-                             strncmp(first, "ss://",        5)  == 0 ||
-                             strncmp(first, "trojan://",    9)  == 0 ||
-                             strncmp(first, "hysteria2://", 12) == 0 ||
-                             strncmp(first, "hy2://",       6)  == 0 ||
-                             first[0] == '#');
+            if (is_clash) {
+                /* Clash YAML: парсить proxies: секцию */
+                count = parse_clash_yaml_proxies(raw, nread, tmp, max,
+                                                  ps->name);
+                log_msg(LOG_INFO, "proxy_provider[%s]: Clash YAML, %d серверов",
+                        ps->name, count);
+            } else {
+                /* URI list или base64-encoded URI list */
+                const char *first = raw;
+                while (*first == ' ' || *first == '\t' ||
+                       *first == '\n' || *first == '\r') first++;
 
-            if (!is_plain) {
-                /* Попробовать base64-decode */
-                size_t dec_len = (size_t)nread * 3 / 4 + 16;
-                uint8_t *decoded = malloc(dec_len + 1);
-                if (decoded) {
-                    if (base64_decode(raw, nread, decoded, &dec_len) == 0) {
-                        decoded[dec_len] = '\0';
-                        free(raw);
-                        raw = (char *)decoded;
-                        nread = dec_len;
-                    } else {
-                        free(decoded);
-                        /* Не base64 и не plain — парсить как есть */
+                bool is_plain = (strncmp(first, "vless://",    8)  == 0 ||
+                                 strncmp(first, "ss://",        5)  == 0 ||
+                                 strncmp(first, "trojan://",    9)  == 0 ||
+                                 strncmp(first, "hysteria2://", 12) == 0 ||
+                                 strncmp(first, "hy2://",       6)  == 0 ||
+                                 first[0] == '#');
+
+                if (!is_plain) {
+                    size_t dec_len = (size_t)nread * 3 / 4 + 16;
+                    uint8_t *decoded = malloc(dec_len + 1);
+                    if (decoded) {
+                        if (base64_decode(raw, nread, decoded, &dec_len) == 0) {
+                            decoded[dec_len] = '\0';
+                            free(raw);
+                            raw = (char *)decoded;
+                            nread = dec_len;
+                        } else {
+                            free(decoded);
+                        }
                     }
                 }
-            }
 
-            /* Разобрать построчно */
-            char *saveptr = NULL;
-            char *line = strtok_r(raw, "\n", &saveptr);
-            while (line && count < max) {
-                size_t llen = strlen(line);
-                while (llen > 0 && (line[llen-1] == '\r' || line[llen-1] == '\n'))
-                    line[--llen] = '\0';
-                if (llen == 0 || line[0] == '#') {
+                /* Разобрать построчно как URI */
+                char *saveptr = NULL;
+                char *line = strtok_r(raw, "\n", &saveptr);
+                while (line && count < max) {
+                    size_t llen = strlen(line);
+                    while (llen > 0 && (line[llen-1] == '\r' || line[llen-1] == '\n'))
+                        line[--llen] = '\0';
+                    if (llen == 0 || line[0] == '#') {
+                        line = strtok_r(NULL, "\n", &saveptr);
+                        continue;
+                    }
+                    ServerConfig s;
+                    if (parse_server_uri(line, &s, ps->name) == 0)
+                        tmp[count++] = s;
+                    else
+                        log_msg(LOG_DEBUG,
+                            "proxy_provider[%s]: пропущено: %.60s",
+                            ps->name, line);
                     line = strtok_r(NULL, "\n", &saveptr);
-                    continue;
                 }
-                ServerConfig s;
-                if (parse_server_uri(line, &s, ps->name) == 0)
-                    tmp[count++] = s;
-                else
-                    log_msg(LOG_DEBUG,
-                        "proxy_provider[%s]: пропущено: %.60s",
-                        ps->name, line);
-                line = strtok_r(NULL, "\n", &saveptr);
             }
             free(raw);
             raw = NULL;
@@ -532,11 +771,19 @@ static int provider_parse_file(proxy_provider_manager_t *ppm, int idx)
     }
     if (f) fclose(f);
 
+    /* P1 шаг 5: reload guard — не сбрасывать если пустой результат */
+    if (count == 0 && ps->server_count > 0) {
+        log_msg(LOG_WARN, "proxy_provider[%s]: пустой результат парсинга — "
+                "сохраняю %d старых серверов", ps->name, ps->server_count);
+        free(tmp);
+        return ps->server_count;
+    }
+
     /* Обновить provider_servers: удалить старые записи этого провайдера,
        вставить новые в конец. Поскольку архитектура однопоточная (epoll),
        realloc безопасен — dispatcher читает g_config->provider_servers
        только из того же потока. */
-    EburNetConfig *cfg = ppm->cfg;
+    EburNetConfig *cfg = (EburNetConfig *)ppm->cfg;
 
     /* Удалить записи с source_provider == ps->name */
     int new_total = 0;
