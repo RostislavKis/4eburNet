@@ -98,10 +98,13 @@ function api_status()
   local running = h.is_running()
   local data = running and ipc_json(1) or {}
   json_out({
-    running   = running,
-    uptime    = data.uptime or 0,
-    mode      = data.mode or h.get("main","mode","rules"),
-    timestamp = os.time()
+    running    = running,
+    uptime     = data.uptime or 0,
+    version    = data.version or "unknown",
+    profile    = data.profile or "unknown",
+    mode       = data.mode or h.get("main","mode","rules"),
+    geo_loaded = data.geo_loaded or false,
+    timestamp  = os.time()
   })
 end
 
@@ -130,7 +133,19 @@ end
 
 -- API: список proxy групп
 function api_groups()
-  json_out(ipc_json(20))
+  local data = ipc_json(20)
+  -- P4: ограничить серверы на группу (ubus 64KB лимит при 95+ серверах)
+  if data and data.groups then
+    for _, g in ipairs(data.groups) do
+      if g.servers and #g.servers > 16 then
+        local short = {}
+        for i = 1, 16 do short[i] = g.servers[i] end
+        g.servers = short
+        g.truncated = true
+      end
+    end
+  end
+  json_out(data)
 end
 
 -- API: выбрать сервер в группе
