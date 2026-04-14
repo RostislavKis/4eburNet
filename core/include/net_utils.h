@@ -64,6 +64,11 @@ int net_resolve_host(const char *host, uint16_t port,
                      char *out_ip, size_t out_ip_size,
                      int *out_family);
 
+/* DEC-031: прямой UDP DNS A-запрос к dns_ip:53, минуя системный resolver.
+ * Решает рекурсию при резолве hostname'ов провайдеров. */
+int net_resolve_host_direct(const char *hostname, const char *dns_ip,
+                            char *out_ip, size_t out_size, int *out_family);
+
 /*
  * Парсить host и port из URL ("https://host:port/path" → host, port).
  * Возвращает 0 при успехе, -1 при ошибке.

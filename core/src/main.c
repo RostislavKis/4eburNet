@@ -50,6 +50,9 @@ static device_manager_t device_state;
 static proxy_group_manager_t pgm_state;
 static rule_provider_manager_t rpm_state;
 static proxy_provider_manager_t ppm_state;
+
+/* DEC-031: bypass DNS IP для прямого резолва провайдеров */
+const char *g_dns_bypass_ip = NULL;
 static rules_engine_t re_state;
 static geo_manager_t geo_state;
 
@@ -615,6 +618,10 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
         rule_provider_load_all(&rpm_state);
+        /* DEC-031: bypass DNS IP для прямого резолва провайдеров */
+        g_dns_bypass_ip = cfg_ptr->dns.upstream_bypass[0]
+                          ? cfg_ptr->dns.upstream_bypass
+                          : cfg_ptr->dns.upstream_default;
         if (proxy_provider_init(&ppm_state, cfg_ptr) < 0) {
             log_msg(LOG_ERROR, "proxy_provider: инициализация провалилась");
             goto cleanup;
