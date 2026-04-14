@@ -108,4 +108,15 @@ int net_spawn_tcp_ping(const char *ip, uint16_t port, int timeout_ms);
  */
 int net_spawn_udp_ping(const char *ip, uint16_t port, int timeout_ms);
 
+#if CONFIG_EBURNET_AWG
+/*
+ * AWG Noise handshake health check (BL-08).
+ * fork → awg_init → handshake_start → poll response → awg_process_incoming.
+ * Результат: "OK <ms>\n" (handshake OK + ключи верные) или "ERR\n".
+ * server_cfg — указатель на ServerConfig (fork копирует память parent).
+ */
+int net_spawn_awg_check(const void *server_cfg,
+                        int tai_utc_offset, int timeout_ms);
+#endif
+
 #endif /* NET_UTILS_H */
