@@ -48,7 +48,7 @@ else  # full — все функции включены
 endif
 
 EXTRA_CFLAGS ?=
-CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
+CFLAGS = -std=gnu2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
          -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
          -ffunction-sections -fdata-sections \
          $(KCONFIG_CFLAGS) $(EXTRA_CFLAGS)
@@ -96,7 +96,8 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dpi/dpi_strategy.c \
           $(SRCDIR)/dpi/cdn_updater.c \
           $(SRCDIR)/crypto/hmac_sha256.c \
-          $(SRCDIR)/proxy/protocols/shadowtls.c
+          $(SRCDIR)/proxy/protocols/shadowtls.c \
+          $(SRCDIR)/http_server.c
 TARGET = $(BUILDDIR)/4eburnetd
 
 # StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
@@ -182,6 +183,9 @@ test-cdn-updater:
 	  $(INCLUDES) $(WOLFSSL_INCLUDES) \
 	  src/net_utils.c \
 	  src/crypto/tls.c \
+	  src/crypto/noise.c \
+	  src/crypto/blake2s.c \
+	  src/proxy/protocols/awg.c \
 	  src/dpi/dpi_filter.c \
 	  src/dpi/dpi_payload.c \
 	  src/dpi/cdn_updater.c \
@@ -221,6 +225,15 @@ test-config-parsing:
 	  -o /tmp/test_config_parsing
 	/tmp/test_config_parsing
 
+test-dns-geosite:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  src/log.c \
+	  src/geo/geo_loader.c \
+	  src/dns/dns_rules.c \
+	  tests/test_dns_geosite.c \
+	  -o /tmp/test_dns_geosite
+	/tmp/test_dns_geosite tests/data/test_ads.lst
+
 test-blake2b:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
 	  src/crypto/blake2b.c \
@@ -242,7 +255,7 @@ test-varint:
 	  -o /tmp/test_hysteria2_varint $(WOLFSSL_LIBS)
 	/tmp/test_hysteria2_varint
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite
 
 # ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
@@ -293,5 +306,5 @@ help:
 .PHONY: all clean run install-vm test help \
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
-  test-blake2b test-salamander test-varint \
+  test-blake2b test-salamander test-varint test-dns-geosite \
   cross-mipsel cross-aarch64
