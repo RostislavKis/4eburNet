@@ -7,6 +7,7 @@
 
 #include "net_utils.h"
 #include "constants.h"
+#include "4eburnet.h"
 #if CONFIG_EBURNET_AWG
 #include <time.h>
 #include "proxy/protocols/awg.h"
@@ -33,7 +34,6 @@
 #include <sys/stat.h>
 #include <time.h>
 #include "crypto/tls.h"
-#include "4eburnet.h"
 
 extern char **environ;
 
