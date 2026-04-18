@@ -17,6 +17,8 @@
 #include <time.h>
 #include <sys/socket.h>
 
+#include "geo/geo_types.h"   /* geo_cidr4_t, geo_cidr6_t, geo_bin_header_t */
+
 /* Прямой инклюд config.h нежелателен в заголовке — используем forward decl */
 struct EburNetConfig;
 
@@ -30,21 +32,7 @@ typedef enum {
     GEO_REGION_OTHER   = 99,
 } geo_region_t;
 
-/* ── CIDR структуры ──────────────────────────────────────────────────────── */
-
-/* IPv4 CIDR — адреса в host byte order */
-typedef struct {
-    uint32_t net;   /* сетевой адрес */
-    uint32_t mask;  /* маска (0xFFFFFFFF << (32 - prefix)) */
-} geo_cidr4_t;
-
-/* IPv6 CIDR */
-typedef struct {
-    uint8_t net[16]; /* сетевой адрес */
-    uint8_t prefix;  /* длина префикса (0..128) */
-} geo_cidr6_t;
-
-/* Patricia trie для O(32) IPv4 CIDR lookup */
+/* ── Patricia trie для O(32) IPv4 CIDR lookup ───────────────────────────── */
 typedef struct ptrie_node {
     struct ptrie_node *child[2];  /* [0]=left, [1]=right */
     geo_region_t       region;    /* GEO_REGION_UNKNOWN = промежуточный */
@@ -85,6 +73,13 @@ typedef struct {
     int          suffix_count;
 
     ptrie_node_t *trie_v4;  /* Patricia trie для IPv4 (NULL = не построен) */
+
+    /* ── Бинарный mmap режим (.gbin) ── */
+    void           *mmap_addr;            /* NULL = heap режим */
+    size_t          mmap_size;
+    const uint32_t *bin_domain_offsets;   /* offsets в bin_string_pool */
+    const uint32_t *bin_suffix_offsets;
+    const char     *bin_string_pool;      /* все строки через \0 */
 
     bool loaded;
     geo_cat_type_t cat_type; /* adblock категория — определяется по имени файла */
