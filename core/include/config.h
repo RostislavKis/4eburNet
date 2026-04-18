@@ -88,6 +88,10 @@ typedef struct {
     char     doq_server_ip[64];      /* IP адрес DoQ сервера */
     uint16_t doq_server_port;        /* порт (0 = 853) */
     char     doq_sni[256];           /* SNI для TLS-рукопожатия */
+    /* Geosite блокировка через geo_loader (list block_geosite в UCI) */
+    bool     block_geosite_ads;      /* list block_geosite 'ads' */
+    bool     block_geosite_trackers; /* list block_geosite 'trackers' */
+    bool     block_geosite_threats;  /* list block_geosite 'threats' */
 } DnsConfig;
 
 /* Тип upstream для nameserver-policy */

@@ -1289,7 +1289,7 @@ void dns_server_check_pending_timeouts(dns_server_t *ds)
         epoll_ctl(ds->master_epoll_fd, EPOLL_CTL_DEL,
                   p->upstream_fd, NULL);
 
-        /* DEBT-2: TCP клиент получает SERVFAIL немедленно */
+        log_msg(LOG_WARN, "DNS TCP: async пул исчерпан, SERVFAIL клиенту");
         if (p->tcp_client_idx >= 0 &&
             p->tcp_client_idx < ds->tcp_clients_count) {
             dns_tcp_client_t *tc = &ds->tcp_clients[p->tcp_client_idx];

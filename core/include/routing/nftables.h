@@ -24,7 +24,6 @@
 /* Метки fwmark — единый источник в constants.h */
 #include "constants.h"
 #define NFT_MARK_PROXY      FWMARK_PROXY
-#define NFT_MARK_TUN        FWMARK_TUN
 
 /* Порт TPROXY по умолчанию */
 #define NFT_TPROXY_PORT     7893
@@ -48,6 +47,10 @@
 /* HW Offload bypass (DEC-018) */
 #define NFT_CHAIN_OFFLOAD   "offload_bypass"
 #define NFT_PRIO_OFFLOAD    -300    /* раньше всех наших цепочек */
+
+/* Fake-IP диапазон (RFC 5737 TEST-NET-2, не маршрутизируется).
+   Трафик к этому CIDR перехватывается TPROXY. */
+#define NFT_FAKE_IP_CIDR    "198.51.100.0/24"
 
 /* Максимум записей в одной атомарной загрузке batch */
 #define NFT_BATCH_MAX       10000
@@ -102,9 +105,6 @@ nft_result_t nft_mode_set_global(void);
 
 /* Весь трафик напрямую (цепочки пустые) */
 nft_result_t nft_mode_set_direct(void);
-
-/* Заготовка: mark без tproxy, для TUN режима (шаг 1.3) */
-nft_result_t nft_mode_set_tun(void);
 
 /* --- TPROXY --- */
 
