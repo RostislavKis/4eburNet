@@ -559,8 +559,9 @@ static int doq_connect(doq_conn_t *dc, WOLFSSL_CTX *ssl_ctx,
 
     /* SNI */
     const char *sni = cfg->doq_sni[0] ? cfg->doq_sni : cfg->doq_server_ip;
-    wolfSSL_UseSNI(ssl, WOLFSSL_SNI_HOST_NAME,
-                    sni, (unsigned short)strlen(sni));
+    if (wolfSSL_UseSNI(ssl, WOLFSSL_SNI_HOST_NAME,
+                       sni, (unsigned short)strlen(sni)) != WOLFSSL_SUCCESS)
+        log_msg(LOG_WARN, "DoQ: wolfSSL_UseSNI failed для %s", sni);
 
     /* ALPN "doq" — UseALPN принимает char*, нужен не-const буфер */
     char alpn[] = "doq";
@@ -645,7 +646,11 @@ void doq_pool_free(doq_pool_t *pool)
     if (!pool) return;
     for (int i = 0; i < pool->count; i++) {
         doq_conn_t *dc = &pool->conns[i];
-        if (dc->ssl)      { wolfSSL_free(dc->ssl); dc->ssl = NULL; }
+        if (dc->ssl) {
+            wolfSSL_shutdown(dc->ssl);
+            wolfSSL_free(dc->ssl);
+            dc->ssl = NULL;
+        }
         if (dc->udp_fd >= 0) {
             epoll_ctl(pool->epoll_fd, EPOLL_CTL_DEL, dc->udp_fd, NULL);
             close(dc->udp_fd);
@@ -1026,7 +1031,11 @@ void doq_check_timeouts(doq_pool_t *pool)
         continue;
 
     reset_conn:
-        if (dc->ssl) { wolfSSL_free(dc->ssl); dc->ssl = NULL; }
+        if (dc->ssl) {
+            wolfSSL_shutdown(dc->ssl);
+            wolfSSL_free(dc->ssl);
+            dc->ssl = NULL;
+        }
         epoll_ctl(pool->epoll_fd, EPOLL_CTL_DEL, dc->udp_fd, NULL);
         close(dc->udp_fd);
         for (int k = 0; k < 3; k++) quic_keys_free(&dc->keys[k]);
