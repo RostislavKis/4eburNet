@@ -70,7 +70,7 @@ struct relay_conn {
     uint64_t                bytes_out;  /* upstream → клиент */
     relay_ep_t              ep_client;  /* для epoll data.ptr */
     relay_ep_t              ep_upstream;
-    tls_conn_t              tls;        /* TLS соединение к upstream */
+    tls_conn_t             *tls;        /* NULL если TLS не нужен */
     bool                    use_tls;    /* true = relay через tls_send/recv */
     bool                    client_eof; /* клиент отправил FIN */
     bool                    upstream_eof; /* upstream отправил FIN */

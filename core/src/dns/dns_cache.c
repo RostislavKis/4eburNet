@@ -101,7 +101,7 @@ void dns_cache_put(dns_cache_t *c,
                    const uint8_t *response, uint16_t resp_len,
                    uint32_t ttl)
 {
-    if (resp_len > DNS_MAX_PACKET || resp_len == 0) return;
+    if (resp_len > DNS_CACHE_ENTRY_SIZE || resp_len == 0) return;
 
     uint32_t h = fnv1a_hash(qname, qtype);
     int target = -1;

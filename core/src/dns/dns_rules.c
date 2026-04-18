@@ -3,6 +3,7 @@
  */
 
 #include "dns/dns_rules.h"
+#include "geo/geo_loader.h"
 #include "4eburnet.h"
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +17,61 @@ static struct {
     int           count;
     int           capacity;
 } g_rules = {0};
+
+/* ── GEOSITE блокировка (Вариант B, 3.5.1) ── */
+/* Указатель на geo_manager устанавливается после geo_manager_init() */
+static const geo_manager_t *g_gm = NULL;
+
+/* ── Traffic rules consultation (3.5.5) ── */
+/* Callback: dns_action_t cb(const char *qname)
+   Устанавливается из main.c через dns_rules_set_engine_cb().
+   Не NULL-разыменовывается напрямую — всегда проверяем. */
+static dns_action_t (*g_engine_cb)(const char *) = NULL;
+/* Действие для каждой гео-категории: индекс = geo_cat_type_t */
+static dns_action_t g_geosite_actions[4] = {
+    [GEO_CAT_GENERIC]  = DNS_ACTION_DEFAULT,
+    [GEO_CAT_ADS]      = DNS_ACTION_DEFAULT,
+    [GEO_CAT_TRACKERS] = DNS_ACTION_DEFAULT,
+    [GEO_CAT_THREATS]  = DNS_ACTION_DEFAULT,
+};
+
+void dns_rules_set_geo_manager(const geo_manager_t *gm)
+{
+    g_gm = gm;
+    log_msg(LOG_DEBUG, "dns_rules: geo_manager %s",
+            gm ? "подключён" : "отключён");
+}
+
+void dns_rules_set_engine(dns_action_t (*cb)(const char *))
+{
+    g_engine_cb = cb;
+    log_msg(LOG_DEBUG, "dns_rules: engine callback %s",
+            cb ? "подключён" : "отключён");
+}
+
+void dns_rules_add_geosite(geo_cat_type_t cat, dns_action_t action)
+{
+    if ((unsigned)cat >= 4) return;
+    g_geosite_actions[(unsigned)cat] = action;
+    const char *names[] = {"generic", "ads", "trackers", "threats"};
+    log_msg(LOG_INFO, "dns_rules: geosite '%s' → %s",
+            names[(unsigned)cat],
+            action == DNS_ACTION_BLOCK ? "BLOCK" : "action");
+}
+
+/* Inline-помощник: проверить домен в geosite категориях */
+static inline dns_action_t geosite_check(const char *qname, dns_action_t best)
+{
+    if (g_gm == NULL) return best;
+    geo_cat_type_t ct = geo_match_domain_cat(g_gm, qname);
+    if ((unsigned)ct >= 4 || ct == GEO_CAT_GENERIC) return best;
+    dns_action_t gact = g_geosite_actions[(unsigned)ct];
+    if (gact == DNS_ACTION_BLOCK) return DNS_ACTION_BLOCK;
+    if (gact != DNS_ACTION_DEFAULT &&
+        (best == DNS_ACTION_DEFAULT || (int)gact < (int)best))
+        return gact;
+    return best;
+}
 
 /* ── Sorted index для O(log n) поиска ── */
 
@@ -144,6 +200,11 @@ void dns_rules_free(void)
     free(g_rules.patterns);
     free(g_rules.actions);
     memset(&g_rules, 0, sizeof(g_rules));
+    /* Сбросить geosite и engine callback при перезагрузке конфига */
+    g_gm = NULL;
+    g_engine_cb = NULL;
+    for (int i = 0; i < 4; i++)
+        g_geosite_actions[i] = DNS_ACTION_DEFAULT;
 }
 
 int dns_rules_load_file(const char *path, dns_action_t action)
@@ -331,6 +392,15 @@ static dns_action_t idx_lookup(const rule_idx_t *arr, int n,
     return found->action;
 }
 
+/* Консультация traffic rules — вызывается когда DNS action ещё DEFAULT.
+   Позволяет opencck_domains → MAIN-PROXY назначить fake-ip через DNS. */
+static dns_action_t traffic_rules_consult(const char *qname, dns_action_t best)
+{
+    if (best != DNS_ACTION_DEFAULT || g_engine_cb == NULL)
+        return best;
+    return g_engine_cb(qname);
+}
+
 dns_action_t dns_rules_match(const char *qname)
 {
     if (!qname || !qname[0]) return DNS_ACTION_DEFAULT;
@@ -366,7 +436,9 @@ dns_action_t dns_rules_match(const char *qname)
         }
     }
 
-    return best;
+    if (best != DNS_ACTION_DEFAULT)
+        return traffic_rules_consult(qname, best);
+    return traffic_rules_consult(qname, geosite_check(qname, best));
 
 fallback:; /* OOM path: original O(n) */
     best = DNS_ACTION_DEFAULT;
@@ -382,5 +454,7 @@ fallback:; /* OOM path: original O(n) */
         if (act == DNS_ACTION_BLOCK) return DNS_ACTION_BLOCK;
         if (act < best || best == DNS_ACTION_DEFAULT) best = act;
     }
-    return best;
+    if (best != DNS_ACTION_DEFAULT)
+        return traffic_rules_consult(qname, best);
+    return traffic_rules_consult(qname, geosite_check(qname, best));
 }
