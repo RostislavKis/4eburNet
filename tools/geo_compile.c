@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "geo/geo_types.h"
+#include "geo/bloom.h"
 #include "geo_compile.h"
 
 /* Максимальная длина строки во входном файле */
@@ -205,6 +206,21 @@ int geo_compile_file(const char *in_path, const char *out_path,
     if (n_sfx > 1) qsort(suffix_strs, n_sfx, sizeof(char *), cmp_str_ptr);
     if (n_v4  > 1) qsort(v4,          n_v4,  sizeof(geo_cidr4_t), cmp_cidr4_compile);
 
+    /* ── Bloom filter: 512KB на domains и 512KB на suffixes ── */
+    uint8_t *bloom_domain = calloc(1, BLOOM_BYTES);
+    uint8_t *bloom_suffix = calloc(1, BLOOM_BYTES);
+    if (!bloom_domain || !bloom_suffix) {
+        /* OOM — продолжаем без Bloom (VERSION=1 поведение) */
+        free(bloom_domain); bloom_domain = NULL;
+        free(bloom_suffix); bloom_suffix = NULL;
+    }
+    if (bloom_domain) {
+        for (uint32_t i = 0; i < n_dom; i++)
+            bloom_add(bloom_domain, BLOOM_BYTES * 8u, domain_strs[i]);
+        for (uint32_t i = 0; i < n_sfx; i++)
+            bloom_add(bloom_suffix, BLOOM_BYTES * 8u, suffix_strs[i]);
+    }
+
     /* ── Построить string pool + offsets ── */
     size_t pos = 0;
     for (uint32_t i = 0; i < n_dom; i++) {
@@ -225,14 +241,16 @@ int geo_compile_file(const char *in_path, const char *out_path,
     geo_bin_header_t hdr;
     memset(&hdr, 0, sizeof(hdr));
     memcpy(hdr.magic, GEO_BIN_MAGIC, 4);
-    hdr.version          = GEO_BIN_VERSION;
-    hdr.region           = region;
-    hdr.cat_type         = cat_type;
-    hdr.domain_count     = n_dom;
-    hdr.suffix_count     = n_sfx;
-    hdr.v4_count         = n_v4;
-    hdr.v6_count         = n_v6;
-    hdr.string_pool_size = actual_pool;
+    hdr.version           = GEO_BIN_VERSION;
+    hdr.region            = region;
+    hdr.cat_type          = cat_type;
+    hdr.domain_count      = n_dom;
+    hdr.suffix_count      = n_sfx;
+    hdr.v4_count          = n_v4;
+    hdr.v6_count          = n_v6;
+    hdr.string_pool_size  = actual_pool;
+    hdr.bloom_domain_size = bloom_domain ? BLOOM_BYTES : 0u;
+    hdr.bloom_suffix_size = bloom_suffix ? BLOOM_BYTES : 0u;
 
     /* ── Атомарная запись: tmp → rename ── */
     size_t out_len = strlen(out_path);
@@ -265,8 +283,16 @@ int geo_compile_file(const char *in_path, const char *out_path,
     if (n_sfx > 0) ok &= (fwrite(suffix_offsets, sizeof(uint32_t), n_sfx, out) == n_sfx);
     if (n_v4  > 0) ok &= (fwrite(v4,  sizeof(geo_cidr4_t), n_v4, out) == n_v4);
     if (n_v6  > 0) ok &= (fwrite(v6,  sizeof(geo_cidr6_t), n_v6, out) == n_v6);
+    if (bloom_domain) ok &= (fwrite(bloom_domain, 1, BLOOM_BYTES, out) == BLOOM_BYTES);
+    if (bloom_suffix) ok &= (fwrite(bloom_suffix, 1, BLOOM_BYTES, out) == BLOOM_BYTES);
     if (actual_pool > 0)
         ok &= (fwrite(pool, 1, actual_pool, out) == (size_t)actual_pool);
+    /* 16-byte padding: NEON/SSE2 безопасное чтение последней строки в pool */
+    /* Не входит в hdr.string_pool_size — geo_loader принимает size >= expected */
+    {
+        static const uint8_t pad[16] = {0};
+        fwrite(pad, 1, sizeof(pad), out);
+    }
     fclose(out);
 
     if (!ok) {
@@ -277,6 +303,7 @@ int geo_compile_file(const char *in_path, const char *out_path,
         for (uint32_t i = 0; i < n_sfx; i++) free(suffix_strs[i]);
         free(domain_strs); free(suffix_strs); free(v4); free(v6);
         free(domain_offsets); free(suffix_offsets); free(pool);
+        free(bloom_domain); free(bloom_suffix);
         return 1;
     }
 
@@ -289,6 +316,7 @@ int geo_compile_file(const char *in_path, const char *out_path,
         for (uint32_t i = 0; i < n_sfx; i++) free(suffix_strs[i]);
         free(domain_strs); free(suffix_strs); free(v4); free(v6);
         free(domain_offsets); free(suffix_offsets); free(pool);
+        free(bloom_domain); free(bloom_suffix);
         return 1;
     }
     free(tmp_path);
@@ -299,6 +327,7 @@ int geo_compile_file(const char *in_path, const char *out_path,
     free(domain_strs); free(suffix_strs);
     free(domain_offsets); free(suffix_offsets);
     free(v4); free(v6); free(pool);
+    free(bloom_domain); free(bloom_suffix);
 
     size_t total_sz = sizeof(hdr)
                       + (size_t)n_dom * sizeof(uint32_t)

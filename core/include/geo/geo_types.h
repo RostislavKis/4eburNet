@@ -27,7 +27,7 @@ typedef struct {
 /* ── Бинарный формат .gbin ── */
 
 #define GEO_BIN_MAGIC    "GEO1"
-#define GEO_BIN_VERSION  1
+#define GEO_BIN_VERSION  2   /* 1 = без Bloom, 2 = с Bloom */
 
 /*
  * Заголовок .gbin файла (36 байт).
@@ -50,7 +50,9 @@ typedef struct __attribute__((packed)) {
     uint32_t v4_count;
     uint32_t v6_count;
     uint32_t string_pool_size;   /* байт в string pool */
-} geo_bin_header_t;              /* = 36 байт */
+    uint32_t bloom_domain_size;  /* байт; 0 = нет Bloom (VERSION=1 compat) */
+    uint32_t bloom_suffix_size;  /* байт; 0 = нет Bloom */
+} geo_bin_header_t;              /* = 44 байта */
 
 /* ── Вычислить смещение каждой секции внутри файла ── */
 
@@ -78,11 +80,31 @@ static inline size_t geobin_v6_off(uint32_t domain_count, uint32_t suffix_count,
            + (size_t)v4_count * sizeof(geo_cidr4_t);
 }
 
-static inline size_t geobin_pool_off(uint32_t domain_count, uint32_t suffix_count,
-                                      uint32_t v4_count, uint32_t v6_count)
+/* Смещение Bloom секции domains (после v6) */
+static inline size_t geobin_bloom_domain_off(uint32_t dc, uint32_t sc,
+                                              uint32_t v4c, uint32_t v6c)
 {
-    return geobin_v6_off(domain_count, suffix_count, v4_count)
-           + (size_t)v6_count * sizeof(geo_cidr6_t);
+    return geobin_v6_off(dc, sc, v4c)
+           + (size_t)v6c * sizeof(geo_cidr6_t);
+}
+
+/* Смещение Bloom секции suffixes (после bloom_domain) */
+static inline size_t geobin_bloom_suffix_off(uint32_t dc, uint32_t sc,
+                                              uint32_t v4c, uint32_t v6c,
+                                              uint32_t bloom_domain_size)
+{
+    return geobin_bloom_domain_off(dc, sc, v4c, v6c) + bloom_domain_size;
+}
+
+/* Смещение string_pool.
+ * Работает для VERSION=1 (bloom sizes=0) и VERSION=2 автоматически. */
+static inline size_t geobin_pool_off(uint32_t dc, uint32_t sc,
+                                      uint32_t v4c, uint32_t v6c,
+                                      uint32_t bloom_domain_size,
+                                      uint32_t bloom_suffix_size)
+{
+    return geobin_bloom_suffix_off(dc, sc, v4c, v6c, bloom_domain_size)
+           + bloom_suffix_size;
 }
 
 #endif /* GEO_TYPES_H */

@@ -17,6 +17,8 @@
 #include <time.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include "geo/bloom.h"
+#include "geo/simd_strcmp.h"
 
 /* Начальная ёмкость массива категорий */
 #define GEO_CATEGORIES_INITIAL 8
@@ -85,6 +87,9 @@ static void free_category_data(geo_category_t *c)
         c->bin_domain_offsets = NULL;
         c->bin_suffix_offsets = NULL;
         c->bin_string_pool    = NULL;
+        c->bin_bloom_domain   = NULL;
+        c->bin_bloom_suffix   = NULL;
+        c->bloom_nbits        = 0;
         c->v4 = NULL; c->v4_count = 0;
         c->v6 = NULL; c->v6_count = 0;
         c->domain_count = 0;
@@ -337,7 +342,7 @@ static int bin_find_domain(const uint32_t *offsets, int count,
     int lo = 0, hi = count - 1;
     while (lo <= hi) {
         int mid = lo + (hi - lo) / 2;
-        int cmp = strcmp(key, pool + offsets[mid]);
+        int cmp = fast_strcmp(key, pool + offsets[mid]);
         if (cmp == 0) return mid;
         if (cmp < 0) hi = mid - 1;
         else         lo = mid + 1;
@@ -354,8 +359,7 @@ static int geo_load_category_bin(geo_category_t *c, const char *path)
     if (fd < 0) return -1;
 
     struct stat st;
-    if (fstat(fd, &st) < 0 ||
-        st.st_size < (off_t)sizeof(geo_bin_header_t)) {
+    if (fstat(fd, &st) < 0 || st.st_size < 8) {
         close(fd);
         return -1;
     }
@@ -369,14 +373,26 @@ static int geo_load_category_bin(geo_category_t *c, const char *path)
 
     /* Проверить magic и версию */
     if (memcmp(hdr->magic, GEO_BIN_MAGIC, 4) != 0 ||
-        hdr->version != GEO_BIN_VERSION) {
+        hdr->version < 1 || hdr->version > GEO_BIN_VERSION) {
         munmap(map, (size_t)st.st_size);
         return -1;
     }
 
+    /* Проверить что файл содержит полный заголовок нужной версии */
+    size_t min_hdr = (hdr->version >= 2) ? sizeof(geo_bin_header_t) : 36u;
+    if ((size_t)st.st_size < min_hdr) {
+        munmap(map, (size_t)st.st_size);
+        return -1;
+    }
+
+    /* При VERSION=1 bloom полей в заголовке нет — не читаем */
+    uint32_t bds = (hdr->version >= 2) ? hdr->bloom_domain_size : 0u;
+    uint32_t bss = (hdr->version >= 2) ? hdr->bloom_suffix_size : 0u;
+
     /* Проверить что файл не меньше ожидаемого */
     size_t expected = geobin_pool_off(hdr->domain_count, hdr->suffix_count,
-                                      hdr->v4_count, hdr->v6_count)
+                                      hdr->v4_count, hdr->v6_count,
+                                      bds, bss)
                       + hdr->string_pool_size;
     if ((size_t)st.st_size < expected) {
         munmap(map, (size_t)st.st_size);
@@ -394,9 +410,27 @@ static int geo_load_category_bin(geo_category_t *c, const char *path)
         (base + geobin_domain_offsets_off());
     c->bin_suffix_offsets = (const uint32_t *)
         (base + geobin_suffix_offsets_off(hdr->domain_count));
-    c->bin_string_pool    = (const char *)
+
+    /* Bloom pointers (NULL при VERSION=1 / bds=0) */
+    if (bds > 0) {
+        c->bin_bloom_domain = (const uint8_t *)
+            (base + geobin_bloom_domain_off(hdr->domain_count, hdr->suffix_count,
+                                            hdr->v4_count, hdr->v6_count));
+        c->bin_bloom_suffix = (const uint8_t *)
+            (base + geobin_bloom_suffix_off(hdr->domain_count, hdr->suffix_count,
+                                            hdr->v4_count, hdr->v6_count,
+                                            bds));
+        c->bloom_nbits = bds * 8u;
+    } else {
+        c->bin_bloom_domain = NULL;
+        c->bin_bloom_suffix = NULL;
+        c->bloom_nbits = 0;
+    }
+
+    c->bin_string_pool = (const char *)
         (base + geobin_pool_off(hdr->domain_count, hdr->suffix_count,
-                                hdr->v4_count,     hdr->v6_count));
+                                hdr->v4_count, hdr->v6_count,
+                                bds, bss));
 
     /* v4/v6 указывают прямо в mmap — без malloc */
     c->v4 = (geo_cidr4_t *)
@@ -671,8 +705,9 @@ geo_region_t geo_match_domain(const geo_manager_t *gm, const char *domain)
         if (!c->loaded) continue;
 
         if (c->mmap_addr) {
-            /* bin режим: поиск через offsets в string pool */
+            /* bin режим: Bloom fast path + bsearch */
             if (c->domain_count > 0 &&
+                bloom_check(c->bin_bloom_domain, c->bloom_nbits, domain) &&
                 bin_find_domain(c->bin_domain_offsets, c->domain_count,
                                 c->bin_string_pool, domain) >= 0)
                 return c->region;
@@ -680,7 +715,8 @@ geo_region_t geo_match_domain(const geo_manager_t *gm, const char *domain)
             if (c->suffix_count > 0) {
                 const char *p = domain;
                 while (p) {
-                    if (bin_find_domain(c->bin_suffix_offsets, c->suffix_count,
+                    if (bloom_check(c->bin_bloom_suffix, c->bloom_nbits, p) &&
+                        bin_find_domain(c->bin_suffix_offsets, c->suffix_count,
                                         c->bin_string_pool, p) >= 0)
                         return c->region;
                     p = strchr(p, '.');
@@ -721,13 +757,15 @@ geo_cat_type_t geo_match_domain_cat(const geo_manager_t *gm, const char *domain)
 
         if (c->mmap_addr) {
             if (c->domain_count > 0 &&
+                bloom_check(c->bin_bloom_domain, c->bloom_nbits, domain) &&
                 bin_find_domain(c->bin_domain_offsets, c->domain_count,
                                 c->bin_string_pool, domain) >= 0)
                 return c->cat_type;
             if (c->suffix_count > 0) {
                 const char *p = domain;
                 while (p) {
-                    if (bin_find_domain(c->bin_suffix_offsets, c->suffix_count,
+                    if (bloom_check(c->bin_bloom_suffix, c->bloom_nbits, p) &&
+                        bin_find_domain(c->bin_suffix_offsets, c->suffix_count,
                                         c->bin_string_pool, p) >= 0)
                         return c->cat_type;
                     p = strchr(p, '.');
