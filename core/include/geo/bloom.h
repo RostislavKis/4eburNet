@@ -39,6 +39,7 @@ static inline bool bloom_check(const uint8_t *bits, uint32_t nbits,
 static inline void bloom_add(uint8_t *bits, uint32_t nbits,
                               const char *key)
 {
+    if (!bits || nbits == 0) return;
     uint32_t h0 = bloom_hash(key, 0x811c9dc5u) % nbits;
     uint32_t h1 = bloom_hash(key, 0x01000193u) % nbits;
     uint32_t h2 = bloom_hash(key, 0xc4ac5965u) % nbits;
