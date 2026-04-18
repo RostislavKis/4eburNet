@@ -999,7 +999,6 @@ int main(int argc, char *argv[])
                     device_policy_apply(&device_state, cfg_ptr->lan_interface);
                 }
                 rules_engine_free(&re_state);
-                geo_manager_free(&geo_state);
                 proxy_group_free(&pgm_state);
                 proxy_provider_free(&ppm_state);
                 rule_provider_free(&rpm_state);
@@ -1009,8 +1008,21 @@ int main(int argc, char *argv[])
                 proxy_provider_init(&ppm_state, cfg_ptr);
                 proxy_provider_load_all(&ppm_state);
                 proxy_group_init(&pgm_state, cfg_ptr);
-                if (geo_manager_init(&geo_state, cfg_ptr) == 0)
-                    geo_load_region_categories(&geo_state, cfg_ptr);
+                /* Атомарная замена geo: load_new → swap → free_old.
+                   Если новые данные не загрузились — оставляем старые. */
+                {
+                    geo_manager_t new_geo;
+                    memset(&new_geo, 0, sizeof(new_geo));
+                    if (geo_manager_init(&new_geo, cfg_ptr) == 0) {
+                        geo_load_region_categories(&new_geo, cfg_ptr);
+                        geo_manager_free(&geo_state);
+                        geo_state = new_geo;
+                    } else {
+                        log_msg(LOG_WARN,
+                            "geo: ошибка перезагрузки — оставляем старые данные");
+                        geo_manager_free(&new_geo);
+                    }
+                }
                 rules_engine_init(&re_state, cfg_ptr, &pgm_state, &rpm_state,
                                   &geo_state);
                 dispatcher_set_rules_engine(&re_state);
