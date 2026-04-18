@@ -206,13 +206,17 @@ int geo_compile_file(const char *in_path, const char *out_path,
     if (n_sfx > 1) qsort(suffix_strs, n_sfx, sizeof(char *), cmp_str_ptr);
     if (n_v4  > 1) qsort(v4,          n_v4,  sizeof(geo_cidr4_t), cmp_cidr4_compile);
 
-    /* ── Bloom filter: 512KB на domains и 512KB на suffixes ── */
-    uint8_t *bloom_domain = calloc(1, BLOOM_BYTES);
-    uint8_t *bloom_suffix = calloc(1, BLOOM_BYTES);
-    if (!bloom_domain || !bloom_suffix) {
-        /* OOM — продолжаем без Bloom (VERSION=1 поведение) */
-        free(bloom_domain); bloom_domain = NULL;
-        free(bloom_suffix); bloom_suffix = NULL;
+    /* ── Bloom filter: только если есть домены или суффиксы ── */
+    uint8_t *bloom_domain = NULL;
+    uint8_t *bloom_suffix = NULL;
+    if (n_dom > 0 || n_sfx > 0) {
+        bloom_domain = calloc(1, BLOOM_BYTES);
+        bloom_suffix = calloc(1, BLOOM_BYTES);
+        if (!bloom_domain || !bloom_suffix) {
+            /* OOM — продолжаем без Bloom (VERSION=1 поведение) */
+            free(bloom_domain); bloom_domain = NULL;
+            free(bloom_suffix); bloom_suffix = NULL;
+        }
     }
     if (bloom_domain) {
         for (uint32_t i = 0; i < n_dom; i++)
