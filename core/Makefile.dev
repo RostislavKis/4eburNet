@@ -269,7 +269,7 @@ cross-mipsel:
 	@test -d "$(TC_MIPSEL)" || { echo "ОШИБКА: TC_MIPSEL не найден: $(TC_MIPSEL)"; echo "Пример: make cross-mipsel TC_MIPSEL=/path/to/toolchain/bin"; exit 1; }
 	@test -d "$(dir $(WOLFSSL_MIPSEL))" || { echo "ОШИБКА: WOLFSSL_MIPSEL не найден: $(WOLFSSL_MIPSEL)"; exit 1; }
 	@echo "=== Cross-compile 4eburnetd для mipsel ==="
-	$(MAKE) -f Makefile.dev PROFILE=full \
+	$(MAKE) -f Makefile.dev PROFILE=normal \
 		CC=$(TC_MIPSEL)/mipsel-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_MIPSEL) \
 		EXTRA_CFLAGS="-march=mips32r2 -mabi=32" \
