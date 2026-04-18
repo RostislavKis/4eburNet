@@ -27,6 +27,7 @@
 #include "proxy/rules_engine.h"
 #if CONFIG_EBURNET_SNIFFER
 #include "proxy/sniffer.h"
+#include "proxy/ja3.h"
 #endif
 #if CONFIG_EBURNET_DPI
 #include "dpi/dpi_filter.h"
@@ -161,6 +162,10 @@ DpiAdaptTable g_dpi_adapt;
 #endif
 #if CONFIG_EBURNET_FAKE_IP
 static fake_ip_table_t    *g_fake_ip      = NULL;
+#endif
+#if CONFIG_EBURNET_SNIFFER
+/* Последний вычисленный JA3 хэш — для /api/status */
+static char g_last_ja3[33] = {0};
 #endif
 
 void dispatcher_set_context(dispatcher_state_t *ds,
@@ -1116,6 +1121,9 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     const EburNetConfig *cfg = g_config;
 
     /* Выбрать сервер через health-check */
+#if CONFIG_EBURNET_SNIFFER
+    char ja3[33] = {0};
+#endif
     int idx;
     if (g_rules_engine && g_rules_engine->rule_count > 0) {
         /* 3.6: SNI sniffer — извлечь домен из TLS ClientHello */
@@ -1137,9 +1145,30 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
 
 #if CONFIG_EBURNET_SNIFFER
         if (!domain && conn->fd >= 0) {
-            if (sniffer_peek_sni(conn->fd, sni, sizeof(sni)) > 0) {
-                domain = sni;
-                log_msg(LOG_DEBUG, "SNI sniffer: %s", sni);
+            ClientHelloInfo *hello = calloc(1, sizeof(ClientHelloInfo));
+            if (hello) {
+                if (sniffer_parse_hello(conn->fd, hello) == 0) {
+                    if (hello->sni_found) {
+                        size_t snl = strlen(hello->sni);
+                        if (snl >= sizeof(sni)) snl = sizeof(sni) - 1;
+                        memcpy(sni, hello->sni, snl);
+                        sni[snl] = '\0';
+                        domain = sni;
+                        log_msg(LOG_DEBUG, "SNI sniffer: %s", sni);
+                    }
+                    char ja4[40] = {0};
+                    ja3_compute(hello, ja3, NULL, 0);
+                    ja4_compute(hello, ja4);
+                    if (ja3[0]) memcpy(g_last_ja3, ja3, sizeof(g_last_ja3));
+                    const char *browser = ja3_match_reference(ja3);
+                    if (browser)
+                        log_msg(LOG_DEBUG,
+                            "TLS fingerprint: %s JA3=%s", browser, ja3);
+                    else if (ja3[0])
+                        log_msg(LOG_INFO,
+                            "TLS fingerprint: JA3=%s JA4=%s", ja3, ja4);
+                }
+                free(hello);
             }
         }
 #endif
@@ -1186,6 +1215,9 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
             r->dst        = conn->dst;
             r->created_at = time(NULL);
             r->server_idx = -1;
+#if CONFIG_EBURNET_SNIFFER
+            if (ja3[0]) memcpy(r->ja3, ja3, sizeof(r->ja3));
+#endif
 #if CONFIG_EBURNET_DPI
             r->dpi_bypass    = (dpi_match == DPI_MATCH_BYPASS);
             r->dpi_first_done = false;  /* явно, хотя memset уже 0 */
@@ -1251,6 +1283,9 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     r->dst        = conn->dst;
     r->created_at = time(NULL);
     r->server_idx = idx;
+#if CONFIG_EBURNET_SNIFFER
+    if (ja3[0]) memcpy(r->ja3, ja3, sizeof(r->ja3));
+#endif
 
 #if CONFIG_EBURNET_AWG
     /* AWG: UDP, минует TCP connect */
@@ -1988,3 +2023,9 @@ void dispatcher_stats(const dispatcher_state_t *ds,
     if (accepted) *accepted = ds->total_accepted;
     if (closed)   *closed   = ds->total_closed;
 }
+
+#if CONFIG_EBURNET_SNIFFER
+const char *dispatcher_get_last_ja3(void) { return g_last_ja3; }
+#else
+const char *dispatcher_get_last_ja3(void) { return ""; }
+#endif
