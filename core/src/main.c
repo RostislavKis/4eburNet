@@ -21,6 +21,7 @@
 #if CONFIG_EBURNET_DPI
 #include "dpi/cdn_updater.h"
 #include "dpi/dpi_filter.h"
+#include "dpi/dpi_adapt.h"
 #endif
 #include "http_server.h"
 #include "stats.h"
@@ -1070,6 +1071,10 @@ int main(int argc, char *argv[])
                 if (new_cfg_ptr) free(new_cfg_ptr);
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
             }
+#if CONFIG_EBURNET_DPI
+            /* Сохранить кэш DPI адаптации при каждом reload */
+            dpi_adapt_save(&g_dpi_adapt, "/etc/4eburnet/dpi_cache.bin");
+#endif
             state.reload = false;
         }
 
@@ -1095,6 +1100,8 @@ int main(int argc, char *argv[])
 
 cleanup:
 #if CONFIG_EBURNET_DPI
+    /* Сохранить кэш DPI при завершении работы */
+    dpi_adapt_save(&g_dpi_adapt, "/etc/4eburnet/dpi_cache.bin");
     if (state.cdn_pipe_fd >= 0) {
         close(state.cdn_pipe_fd);
         state.cdn_pipe_fd = -1;

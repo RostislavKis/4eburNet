@@ -4,6 +4,9 @@
 #include "stats.h"
 #include "net_utils.h"
 #include "routing/nftables.h"
+#if CONFIG_EBURNET_DPI
+#include "dpi/dpi_adapt.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -230,14 +233,27 @@ static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
         const char *mode = (state->config && state->config->mode[0])
                            ? state->config->mode : "unknown";
         bool flow_ok = nft_flow_offload_is_active();
+#if CONFIG_EBURNET_DPI
+        uint32_t adapt_count = 0, adapt_hits = 0;
+        dpi_adapt_stats(&g_dpi_adapt, &adapt_count, &adapt_hits);
+#endif
         snprintf(buf, IPC_RESPONSE_MAX,
                  "{\"status\":\"running\",\"version\":\"%s\","
                  "\"profile\":\"%s\",\"uptime\":%ld,"
                  "\"mode\":\"%s\",\"geo_loaded\":%s,"
-                 "\"flow_offload\":%s}",
+                 "\"flow_offload\":%s"
+#if CONFIG_EBURNET_DPI
+                 ",\"dpi_adapt_count\":%u"
+                 ",\"dpi_adapt_hits\":%u"
+#endif
+                 "}",
                  EBURNET_VERSION, profile, (long)uptime,
                  mode, geo_ok ? "true" : "false",
-                 flow_ok ? "true" : "false");
+                 flow_ok ? "true" : "false"
+#if CONFIG_EBURNET_DPI
+                 , adapt_count, adapt_hits
+#endif
+                 );
         ipc_set_response(c, buf);
         break;
     }
@@ -444,12 +460,39 @@ rules_send:
         break;
     }
 
-    case IPC_CMD_DPI_SET:
-        state->reload = true;
-        ipc_set_response(c,
-            "{\"status\":\"ok\",\"msg\":\"reload scheduled\"}");
-        log_msg(LOG_INFO, "IPC: запрошено обновление DPI настроек (reload)");
+    case IPC_CMD_DPI_SET: {
+        /* payload: {"enabled":"true","split_pos":"2","fake_ttl":"5",...} */
+        const char *payload = (c->payload && c->payload[0]) ? c->payload : "{}";
+        EburNetConfig *cfg = (EburNetConfig *)state->config;
+        if (cfg) {
+            char val[64] = {0};
+            if (json_get_str(payload, "enabled", val, sizeof(val)))
+                cfg->dpi_enabled = (strcmp(val, "true") == 0 ||
+                                    strcmp(val, "1") == 0);
+            if (json_get_str(payload, "split_pos", val, sizeof(val))) {
+                int v = atoi(val);
+                if (v > 0 && v < 1400) cfg->dpi_split_pos = v;
+            }
+            if (json_get_str(payload, "fake_ttl", val, sizeof(val))) {
+                int v = atoi(val);
+                if (v > 0 && v <= 64) cfg->dpi_fake_ttl = v;
+            }
+            if (json_get_str(payload, "fake_count", val, sizeof(val))) {
+                int v = atoi(val);
+                if (v > 0 && v <= 20) cfg->dpi_fake_repeats = v;
+            }
+            if (json_get_str(payload, "fake_sni", val, sizeof(val))) {
+                int _n = snprintf(cfg->dpi_fake_sni,
+                                   sizeof(cfg->dpi_fake_sni), "%s", val);
+                (void)_n;
+            }
+        }
+        /* Сохранить кэш адаптации при изменении DPI настроек */
+        dpi_adapt_save(&g_dpi_adapt, "/etc/4eburnet/dpi_cache.bin");
+        ipc_set_response(c, "{\"status\":\"ok\"}");
+        log_msg(LOG_INFO, "IPC: DPI настройки обновлены");
         break;
+    }
 #endif
 
     default:
