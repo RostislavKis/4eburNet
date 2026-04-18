@@ -882,6 +882,11 @@ int config_load(const char *path, EburNetConfig *cfg)
                         int _n = snprintf(dr->pattern, sizeof(dr->pattern), "%s", value);
                         if (_n < 0 || (size_t)_n >= sizeof(dr->pattern))
                             log_msg(LOG_WARN, "config: обрезано: dr->pattern");
+                    } else if (strcmp(key, "domain") == 0 ||
+                               strcmp(key, "upstream") == 0) {
+                        log_msg(LOG_WARN,
+                            "config: dns_rule устаревший формат "
+                            "(поле '%s'). Используйте 'type' и 'pattern'.", key);
                     }
                 }
                 break;
@@ -1146,6 +1151,18 @@ int config_load(const char *path, EburNetConfig *cfg)
                 char *s = strdup(lval);
                 if (!s) goto cleanup_fail;
                 g->servers[g->server_count++] = s;
+            } else if (section == SECTION_DNS &&
+                       strcmp(lkey, "block_geosite") == 0) {
+                /* list block_geosite 'ads'|'trackers'|'threats' */
+                if (strcmp(lval, "ads") == 0)
+                    cfg->dns.block_geosite_ads      = true;
+                else if (strcmp(lval, "trackers") == 0)
+                    cfg->dns.block_geosite_trackers = true;
+                else if (strcmp(lval, "threats") == 0)
+                    cfg->dns.block_geosite_threats  = true;
+                else
+                    log_msg(LOG_WARN, "Строка %d: geosite категория неизвестна: '%s'",
+                            line_num, lval);
             } else {
                 log_msg(LOG_DEBUG, "Строка %d: list '%s' пропущена",
                         line_num, lkey);
