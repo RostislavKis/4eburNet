@@ -1211,3 +1211,94 @@ nft_result_t nft_offload_bypass_init(void)
 
     return rc;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Flow offload для DIRECT трафика (v1.1-3)                          */
+/* ------------------------------------------------------------------ */
+
+static int get_wan_iface(char *buf, size_t buflen)
+{
+    FILE *f = popen("ip route show default | awk '{print $5}' | head -1", "r");
+    if (!f) return -1;
+    if (!fgets(buf, (int)buflen, f)) { pclose(f); return -1; }
+    pclose(f);
+    size_t l = strlen(buf);
+    if (l > 0 && buf[l-1] == '\n') buf[--l] = '\0';
+    return l > 0 ? 0 : -1;
+}
+
+int nft_flow_offload_enable(void)
+{
+    char wan_iface[32] = {0};
+    if (get_wan_iface(wan_iface, sizeof(wan_iface)) < 0) {
+        log_msg(LOG_WARN, "flow offload: не могу определить WAN интерфейс");
+        return -1;
+    }
+
+    if (access("/sys/module/nft_flow_offload", F_OK) != 0) {
+        const char *const modprobe[] = {"modprobe", "nft_flow_offload", NULL};
+        char errbuf[64] = {0};
+        exec_cmd_safe(modprobe, errbuf, sizeof(errbuf));
+        if (access("/sys/module/nft_flow_offload", F_OK) != 0) {
+            log_msg(LOG_WARN, "flow offload: nft_flow_offload.ko не загружен");
+            return -1;
+        }
+    }
+
+    /* Удаляем старые объекты — идемпотентность */
+    nft_flow_offload_disable();
+
+    char *config = malloc(NFT_ATOMIC_MAX);
+    if (!config) return -1;
+
+    int n = snprintf(config, NFT_ATOMIC_MAX,
+        "add table inet " NFT_TABLE_NAME "\n"
+        "add flowtable inet " NFT_TABLE_NAME " " NFT_FLOWTABLE_NAME
+            " { hook ingress priority 0 ; "
+            "devices = { %s, br-lan } ; }\n"
+        "add chain inet " NFT_TABLE_NAME " " NFT_CHAIN_FLOW
+            " { type filter hook forward priority %d ; policy accept ; }\n"
+        "add rule inet " NFT_TABLE_NAME " " NFT_CHAIN_FLOW
+            " ct state { established, related }"
+            " meta l4proto { tcp, udp }"
+            " meta mark != 0x%08x"
+            " flow add @" NFT_FLOWTABLE_NAME "\n",
+        wan_iface, NFT_PRIO_FLOW, NFT_MARK_PROXY);
+
+    if (n < 0 || (size_t)n >= NFT_ATOMIC_MAX) {
+        free(config); return -1;
+    }
+
+    nft_result_t rc = nft_exec_atomic(config);
+    free(config);
+
+    if (rc == NFT_OK)
+        log_msg(LOG_INFO,
+            "flow offload: активирован (WAN=%s, br-lan)", wan_iface);
+    else
+        log_msg(LOG_WARN,
+            "flow offload: не активирован: %s", nft_strerror(rc));
+
+    return rc == NFT_OK ? 0 : -1;
+}
+
+void nft_flow_offload_disable(void)
+{
+    const char *const flush_chain[] = {
+        "nft", "flush", "chain", "inet", NFT_TABLE_NAME,
+        NFT_CHAIN_FLOW, NULL
+    };
+    const char *const del_chain[] = {
+        "nft", "delete", "chain", "inet", NFT_TABLE_NAME,
+        NFT_CHAIN_FLOW, NULL
+    };
+    const char *const del_ft[] = {
+        "nft", "delete", "flowtable", "inet", NFT_TABLE_NAME,
+        NFT_FLOWTABLE_NAME, NULL
+    };
+    char errbuf[64] = {0};
+    exec_cmd_safe(flush_chain, errbuf, sizeof(errbuf));
+    exec_cmd_safe(del_chain,   errbuf, sizeof(errbuf));
+    exec_cmd_safe(del_ft,      errbuf, sizeof(errbuf));
+    log_msg(LOG_INFO, "flow offload: деактивирован");
+}
