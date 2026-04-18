@@ -1,5 +1,6 @@
 #include "http_server.h"
 #include "logo_png.h"
+#include "4eburnet.h"
 
 #include <stdbool.h>
 #include <errno.h>
@@ -82,15 +83,17 @@ static void http_send(HttpConn *conn, int epoll_fd,
         "Content-Type: %s\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Origin: http://localhost\r\n"
         "\r\n",
         status, status_str, ctype, body_len);
 
     if (hdr_len > 0 && hdr_len < (int)sizeof(hdr))
-        write_all(conn->fd, hdr, (size_t)hdr_len);
+        if (write_all(conn->fd, hdr, (size_t)hdr_len) < 0)
+            log_msg(LOG_DEBUG, "HTTP: обрыв при отправке заголовка");
 
     if (body && body_len > 0)
-        write_all(conn->fd, body, body_len);
+        if (write_all(conn->fd, body, body_len) < 0)
+            log_msg(LOG_DEBUG, "HTTP: обрыв при отправке тела");
 
     conn_close(conn, epoll_fd);
 }
@@ -129,12 +132,13 @@ static void http_send_file(HttpConn *conn, int epoll_fd,
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
         "Connection: close\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Origin: http://localhost\r\n"
         "\r\n",
         status, status_str, ctype, fsize);
 
     if (hdr_len > 0 && hdr_len < (int)sizeof(hdr))
-        write_all(conn->fd, hdr, (size_t)hdr_len);
+        if (write_all(conn->fd, hdr, (size_t)hdr_len) < 0)
+            log_msg(LOG_DEBUG, "HTTP: обрыв при отправке заголовка файла");
 
     /* static: single-threaded epoll, экономим стек MIPS */
     static char chunk[2048];
@@ -203,17 +207,35 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
         if (uptime < 0) uptime = 0;
     }
 
-    /* Прочитать mode из UCI */
+    /* Прочитать mode из UCI конфига напрямую — без fork */
     char mode[32] = "rules";
-    FILE *uf = popen("uci -q get 4eburnet.main.mode 2>/dev/null", "r");
-    if (uf) {
-        char tmp[32] = {0};
-        if (fgets(tmp, sizeof(tmp), uf)) {
-            size_t l = strlen(tmp);
-            if (l > 0 && tmp[l - 1] == '\n') tmp[l - 1] = '\0';
-            if (tmp[0]) strncpy(mode, tmp, sizeof(mode) - 1);
+    {
+        FILE *cf = fopen("/etc/config/4eburnet", "r");
+        if (cf) {
+            char ln[128];
+            while (fgets(ln, sizeof(ln), cf)) {
+                const char *lp = ln;
+                while (*lp == '\t' || *lp == ' ') lp++;
+                if (strncmp(lp, "option mode", 11) == 0) {
+                    const char *q = strchr(lp + 11, '\'');
+                    if (!q) q = strchr(lp + 11, '"');
+                    if (q) {
+                        q++;
+                        const char *e = strchr(q, '\'');
+                        if (!e) e = strchr(q, '"');
+                        if (e) {
+                            int mlen = (int)(e - q);
+                            if (mlen > 0 && mlen < (int)sizeof(mode)) {
+                                memcpy(mode, q, (size_t)mlen);
+                                mode[mlen] = '\0';
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+            fclose(cf);
         }
-        pclose(uf);
     }
 
     /* Определить профиль */
@@ -830,7 +852,7 @@ int http_server_handle(HttpServer *srv, int fd, int epoll_fd)
         conn->buf_len += n;
         conn->buf[conn->buf_len] = '\0';
 
-        if (strstr(conn->buf, "\r\n\r\n") || strstr(conn->buf, "\n\n"))
+        if (strstr(conn->buf, "\r\n\r\n"))
             conn->headers_done = 1;
 
         if (!conn->headers_done) {
