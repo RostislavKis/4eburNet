@@ -769,6 +769,7 @@ int main(int argc, char *argv[])
 
     /* HTTP dashboard — не фатально если порт занят */
     if (http_server_init(&g_http) == 0) {
+        http_server_set_config(cfg_ptr);
         http_server_register_epoll(&g_http, master_epoll);
         log_msg(LOG_INFO, "HTTP dashboard: порт %d", HTTP_PORT);
     } else {
