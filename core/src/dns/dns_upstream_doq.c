@@ -481,18 +481,19 @@ static int doq_conn_flush_hs(doq_conn_t *dc)
     default:                             ki = 0; break;
     }
 
-    uint8_t frames[2048];
+    uint8_t *frames = malloc(2048);
+    if (!frames) return -1;
     size_t  flen = 0;
 
     /* ACK если нужно */
     if (dc->recv_need_ack[ki]) {
-        flen += frame_ack(frames + flen, sizeof(frames) - flen,
+        flen += frame_ack(frames + flen, 2048 - flen,
                            dc->recv_largest[ki]);
         dc->recv_need_ack[ki] = 0;
     }
 
     /* CRYPTO frame с TLS данными — offset накапливается per уровень */
-    flen += frame_crypto(frames + flen, sizeof(frames) - flen,
+    flen += frame_crypto(frames + flen, 2048 - flen,
                           dc->hs_offset[ki], dc->hs_buf, dc->hs_buf_len);
     dc->hs_offset[ki] += dc->hs_buf_len;
     dc->hs_buf_len = 0;
@@ -503,8 +504,9 @@ static int doq_conn_flush_hs(doq_conn_t *dc)
                                 frames, flen,
                                 ki == 0,   /* padding только для Initial */
                                 out, sizeof(out));
-    if (!plen) return -1;
+    if (!plen) { free(frames); return -1; }
     doq_send(dc, out, plen);
+    free(frames);
     return 0;
 }
 
@@ -954,21 +956,23 @@ int doq_query_start(doq_pool_t *pool, const DnsConfig *cfg,
     doq_buf[2] = 0x00; doq_buf[3] = 0x00;   /* DNS ID → 0 */
 
     /* Собрать STREAM frame + возможный ACK */
-    uint8_t frames[1500];
+    uint8_t *frames = malloc(1500);
+    if (!frames) return -1;
     size_t  flen = 0;
     if (dc->recv_need_ack[2]) {
-        flen += frame_ack(frames + flen, sizeof(frames) - flen,
+        flen += frame_ack(frames + flen, 1500 - flen,
                            dc->recv_largest[2]);
         dc->recv_need_ack[2] = 0;
     }
-    flen += frame_stream(frames + flen, sizeof(frames) - flen,
+    flen += frame_stream(frames + flen, 1500 - flen,
                           st->stream_id, 0,
                           doq_buf, 2 + query_len, true);
 
     uint8_t pkt[DOQ_MAX_PKT + 64u];
     size_t  plen = encode_short(dc, frames, flen, pkt, sizeof(pkt));
-    if (!plen) return -1;
+    if (!plen) { free(frames); return -1; }
     doq_send(dc, pkt, plen);
+    free(frames);
     return 0;
 }
 
