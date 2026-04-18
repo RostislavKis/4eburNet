@@ -5,6 +5,7 @@
 #include "ipc.h"
 #include "routing/nftables.h"
 #include "routing/policy.h"
+#include "routing/tc_fast.h"
 #include "proxy/tproxy.h"
 #include "proxy/dispatcher.h"
 #include "ntp_bootstrap.h"
@@ -524,6 +525,12 @@ int main(int argc, char *argv[])
     if (cfg_ptr->flow_offload) {
         if (nft_flow_offload_enable() < 0)
             log_msg(LOG_WARN, "flow offload: не активирован (software path)");
+    }
+    /* TC ingress fast path: cls_u32 LAN bypass (v1.2-2) */
+    if (cfg_ptr->tc_fast_enabled) {
+        if (tc_fast_enable(cfg_ptr->lan_interface[0] ? cfg_ptr->lan_interface : "br-lan",
+                           cfg_ptr->lan_prefix, cfg_ptr->lan_mask) < 0)
+            log_msg(LOG_WARN, "tc_fast: не активирован");
     }
 
     /* Менеджер правил маршрутизации */
@@ -1066,6 +1073,11 @@ int main(int argc, char *argv[])
                 nft_flow_offload_disable();
                 if (cfg_ptr->flow_offload)
                     nft_flow_offload_enable();
+                /* TC fast path: переактивировать с новым конфигом */
+                tc_fast_disable(cfg_ptr->lan_interface[0] ? cfg_ptr->lan_interface : "br-lan");
+                if (cfg_ptr->tc_fast_enabled)
+                    tc_fast_enable(cfg_ptr->lan_interface[0] ? cfg_ptr->lan_interface : "br-lan",
+                                   cfg_ptr->lan_prefix, cfg_ptr->lan_mask);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 if (new_cfg_ptr) free(new_cfg_ptr);
@@ -1132,6 +1144,7 @@ cleanup:
     tproxy_cleanup(&tproxy_state);
     policy_cleanup();
     nft_flow_offload_disable();
+    tc_fast_disable(cfg_ptr->lan_interface[0] ? cfg_ptr->lan_interface : "br-lan");
     nft_cleanup();
     ipc_cleanup(state.ipc_fd);
     tls_global_cleanup();
