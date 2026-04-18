@@ -82,7 +82,7 @@
 | **NTP bootstrap** | ✅ | ntp_bootstrap.c — HTTP Date перед wolfSSL |
 | **sub_convert** | ✅ | sub_convert.py — Clash YAML → UCI, AWG, DST-PORT |
 | **CI/CD** | ✅ | .github/workflows/build.yml |
-| **test-sniffer** | ❌ | тест test_sniffer.c не написан — нет в Makefile.dev |
+| **test-sniffer** | ✅ | test_sniffer.c — 7 тестов, 19/19 PASS (3.6.3) |
 
 ## Незавершённые функции
 
