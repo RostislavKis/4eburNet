@@ -674,7 +674,7 @@ geo_region_t geo_match_ip(const geo_manager_t *gm,
         }
 
         if (addr->ss_family == AF_INET6 && c->v6_count > 0) {
-            /* O(n) — geoip-ru.lst содержит 0 IPv6 CIDR, bsearch не нужен */
+            /* O(n) — IPv6 CIDR обычно немного, bsearch не критичен */
             const struct sockaddr_in6 *s6 = (const struct sockaddr_in6 *)addr;
             for (int j = 0; j < c->v6_count; j++) {
                 const geo_cidr6_t *e = &c->v6[j];

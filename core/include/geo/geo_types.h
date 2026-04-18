@@ -30,14 +30,17 @@ typedef struct {
 #define GEO_BIN_VERSION  2   /* 1 = без Bloom, 2 = с Bloom */
 
 /*
- * Заголовок .gbin файла (36 байт).
+ * Заголовок .gbin файла (44 байта, VERSION=2).
  * Раскладка файла:
- *   [geo_bin_header_t 36B]
+ *   [geo_bin_header_t 44B]
  *   [uint32_t domain_offsets[domain_count]]   ← смещения в string_pool
  *   [uint32_t suffix_offsets[suffix_count]]   ← смещения в string_pool
  *   [geo_cidr4_t v4[v4_count]]                ← 8 байт каждая
  *   [geo_cidr6_t v6[v6_count]]                ← 17 байт каждая
+ *   [uint8_t bloom_domain[bloom_domain_size]] ← 0 если нет доменов
+ *   [uint8_t bloom_suffix[bloom_suffix_size]] ← 0 если нет суффиксов
  *   [char string_pool[string_pool_size]]
+ *   [16 байт нулевого padding]                ← NEON/SSE2 overread safety
  * После mmap — все поинтеры внутрь файла, ни одного malloc.
  */
 typedef struct __attribute__((packed)) {
