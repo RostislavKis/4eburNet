@@ -263,6 +263,7 @@ typedef struct EburNetConfig {
     char                  cdn_cf_v6_url[256];
     char                  cdn_fastly_url[256];
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
+    bool                  flow_offload;          /* nftables flow offload для DIRECT трафика */
 } EburNetConfig;
 
 /* Получить ServerConfig по unified индексу:
