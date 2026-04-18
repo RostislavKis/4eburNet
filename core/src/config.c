@@ -993,7 +993,11 @@ int config_load(const char *path, EburNetConfig *cfg)
             case SECTION_RULE_PROVIDER:
                 if (rp_count > 0) {
                     RuleProviderConfig *rp = &rp_tmp[rp_count - 1];
-                    if (strcmp(key, "type") == 0) {
+                    if (strcmp(key, "name") == 0) {
+                        int _n = snprintf(rp->name, sizeof(rp->name), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(rp->name))
+                            log_msg(LOG_WARN, "config: обрезано: rp->name");
+                    } else if (strcmp(key, "type") == 0) {
                         if (strcmp(value, "http") == 0) rp->type = RULE_PROVIDER_HTTP;
                         else rp->type = RULE_PROVIDER_FILE;
                     }
@@ -1070,15 +1074,15 @@ int config_load(const char *path, EburNetConfig *cfg)
                 if (tr_count > 0) {
                     TrafficRule *tr = &tr_tmp[tr_count - 1];
                     if (strcmp(key, "type") == 0) {
-                        if (strcmp(value, "DOMAIN") == 0) tr->type = RULE_TYPE_DOMAIN;
-                        else if (strcmp(value, "DOMAIN-SUFFIX") == 0) tr->type = RULE_TYPE_DOMAIN_SUFFIX;
-                        else if (strcmp(value, "DOMAIN-KEYWORD") == 0) tr->type = RULE_TYPE_DOMAIN_KEYWORD;
-                        else if (strcmp(value, "IP-CIDR") == 0) tr->type = RULE_TYPE_IP_CIDR;
-                        else if (strcmp(value, "RULE-SET") == 0) tr->type = RULE_TYPE_RULE_SET;
-                        else if (strcmp(value, "MATCH") == 0)    tr->type = RULE_TYPE_MATCH;
-                        else if (strcmp(value, "GEOIP") == 0)    tr->type = RULE_TYPE_GEOIP;
-                        else if (strcmp(value, "GEOSITE") == 0)  tr->type = RULE_TYPE_GEOSITE;
-                        else if (strcmp(value, "DST-PORT") == 0) tr->type = RULE_TYPE_DST_PORT;
+                        if (strcasecmp(value, "DOMAIN") == 0 || strcmp(value, "domain") == 0) tr->type = RULE_TYPE_DOMAIN;
+                        else if (strcasecmp(value, "DOMAIN-SUFFIX") == 0 || strcmp(value, "domain_suffix") == 0) tr->type = RULE_TYPE_DOMAIN_SUFFIX;
+                        else if (strcasecmp(value, "DOMAIN-KEYWORD") == 0 || strcmp(value, "domain_keyword") == 0) tr->type = RULE_TYPE_DOMAIN_KEYWORD;
+                        else if (strcasecmp(value, "IP-CIDR") == 0 || strcmp(value, "ip_cidr") == 0) tr->type = RULE_TYPE_IP_CIDR;
+                        else if (strcasecmp(value, "RULE-SET") == 0 || strcmp(value, "rule_set") == 0) tr->type = RULE_TYPE_RULE_SET;
+                        else if (strcasecmp(value, "MATCH") == 0 || strcmp(value, "match") == 0) tr->type = RULE_TYPE_MATCH;
+                        else if (strcasecmp(value, "GEOIP") == 0 || strcmp(value, "geoip") == 0) tr->type = RULE_TYPE_GEOIP;
+                        else if (strcasecmp(value, "GEOSITE") == 0 || strcmp(value, "geosite") == 0) tr->type = RULE_TYPE_GEOSITE;
+                        else if (strcasecmp(value, "DST-PORT") == 0 || strcmp(value, "port") == 0) tr->type = RULE_TYPE_DST_PORT;
                     }
                     else if (strcmp(key, "value") == 0) {
                         int _n = snprintf(tr->value, sizeof(tr->value), "%s", value);
