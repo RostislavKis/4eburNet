@@ -318,6 +318,36 @@ def _parse_inline_dict(s: str) -> dict:
     return result
 
 
+def _awg_i_field(proxy: dict, key: str) -> str:
+    """i1..i5 могут быть hex-строкой или списком байт"""
+    val = proxy.get(key, proxy.get(key.upper(), ''))
+    if isinstance(val, list):
+        return ''.join(f'{b:02x}' for b in val)
+    return str(val) if val else ''
+
+
+def _awg_reserved(proxy: dict) -> str:
+    """reserved: список [0,0,0], строка '[0,0,0]' или '0,0,0'"""
+    val = proxy.get('reserved', proxy.get('Reserved', ''))
+    if isinstance(val, list):
+        return ','.join(str(b) for b in val)
+    if isinstance(val, str) and val.startswith('['):
+        inner = val.strip().strip('[]')
+        return ','.join(p.strip() for p in inner.split(',') if p.strip())
+    return str(val) if val else ''
+
+
+def _awg_dns(proxy: dict) -> str:
+    """dns: список ['1.1.1.1'], строка '[1.1.1.1, 8.8.8.8]' или '1.1.1.1'"""
+    val = proxy.get('dns', '')
+    if isinstance(val, list):
+        return ','.join(str(x) for x in val)
+    if isinstance(val, str) and val.startswith('['):
+        inner = val.strip().strip('[]')
+        return ','.join(p.strip() for p in inner.split(',') if p.strip())
+    return str(val) if val else ''
+
+
 def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
     """Конвертировать Clash proxy dict в 4eburNet server dict."""
     ptype = proxy.get('type', '').lower()
@@ -375,12 +405,32 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
     elif ptype == 'wireguard':
         if 'jc' in proxy or 'Jc' in proxy:
             servers.append({
-                'protocol':   'awg',
-                'name':       name,
-                'address':    host,
-                'port':       int(port),
+                'protocol':    'awg',
+                'name':        name,
+                'address':     host,
+                'port':        int(port),
                 'private_key': proxy.get('private-key', ''),
-                'public_key':  proxy.get('public-key', ''),
+                'public_key':  proxy.get('public-key',  ''),
+                # ── AmneziaWG обфускация ──────────────────
+                'awg_jc':       proxy.get('jc',   proxy.get('Jc',   '')),
+                'awg_jmin':     proxy.get('jmin', proxy.get('Jmin', '')),
+                'awg_jmax':     proxy.get('jmax', proxy.get('Jmax', '')),
+                'awg_s1':       proxy.get('s1',   proxy.get('S1',   '')),
+                'awg_s2':       proxy.get('s2',   proxy.get('S2',   '')),
+                'awg_h1':       proxy.get('h1',   proxy.get('H1',   '')),
+                'awg_h2':       proxy.get('h2',   proxy.get('H2',   '')),
+                'awg_h3':       proxy.get('h3',   proxy.get('H3',   '')),
+                'awg_h4':       proxy.get('h4',   proxy.get('H4',   '')),
+                'awg_i1':       _awg_i_field(proxy, 'i1'),
+                'awg_i2':       _awg_i_field(proxy, 'i2'),
+                'awg_i3':       _awg_i_field(proxy, 'i3'),
+                'awg_i4':       _awg_i_field(proxy, 'i4'),
+                'awg_i5':       _awg_i_field(proxy, 'i5'),
+                'awg_j1':       proxy.get('j1',    proxy.get('J1',    '')),
+                'awg_itime':    str(proxy.get('itime', proxy.get('Itime', ''))),
+                'awg_mtu':      str(proxy.get('mtu', '')),
+                'awg_dns':      _awg_dns(proxy),
+                'awg_reserved': _awg_reserved(proxy),
             })
     else:
         print(f'  [skip] неподдерживаемый тип: {ptype} ({name})',
