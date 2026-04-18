@@ -94,7 +94,8 @@ int tls_global_init(void)
 
     /* W-01: проверка минимальной версии wolfSSL */
     const char *wv = wolfSSL_lib_version();
-    if (wv[0] < '5')
+    int major = atoi(wv);  /* "5.7.0" → 5, "10.0.0" → 10 */
+    if (major < 5)
         log_msg(LOG_WARN, "wolfSSL %s < 5.x — рекомендуется 5.9.0+", wv);
     log_msg(LOG_INFO, "wolfSSL инициализирован (v%s)", wv);
     return 0;

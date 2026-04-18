@@ -233,8 +233,9 @@ int dns_rules_load_file(const char *path, dns_action_t action)
             if (!np) break;
             dns_action_t *na = realloc(g_rules.actions, new_cap * sizeof(dns_action_t));
             if (!na) {
-                /* patterns уже grown — сохраняем указатель, capacity не трогаем */
-                g_rules.patterns = np;
+                /* Откатить patterns к старому размеру — capacity не меняем */
+                char **rb = realloc(np, g_rules.capacity * sizeof(char*));
+                g_rules.patterns = rb ? rb : np;
                 break;
             }
             g_rules.patterns = np;
