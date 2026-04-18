@@ -1,6 +1,9 @@
 #include "http_server.h"
 #include "logo_png.h"
 #include "4eburnet.h"
+#if CONFIG_EBURNET_DPI
+#include "dpi/dpi_adapt.h"
+#endif
 
 #include <stdbool.h>
 #include <errno.h>
@@ -714,6 +717,14 @@ static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_toke
         } else {
             system("/etc/init.d/4eburnet reload >/dev/null 2>&1 &");
         }
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "dpi_clear", 9) == 0) {
+#if CONFIG_EBURNET_DPI
+        dpi_adapt_init(&g_dpi_adapt);
+        unlink("/etc/4eburnet/dpi_cache.bin");
+        log_msg(LOG_INFO, "DPI adapt: кэш очищен");
+#endif
         http_send(conn, epoll_fd, 200, "application/json",
                   ok_resp, strlen(ok_resp));
     } else {

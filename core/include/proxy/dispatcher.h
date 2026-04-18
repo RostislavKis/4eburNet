@@ -10,6 +10,9 @@
 #if CONFIG_EBURNET_STLS
 #include "proxy/shadowtls.h"
 #endif
+#if CONFIG_EBURNET_DPI
+#include "dpi/dpi_adapt.h"
+#endif
 #include "config.h"
 
 #include <stdint.h>
@@ -76,8 +79,12 @@ struct relay_conn {
     bool                    upstream_eof; /* upstream отправил FIN */
     int                     server_idx; /* индекс сервера в cfg->servers[] */
     /* DPI bypass (C.5) */
-    bool                    dpi_bypass;      /* применить fake+fragment на первом пакете */
+    bool                    dpi_bypass;      /* применить DPI bypass на первом пакете */
     bool                    dpi_first_done;  /* первый пакет уже обработан */
+#if CONFIG_EBURNET_DPI
+    dpi_strat_t             dpi_strategy;   /* применённая стратегия */
+    bool                    dpi_success;    /* upstream ответил — DPI сработал */
+#endif
     uint8_t                 vless_resp_buf[3]; /* [0]=ver, [1]=addons_len, [2]=addons_read */
     uint8_t                 vless_resp_len;    /* байт прочитано (0-2) */
     /* XHTTP транспорт */
