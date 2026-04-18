@@ -542,7 +542,7 @@ static nft_result_t apply_mode(const char *pre_suffix,
     return rc;
 }
 
-nft_result_t nft_mode_set_rules(void)
+nft_result_t nft_mode_set_rules(const char *fake_ip_range)
 {
     /*
      * Режим "по правилам":
@@ -556,6 +556,9 @@ nft_result_t nft_mode_set_rules(void)
      *   block → local → bypass → proxy+tproxy → accept
      */
 
+    const char *fip = (fake_ip_range && fake_ip_range[0])
+                      ? fake_ip_range : "198.51.100.0/24";
+
     /* B1-03: буферы на heap — 2×1024 = 2KB на MIPS стеке */
     char *pre_rules = malloc(1024);
     char *fwd_rules = malloc(1024);
@@ -567,7 +570,7 @@ nft_result_t nft_mode_set_rules(void)
     snprintf(pre_rules, 1024,
         "\n"
         /* fake-ip: всегда через прокси (диспетчер делает reverse lookup) */
-        "        ip daddr " NFT_FAKE_IP_CIDR
+        "        ip daddr %s"
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n"
         "        ip daddr @" NFT_SET_PROXY
@@ -576,11 +579,11 @@ nft_result_t nft_mode_set_rules(void)
         "        ip6 daddr @" NFT_SET_PROXY6
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
-        NFT_MARK_PROXY, NFT_MARK_PROXY, NFT_MARK_PROXY);
+        fip, NFT_MARK_PROXY, NFT_MARK_PROXY, NFT_MARK_PROXY);
 
     snprintf(fwd_rules, 1024,
         "\n"
-        "        ip daddr " NFT_FAKE_IP_CIDR
+        "        ip daddr %s"
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n"
         "        ip daddr @" NFT_SET_PROXY
@@ -589,7 +592,7 @@ nft_result_t nft_mode_set_rules(void)
         "        ip6 daddr @" NFT_SET_PROXY6
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
-        NFT_MARK_PROXY, NFT_MARK_PROXY, NFT_MARK_PROXY);
+        fip, NFT_MARK_PROXY, NFT_MARK_PROXY, NFT_MARK_PROXY);
 
     nft_result_t rc = apply_mode(pre_rules, fwd_rules);
     free(pre_rules); free(fwd_rules);
