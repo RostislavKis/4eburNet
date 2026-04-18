@@ -516,13 +516,14 @@ static int parse_clash_yaml_proxies(const char *buf, size_t len,
     const char *p = buf;
     const char *end = buf + len;
     char vbuf[512];
+    char *line = malloc(1024);
+    if (!line) return 0;
 
     while (p < end) {
         /* Получить строку */
         const char *nl = memchr(p, '\n', (size_t)(end - p));
         size_t llen = nl ? (size_t)(nl - p) : (size_t)(end - p);
-        char line[1024];
-        if (llen >= sizeof(line)) llen = sizeof(line) - 1;
+        if (llen >= 1024) llen = 1023;
         memcpy(line, p, llen);
         line[llen] = '\0';
         p = nl ? nl + 1 : end;
@@ -663,6 +664,7 @@ static int parse_clash_yaml_proxies(const char *buf, size_t len,
     }
     /* Flush последний сервер */
     yaml_flush_server(&cur, servers, &count, max, provider_name);
+    free(line);
     return count;
 }
 

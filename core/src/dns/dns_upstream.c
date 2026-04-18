@@ -106,9 +106,10 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
      * VERIFY_PEER обязателен — иначе ТСПУ может подменить DNS через MitM */
     cfg.verify_cert = true;
 
-    tls_conn_t tls;
-    if (tls_connect(&tls, fd, &cfg) < 0) {
-        close(fd); return -1;
+    tls_conn_t *tls = malloc(sizeof(*tls));
+    if (!tls) { close(fd); return -1; }
+    if (tls_connect(tls, fd, &cfg) < 0) {
+        free(tls); close(fd); return -1;
     }
 
     /* DNS over TLS: [2 bytes length][DNS message] */
@@ -116,29 +117,30 @@ ssize_t dns_dot_query(const char *server_ip, uint16_t server_port,
         (uint8_t)((query_len >> 8) & 0xFF),
         (uint8_t)(query_len & 0xFF),
     };
-    if (tls_send(&tls, len_buf, 2) != 2 ||
-        tls_send(&tls, query, query_len) != (ssize_t)query_len) {
-        tls_close(&tls); close(fd); return -1;
+    if (tls_send(tls, len_buf, 2) != 2 ||
+        tls_send(tls, query, query_len) != (ssize_t)query_len) {
+        tls_close(tls); free(tls); close(fd); return -1;
     }
 
     /* Читаем ответ: [2 bytes length][DNS response] */
     uint8_t resp_len_buf[2];
-    if (tls_recv(&tls, resp_len_buf, 2) != 2) {
-        tls_close(&tls); close(fd); return -1;
+    if (tls_recv(tls, resp_len_buf, 2) != 2) {
+        tls_close(tls); free(tls); close(fd); return -1;
     }
     uint16_t resp_len = ((uint16_t)resp_len_buf[0] << 8) | resp_len_buf[1];
     if (resp_len > resp_buflen || resp_len < 12) {
-        tls_close(&tls); close(fd); return -1;
+        tls_close(tls); free(tls); close(fd); return -1;
     }
 
     ssize_t total = 0;
     while ((size_t)total < resp_len) {
-        ssize_t n = tls_recv(&tls, response + total, resp_len - total);
+        ssize_t n = tls_recv(tls, response + total, resp_len - total);
         if (n <= 0) break;
         total += n;
     }
 
-    tls_close(&tls);
+    tls_close(tls);
+    free(tls);
     close(fd);
 
     return (total == resp_len) ? total : -1;
@@ -264,9 +266,10 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
      * VERIFY_PEER обязателен — иначе ТСПУ может подменить DNS через MitM */
     tls_cfg.verify_cert = true;
 
-    tls_conn_t tls;
-    if (tls_connect(&tls, fd, &tls_cfg) < 0) {
-        free(b64); free(host); free(path); close(fd); return -1;
+    tls_conn_t *tls = malloc(sizeof(*tls));
+    if (!tls) { free(b64); free(host); free(path); close(fd); return -1; }
+    if (tls_connect(tls, fd, &tls_cfg) < 0) {
+        free(tls); free(b64); free(host); free(path); close(fd); return -1;
     }
 
     /* HTTP GET запрос (L-15: heap вместо стека) */
@@ -275,7 +278,7 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     if (!http_req || !http_buf) {
         free(http_req); free(http_buf); free(b64);
         free(host); free(path);
-        tls_close(&tls); close(fd);
+        tls_close(tls); free(tls); close(fd);
         return -1;
     }
 
@@ -295,22 +298,23 @@ ssize_t dns_doh_query(const DnsConfig *cfg,
     if (req_len < 0 || req_len >= 2048) {
         log_msg(LOG_ERROR, "dns_doh: HTTP запрос обрезан (%d >= 2048)", req_len);
         free(http_req); free(http_buf);
-        tls_close(&tls); close(fd); return -1;
+        tls_close(tls); free(tls); close(fd); return -1;
     }
 
-    if (tls_send(&tls, http_req, req_len) != req_len) {
+    if (tls_send(tls, http_req, req_len) != req_len) {
         free(http_req); free(http_buf);
-        tls_close(&tls); close(fd); return -1;
+        tls_close(tls); free(tls); close(fd); return -1;
     }
 
     /* Читаем HTTP ответ */
     ssize_t total = 0;
     while (total < 8191) {
-        ssize_t n = tls_recv(&tls, http_buf + total, 8191 - total);
+        ssize_t n = tls_recv(tls, http_buf + total, 8191 - total);
         if (n <= 0) break;
         total += n;
     }
-    tls_close(&tls);
+    tls_close(tls);
+    free(tls);
     close(fd);
     free(http_req);
 

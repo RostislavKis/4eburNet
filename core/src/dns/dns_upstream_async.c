@@ -620,12 +620,13 @@ int async_dns_doh_start(async_dns_pool_t *pool,
     conn->query_len = query_len;
 
     /* Base64url encode запроса */
-    char b64[1024];
+    char *b64 = malloc(1024);
+    if (!b64) return -1;
     {
         static const char tbl[] =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         size_t pos = 0;
-        for (size_t i = 0; i < query_len && pos < sizeof(b64) - 4; i += 3) {
+        for (size_t i = 0; i < query_len && pos < 1020; i += 3) {
             uint32_t v = (uint32_t)query[i] << 16;
             if (i + 1 < query_len) v |= (uint32_t)query[i + 1] << 8;
             if (i + 2 < query_len) v |= query[i + 2];
@@ -645,6 +646,7 @@ int async_dns_doh_start(async_dns_pool_t *pool,
             "Connection: close\r\n"
             "\r\n",
             path, b64, host);
+        free(b64);
         if (_n < 0 || (size_t)_n >= sizeof(conn->http_req)) {
             log_msg(LOG_WARN, "async DoH: HTTP request обрезан");
             conn->state = ASYNC_DNS_IDLE;
