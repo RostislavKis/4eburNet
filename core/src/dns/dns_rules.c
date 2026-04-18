@@ -207,55 +207,6 @@ void dns_rules_free(void)
         g_geosite_actions[i] = DNS_ACTION_DEFAULT;
 }
 
-int dns_rules_load_file(const char *path, dns_action_t action)
-{
-    FILE *f = fopen(path, "r");
-    if (!f) return -1;
-
-    char line[256];
-    int loaded = 0;
-    while (fgets(line, sizeof(line), f)) {
-        size_t len = strlen(line);
-        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
-            line[--len] = '\0';
-        if (len == 0 || line[0] == '#') continue;
-
-        /* L-08: upper cap на количество правил */
-        #define DNS_RULES_MAX 500000
-        if (g_rules.count >= DNS_RULES_MAX) {
-            log_msg(LOG_WARN, "DNS rules: лимит %d", DNS_RULES_MAX);
-            break;
-        }
-
-        if (g_rules.count >= g_rules.capacity) {
-            int new_cap = g_rules.capacity * 2;
-            char **np = realloc(g_rules.patterns, new_cap * sizeof(char*));
-            if (!np) break;
-            dns_action_t *na = realloc(g_rules.actions, new_cap * sizeof(dns_action_t));
-            if (!na) {
-                /* Откатить patterns к старому размеру — capacity не меняем */
-                char **rb = realloc(np, g_rules.capacity * sizeof(char*));
-                g_rules.patterns = rb ? rb : np;
-                break;
-            }
-            g_rules.patterns = np;
-            g_rules.actions  = na;
-            g_rules.capacity = new_cap;
-        }
-
-        char *dup = strdup(line);
-        if (!dup) break;  /* OOM — прекратить загрузку */
-        g_rules.patterns[g_rules.count] = dup;
-        g_rules.actions[g_rules.count] = action;
-        g_rules.count++;
-        loaded++;
-    }
-    fclose(f);
-    log_msg(LOG_INFO, "DNS правила из %s: %d записей", path, loaded);
-    dns_rules_rebuild_index();
-    return loaded;
-}
-
 /* Матч паттерна policy: exact, *.suffix, .suffix */
 static bool policy_pattern_match(const char *pattern, const char *domain)
 {

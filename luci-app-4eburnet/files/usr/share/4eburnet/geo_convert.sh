@@ -39,7 +39,7 @@ case "$CATEGORY" in
             grep -v '/' | \
             grep -v '\*' | \
             grep -E '^[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$' \
-            > "${OUTPUT}.new"
+            > "${OUTPUT}.new" || true
         ;;
     threats)
         # URLhaus hosts формат: 0.0.0.0 domain.com или 127.0.0.1 domain.com
@@ -48,14 +48,14 @@ case "$CATEGORY" in
             grep -v '^localhost' | \
             grep -v '^local$' | \
             grep -E '^[a-zA-Z0-9._-]+\.[a-zA-Z]{2,}$' \
-            > "${OUTPUT}.new"
+            > "${OUTPUT}.new" || true
         ;;
     *)
         # Прямой формат: один домен/суффикс на строку, # — комментарий
         grep -v '^#' "$TMP" | \
             grep -v '^[[:space:]]*$' | \
             grep -E '^[.a-zA-Z0-9_-]+$' \
-            > "${OUTPUT}.new"
+            > "${OUTPUT}.new" || true
         ;;
 esac
 
