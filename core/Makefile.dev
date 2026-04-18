@@ -265,7 +265,13 @@ WOLFSSL_MIPSEL   ?= /usr/local/musl-wolfssl-mipsel
 WOLFSSL_AARCH64  ?= /usr/local/musl-wolfssl-aarch64
 PREBUILT_DIR     ?= ../prebuilt
 
-cross-mipsel:
+sync-dashboard:
+	@echo "Синхронизация dashboard.html..."
+	cp core/src/dashboard.html \
+	   luci-app-4eburnet/files/usr/share/4eburnet/dashboard.html
+	@echo "OK: dashboard.html синхронизирован"
+
+cross-mipsel: sync-dashboard
 	@test -d "$(TC_MIPSEL)" || { echo "ОШИБКА: TC_MIPSEL не найден: $(TC_MIPSEL)"; echo "Пример: make cross-mipsel TC_MIPSEL=/path/to/toolchain/bin"; exit 1; }
 	@test -d "$(dir $(WOLFSSL_MIPSEL))" || { echo "ОШИБКА: WOLFSSL_MIPSEL не найден: $(WOLFSSL_MIPSEL)"; exit 1; }
 	@echo "=== Cross-compile 4eburnetd для mipsel ==="
@@ -307,4 +313,4 @@ help:
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
   test-blake2b test-salamander test-varint test-dns-geosite \
-  cross-mipsel cross-aarch64
+  cross-mipsel cross-aarch64 sync-dashboard
