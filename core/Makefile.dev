@@ -274,8 +274,8 @@ PREBUILT_DIR     ?= ../prebuilt
 
 sync-dashboard:
 	@echo "Синхронизация dashboard.html..."
-	cp core/src/dashboard.html \
-	   luci-app-4eburnet/files/usr/share/4eburnet/dashboard.html
+	cp src/dashboard.html \
+	   ../luci-app-4eburnet/files/usr/share/4eburnet/dashboard.html
 	@echo "OK: dashboard.html синхронизирован"
 
 cross-mipsel: sync-dashboard
