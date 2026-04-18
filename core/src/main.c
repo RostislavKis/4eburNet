@@ -501,7 +501,7 @@ int main(int argc, char *argv[])
         else if (strcmp(cfg_ptr->mode, "direct") == 0)
             mode_rc = nft_mode_set_direct();
         else
-            mode_rc = nft_mode_set_rules();
+            mode_rc = nft_mode_set_rules(cfg_ptr->dns.fake_ip_range);
 
         if (mode_rc != NFT_OK) {
             log_msg(LOG_ERROR, "nftables: режим '%s' не применён — "
@@ -984,7 +984,9 @@ int main(int argc, char *argv[])
                 }
                 dns_rules_free();
                 if (cfg_ptr->dns.enabled) {
-                    dns_rules_init(cfg_ptr);
+                    if (dns_rules_init(cfg_ptr) < 0)
+                        log_msg(LOG_WARN,
+                            "reload: dns_rules_init провалился — правила DNS могут быть неполными");
                     if (dns_server_init(&dns_state, cfg_ptr) == 0)
                         dns_server_register_epoll(&dns_state, master_epoll);
                 }
@@ -1015,8 +1017,16 @@ int main(int argc, char *argv[])
                     memset(&new_geo, 0, sizeof(new_geo));
                     if (geo_manager_init(&new_geo, cfg_ptr) == 0) {
                         geo_load_region_categories(&new_geo, cfg_ptr);
-                        geo_manager_free(&geo_state);
-                        geo_state = new_geo;
+                        if (new_geo.count > 0) {
+                            geo_manager_free(&geo_state);
+                            geo_state = new_geo;
+                            log_msg(LOG_INFO,
+                                "geo: перезагружено %d категорий", new_geo.count);
+                        } else {
+                            log_msg(LOG_WARN,
+                                "geo: ни одна категория не загружена — сохраняем старые данные");
+                            geo_manager_free(&new_geo);
+                        }
                     } else {
                         log_msg(LOG_WARN,
                             "geo: ошибка перезагрузки — оставляем старые данные");
