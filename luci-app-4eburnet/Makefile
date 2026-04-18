@@ -72,6 +72,12 @@ define Package/luci-app-4eburnet/install
 	$(INSTALL_BIN) ./files/usr/share/4eburnet/geo_update.sh \
 	  $(1)/usr/share/4eburnet/
 
+	# ── TC fast path kmods (cls_u32, sch_ingress, act_skbedit) ───
+	$(INSTALL_DIR) $(1)/lib/modules/4eburnet
+	$(INSTALL_DATA) ./files/kmods/sch_ingress.ko $(1)/lib/modules/4eburnet/
+	$(INSTALL_DATA) ./files/kmods/cls_u32.ko     $(1)/lib/modules/4eburnet/
+	$(INSTALL_DATA) ./files/kmods/act_skbedit.ko $(1)/lib/modules/4eburnet/
+
 	# ── DPI файлы ──────────────────────────────────────────────────
 	$(INSTALL_DIR) $(1)/etc/4eburnet/dpi
 	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/ipset.txt \
