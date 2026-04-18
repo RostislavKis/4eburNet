@@ -490,6 +490,47 @@ void ipc_accept(int server_fd, EburNetState *state, int epoll_fd)
         ipc_client_free(c);
 }
 
+/* ── ipc_try_write ───────────────────────────────────────────────── */
+/* Попытка записи ответа. Вызывается:
+ *   1. Сразу после ipc_dispatch (не ждать EPOLLOUT)
+ *   2. При EPOLLOUT событии в state machine
+ * Возвращает: 0 = продолжить, -1 = закрыть */
+static int ipc_try_write(ipc_client_t *c)
+{
+    size_t total = sizeof(ipc_header_t) + c->resp_body_len;
+    for (;;) {
+        if (c->resp_sent >= total) break;
+        struct iovec iov[2];
+        int niov = 0;
+        if (c->resp_sent < sizeof(ipc_header_t)) {
+            iov[niov].iov_base =
+                (char *)&c->resp_hdr + c->resp_sent;
+            iov[niov].iov_len  =
+                sizeof(ipc_header_t) - c->resp_sent;
+            niov++;
+        }
+        size_t bd = c->resp_sent > sizeof(ipc_header_t)
+                    ? c->resp_sent - sizeof(ipc_header_t) : 0;
+        if (bd < c->resp_body_len) {
+            iov[niov].iov_base = c->resp_body + bd;
+            iov[niov].iov_len  = c->resp_body_len - bd;
+            niov++;
+        }
+        if (niov == 0) break;
+        ssize_t r = writev(c->fd, iov, niov);
+        if (r < 0) {
+            if (errno == EAGAIN) return 0;  /* ждём EPOLLOUT */
+            return -1;
+        }
+        c->resp_sent += (size_t)r;
+    }
+    if (c->resp_sent >= total) {
+        epoll_ctl(g_epoll_fd, EPOLL_CTL_DEL, c->fd, NULL);
+        ipc_client_free(c);
+    }
+    return 0;
+}
+
 /* ── ipc_client_event: state machine ──────────────────────────────── */
 
 int ipc_client_event(void *ptr, uint32_t events, EburNetState *state)
@@ -526,6 +567,8 @@ int ipc_client_event(void *ptr, uint32_t events, EburNetState *state)
                 }
             } else {
                 ipc_dispatch(c, state);
+                if (c->state == IPC_CS_WRITING)
+                    if (ipc_try_write(c) < 0) return -1;
             }
         }
     }
@@ -545,41 +588,14 @@ int ipc_client_event(void *ptr, uint32_t events, EburNetState *state)
         if (c->payload_read == c->hdr.length) {
             c->payload[c->hdr.length] = '\0';
             ipc_dispatch(c, state);
+            if (c->state == IPC_CS_WRITING)
+                if (ipc_try_write(c) < 0) return -1;
         }
     }
 
     /* ── WRITING — writev header+body за 1 syscall ────────────────── */
-    if (c->state == IPC_CS_WRITING && (events & EPOLLOUT)) {
-        size_t total = sizeof(ipc_header_t) + c->resp_body_len;
-        for (;;) {
-            if (c->resp_sent >= total) break;
-            struct iovec iov[2];
-            int niov = 0;
-            if (c->resp_sent < sizeof(ipc_header_t)) {
-                iov[niov].iov_base =
-                    (char *)&c->resp_hdr + c->resp_sent;
-                iov[niov].iov_len  =
-                    sizeof(ipc_header_t) - c->resp_sent;
-                niov++;
-            }
-            size_t bd = c->resp_sent > sizeof(ipc_header_t)
-                        ? c->resp_sent - sizeof(ipc_header_t) : 0;
-            if (bd < c->resp_body_len) {
-                iov[niov].iov_base = c->resp_body + bd;
-                iov[niov].iov_len  = c->resp_body_len - bd;
-                niov++;
-            }
-            if (niov == 0) break;
-            ssize_t r = writev(c->fd, iov, niov);
-            if (r < 0) { if (errno == EAGAIN) break; goto close_client; }
-            c->resp_sent += (size_t)r;
-        }
-        if (c->resp_sent >= total) {
-            epoll_ctl(g_epoll_fd, EPOLL_CTL_DEL, c->fd, NULL);
-            ipc_client_free(c);
-            return 0;
-        }
-    }
+    if (c->state == IPC_CS_WRITING && (events & EPOLLOUT))
+        return ipc_try_write(c);
     return 0;
 
 close_client:
