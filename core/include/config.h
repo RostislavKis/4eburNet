@@ -264,6 +264,9 @@ typedef struct EburNetConfig {
     char                  cdn_fastly_url[256];
     bool                  warn_ru_server_access; /* предупреждать если нет правила GEOIP,RU,DIRECT */
     bool                  flow_offload;          /* nftables flow offload для DIRECT трафика */
+    bool                  tc_fast_enabled;       /* TC ingress fast path (cls_u32 + act_skbedit) */
+    uint32_t              lan_prefix;            /* LAN-подсеть, напр. 0xC0A80200 для 192.168.2.0 */
+    uint32_t              lan_mask;              /* маска, напр. 0xFFFFFF00 для /24 */
 } EburNetConfig;
 
 /* Получить ServerConfig по unified индексу:

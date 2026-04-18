@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <arpa/inet.h>
 
 /* Максимальная длина строки в конфиге */
 #define MAX_LINE 8192
@@ -251,6 +252,14 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
         }
     } else if (strcmp(key, "flow_offload") == 0) {
         cfg->flow_offload = (strcmp(value, "1") == 0);
+    } else if (strcmp(key, "tc_fast_enabled") == 0) {
+        cfg->tc_fast_enabled = (strcmp(value, "1") == 0);
+    } else if (strcmp(key, "lan_prefix") == 0) {
+        struct in_addr a;
+        if (inet_pton(AF_INET, value, &a) == 1) cfg->lan_prefix = ntohl(a.s_addr);
+    } else if (strcmp(key, "lan_mask") == 0) {
+        struct in_addr a;
+        if (inet_pton(AF_INET, value, &a) == 1) cfg->lan_mask = ntohl(a.s_addr);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }
