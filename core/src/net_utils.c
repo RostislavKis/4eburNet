@@ -484,9 +484,10 @@ static int http_do_tls_get(int fd, const char *sni_host,
     snprintf(tls_cfg.sni, sizeof(tls_cfg.sni), "%s", sni_host);
     tls_cfg.verify_cert = false;
 
-    tls_conn_t tls;
-    if (tls_connect(&tls, fd, &tls_cfg) < 0) {
-        close(fd); goto out;
+    tls_conn_t *tls = malloc(sizeof(*tls));
+    if (!tls) { close(fd); goto out; }
+    if (tls_connect(tls, fd, &tls_cfg) < 0) {
+        free(tls); tls = NULL; close(fd); goto out;
     }
 
     int req_len = snprintf(req, 1024,
@@ -494,18 +495,18 @@ static int http_do_tls_get(int fd, const char *sni_host,
         path, sni_host);
     if (req_len < 0 || req_len >= 1024) {
         log_msg(LOG_ERROR, "net_utils: HTTP запрос обрезан (path=%s)", path);
-        tls_close(&tls); close(fd); goto out;
+        tls_close(tls); free(tls); tls = NULL; close(fd); goto out;
     }
-    tls_send(&tls, req, req_len);
+    tls_send(tls, req, req_len);
 
     snprintf(tmppath, 280, "%s.XXXXXX", dest_path);
     int tmpfd = mkstemp(tmppath);
-    if (tmpfd < 0) { tls_close(&tls); close(fd); goto out; }
+    if (tmpfd < 0) { tls_close(tls); free(tls); tls = NULL; close(fd); goto out; }
     fchmod(tmpfd, 0644);
     out = fdopen(tmpfd, "w");
     if (!out) {
         close(tmpfd); unlink(tmppath);
-        tls_close(&tls); close(fd); goto out;
+        tls_close(tls); free(tls); tls = NULL; close(fd); goto out;
     }
 
     bool headers_done = false;
@@ -540,7 +541,8 @@ static int http_do_tls_get(int fd, const char *sni_host,
 
     fclose(out);
     out = NULL;
-    tls_close(&tls);
+    tls_close(tls);
+    free(tls); tls = NULL;
     close(fd);
 
     if (!http_ok || total == 0) {
