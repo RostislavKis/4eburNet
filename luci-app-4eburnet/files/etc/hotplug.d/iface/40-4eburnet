@@ -54,6 +54,7 @@ ip -6 route show table "$TABLE" 2>/dev/null | grep -q "local" || {
 
 # Перечитать конфиг (новый WAN IP → обновить провайдеров)
 /usr/sbin/4eburnetd --ipc reload 2>/dev/null && \
-    logger -t 4eburnet "конфиг перечитан после WAN $INTERFACE"
+    logger -t 4eburnet "конфиг перечитан после WAN $INTERFACE" || \
+    logger -t 4eburnet "hotplug: IPC reload failed"
 
 exit 0

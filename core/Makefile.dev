@@ -124,7 +124,7 @@ install-vm: $(TARGET)
 WOLFSSL_INCLUDES = -I$(WOLFSSL_PREFIX)/include
 WOLFSSL_LIBS     = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
 TEST_CC  = musl-gcc
-TEST_FLAGS = -std=c11 -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1
+TEST_FLAGS = -std=gnu2x -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1
 
 HY2_COMMON = src/crypto/blake2b.c src/crypto/quic_salamander.c \
              src/crypto/quic.c src/proxy/protocols/hysteria2_cc.c \

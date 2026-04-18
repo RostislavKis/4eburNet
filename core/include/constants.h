@@ -12,20 +12,13 @@
 
 /* fwmark для маркировки пакетов (ip rule + nftables) */
 #define FWMARK_PROXY            0x01u
-#define FWMARK_TUN              0x02u
-
 /* Номера таблиц ip route (не пересекаться с OpenWrt: main=254, default=253) */
 #define ROUTE_TABLE_PROXY       100
-#define ROUTE_TABLE_TUN         200
 #define ROUTE_TABLE_BYPASS      250
 
-/* Приоритеты ip rule (OpenWrt: 0/32766/32767, мы 1000-1002) */
+/* Приоритеты ip rule (OpenWrt: 0/32766/32767) */
 #define ROUTE_PRIO_PROXY        1000
-#define ROUTE_PRIO_TUN          1001
 #define ROUTE_PRIO_BYPASS       1002
-
-/* Интерфейс TUN по умолчанию */
-#define TUN_IFACE_DEFAULT       "tun0"
 
 /* ── Таймауты ──────────────────────────────────────────────────── */
 

@@ -193,13 +193,6 @@ policy_result_t policy_check_conflicts(void)
         conflict = true;
     }
 
-    if (policy_route_exists(POLICY_TABLE_TUN, "default", false)) {
-        log_msg(LOG_WARN,
-            "Таблица %d уже содержит маршруты, возможен конфликт",
-            POLICY_TABLE_TUN);
-        conflict = true;
-    }
-
     return conflict ? POLICY_ERR_CONFLICT : POLICY_OK;
 }
 
@@ -275,100 +268,7 @@ policy_result_t policy_init_tproxy(void)
     return POLICY_OK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  policy_init_tun                                                    */
-/* ------------------------------------------------------------------ */
-
-policy_result_t policy_init_tun(const char *dev)
-{
-    if (!valid_ifname(dev)) {
-        log_msg(LOG_ERROR, "policy: невалидное имя интерфейса: %s",
-                dev ? dev : "(null)");
-        return POLICY_ERR_EXEC;
-    }
-
-    policy_result_t rc;
-
-    /* IPv4: ip rule fwmark → table */
-    if (!policy_rule_exists(POLICY_MARK_TUN, POLICY_TABLE_TUN, false)) {
-        char rcmd[128];
-        {   int _n = snprintf(rcmd, sizeof(rcmd), "rule add fwmark 0x%02x table %d prio %d",
-                              POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
-            if (_n < 0 || (size_t)_n >= sizeof(rcmd)) {
-                log_msg(LOG_ERROR, "policy: команда обрезана");
-                return POLICY_ERR_EXEC;
-            }
-        }
-        rc = policy_exec(rcmd);
-        if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
-            return rc;
-    }
-
-    /* IPv4: default dev [dev] table */
-    char cmd[POLICY_CMD_MAX];
-    {   int _n = snprintf(cmd, sizeof(cmd),
-                          "route add default dev %s table %d", dev, POLICY_TABLE_TUN);
-        if (_n < 0 || (size_t)_n >= sizeof(cmd)) {
-            log_msg(LOG_ERROR, "policy: команда обрезана");
-            return POLICY_ERR_EXEC;
-        }
-    }
-
-    /* Проверяем что интерфейс существует */
-    char check[POLICY_CMD_MAX];
-    {   int _n = snprintf(check, sizeof(check), "ip link show %s 2>/dev/null", dev);
-        if (_n < 0 || (size_t)_n >= sizeof(check)) {
-            log_msg(LOG_ERROR, "policy: команда обрезана");
-            return POLICY_ERR_EXEC;
-        }
-    }
-    char out[64] = {0};
-    exec_cmd_capture(check, out, sizeof(out));
-    bool dev_exists = (out[0] != '\0');
-
-    if (dev_exists) {
-        rc = policy_exec(cmd);
-        if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
-            return rc;
-    } else {
-        log_msg(LOG_WARN,
-            "TUN интерфейс %s не найден, маршрут отложен", dev);
-    }
-
-    /* IPv6 */
-    if (!policy_rule_exists(POLICY_MARK_TUN, POLICY_TABLE_TUN, true)) {
-        char rcmd[128];
-        {   int _n = snprintf(rcmd, sizeof(rcmd), "-6 rule add fwmark 0x%02x table %d prio %d",
-                              POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
-            if (_n < 0 || (size_t)_n >= sizeof(rcmd)) {
-                log_msg(LOG_ERROR, "policy: команда обрезана");
-                return POLICY_ERR_EXEC;
-            }
-        }
-        rc = policy_exec(rcmd);
-        if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
-            log_msg(LOG_WARN, "IPv6 rule для TUN не создан: %s",
-                    policy_strerror(rc));
-    }
-
-    if (dev_exists) {
-        {   int _n = snprintf(cmd, sizeof(cmd),
-                              "-6 route add default dev %s table %d", dev, POLICY_TABLE_TUN);
-            if (_n < 0 || (size_t)_n >= sizeof(cmd)) {
-                log_msg(LOG_ERROR, "policy: команда обрезана");
-                return POLICY_ERR_EXEC;
-            }
-        }
-        rc = policy_exec(cmd);
-        if (rc != POLICY_OK && rc != POLICY_ERR_EXISTS)
-            log_msg(LOG_WARN, "IPv6 route для TUN не создан: %s",
-                    policy_strerror(rc));
-    }
-
-    log_msg(LOG_INFO,
-        "Политика маршрутизации TUN настроена (dev: %s)", dev);
-    return POLICY_OK;
-}
+/* policy_init_tun удалён — TPROXY покрывает все use-cases (DEC-035) */
 
 /* ------------------------------------------------------------------ */
 /*  policy_cleanup                                                     */
@@ -406,34 +306,6 @@ void policy_cleanup(void)
             policy_exec_quiet(cmd);
     }
 
-    /* Таблица TUN */
-    {   int _n = snprintf(cmd, sizeof(cmd), "-6 route flush table %d", POLICY_TABLE_TUN);
-        if (_n < 0 || (size_t)_n >= sizeof(cmd))
-            log_msg(LOG_ERROR, "policy: cleanup команда обрезана");
-        else
-            policy_exec_quiet(cmd);
-    }
-    {   int _n = snprintf(cmd, sizeof(cmd), "-6 rule del fwmark 0x%02x table %d prio %d",
-                          POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
-        if (_n < 0 || (size_t)_n >= sizeof(cmd))
-            log_msg(LOG_ERROR, "policy: cleanup команда обрезана");
-        else
-            policy_exec_quiet(cmd);
-    }
-    {   int _n = snprintf(cmd, sizeof(cmd), "route flush table %d", POLICY_TABLE_TUN);
-        if (_n < 0 || (size_t)_n >= sizeof(cmd))
-            log_msg(LOG_ERROR, "policy: cleanup команда обрезана");
-        else
-            policy_exec_quiet(cmd);
-    }
-    {   int _n = snprintf(cmd, sizeof(cmd), "rule del fwmark 0x%02x table %d prio %d",
-                          POLICY_MARK_TUN, POLICY_TABLE_TUN, POLICY_PRIO_TUN);
-        if (_n < 0 || (size_t)_n >= sizeof(cmd))
-            log_msg(LOG_ERROR, "policy: cleanup команда обрезана");
-        else
-            policy_exec_quiet(cmd);
-    }
-
     log_msg(LOG_INFO, "Политика маршрутизации очищена");
 }
 
@@ -449,26 +321,18 @@ static void dump_tproxy_cb(const char *line, void *ctx) {
     (void)ctx;
     log_msg(LOG_DEBUG, "  table %d: %s", POLICY_TABLE_TPROXY, line);
 }
-static void dump_tun_cb(const char *line, void *ctx) {
-    (void)ctx;
-    log_msg(LOG_DEBUG, "  table %d: %s", POLICY_TABLE_TUN, line);
-}
 
 void policy_dump(void)
 {
     log_msg(LOG_DEBUG, "=== Политика маршрутизации ===");
     exec_cmd_lines("ip rule show 2>/dev/null", dump_rule_cb, NULL);
 
-    char cmd_tproxy[64], cmd_tun[64];
+    char cmd_tproxy[64];
     int _n1 = snprintf(cmd_tproxy, sizeof(cmd_tproxy),
              "ip route show table %d 2>/dev/null", POLICY_TABLE_TPROXY);
-    int _n2 = snprintf(cmd_tun, sizeof(cmd_tun),
-             "ip route show table %d 2>/dev/null", POLICY_TABLE_TUN);
-    if (_n1 < 0 || (size_t)_n1 >= sizeof(cmd_tproxy) ||
-        _n2 < 0 || (size_t)_n2 >= sizeof(cmd_tun))
+    if (_n1 < 0 || (size_t)_n1 >= sizeof(cmd_tproxy))
         log_msg(LOG_DEBUG, "policy_dump: cmd обрезан");
     exec_cmd_lines(cmd_tproxy, dump_tproxy_cb, NULL);
-    exec_cmd_lines(cmd_tun, dump_tun_cb, NULL);
 
     log_msg(LOG_DEBUG, "==============================");
 }
