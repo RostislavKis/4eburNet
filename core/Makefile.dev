@@ -81,6 +81,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/proxy/proxy_provider.c \
           $(SRCDIR)/proxy/rules_engine.c \
           $(SRCDIR)/proxy/sniffer.c \
+          $(SRCDIR)/proxy/ja3.c \
           $(SRCDIR)/net_utils.c \
           $(SRCDIR)/dns/dns_packet.c $(SRCDIR)/dns/dns_cache.c \
           $(SRCDIR)/dns/dns_rules.c $(SRCDIR)/dns/dns_upstream.c \
@@ -273,6 +274,16 @@ test-sniffer:
 	  -o /tmp/test_sniffer
 	/tmp/test_sniffer
 
+test-ja3:
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_SNIFFER=1 \
+	  $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  src/log.c \
+	  src/proxy/sniffer.c \
+	  src/proxy/ja3.c \
+	  tests/test_ja3.c \
+	  -o /tmp/test_ja3 $(WOLFSSL_LIBS)
+	/tmp/test_ja3
+
 test-ipc-async:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
 	  tests/test_ipc_async.c \
@@ -299,7 +310,7 @@ test-simd:
 	  -o /tmp/test_simd
 	/tmp/test_simd
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async test-bloom test-simd test-dpi-adapt
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async test-bloom test-simd test-dpi-adapt test-ja3
 
 # ── geo_compile (инструмент компиляции .lst → .gbin) ──────────────
 
@@ -388,6 +399,6 @@ help:
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
   test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async \
-  test-bloom test-simd test-dpi-adapt \
+  test-bloom test-simd test-dpi-adapt test-ja3 \
   geo-compile geo-compile-mipsel geo-compile-aarch64 \
   cross-mipsel cross-aarch64 sync-dashboard

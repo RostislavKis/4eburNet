@@ -4,6 +4,7 @@
 #if CONFIG_EBURNET_DPI
 #include "dpi/dpi_adapt.h"
 #endif
+#include "proxy/dispatcher.h"
 
 #include <stdbool.h>
 #include <errno.h>
@@ -256,9 +257,11 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
     /* Сформировать JSON */
     int n = snprintf(s_ipc_buf, sizeof(s_ipc_buf),
         "{\"status\":\"%s\",\"version\":\"1.0.0\","
-        "\"uptime\":%ld,\"mode\":\"%s\",\"profile\":\"%s\"}",
+        "\"uptime\":%ld,\"mode\":\"%s\",\"profile\":\"%s\""
+        ",\"last_ja3\":\"%s\"}",
         running ? "running" : "stopped",
-        uptime, mode, profile);
+        uptime, mode, profile,
+        dispatcher_get_last_ja3());
 
     http_send(conn, epoll_fd, 200, "application/json",
               s_ipc_buf, (size_t)(n > 0 ? n : 0));

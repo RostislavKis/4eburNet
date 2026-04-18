@@ -85,6 +85,7 @@ struct relay_conn {
     dpi_strat_t             dpi_strategy;   /* применённая стратегия */
     bool                    dpi_success;    /* upstream ответил — DPI сработал */
 #endif
+    char                    ja3[33];        /* JA3 хэш первого TLS ClientHello */
     uint8_t                 vless_resp_buf[3]; /* [0]=ver, [1]=addons_len, [2]=addons_read */
     uint8_t                 vless_resp_len;    /* байт прочитано (0-2) */
     /* XHTTP транспорт */
@@ -153,6 +154,9 @@ void dispatcher_tick(dispatcher_state_t *ds);
 void dispatcher_cleanup(dispatcher_state_t *ds);
 void dispatcher_stats(const dispatcher_state_t *ds,
                       uint64_t *accepted, uint64_t *closed);
+
+/* Последний JA3 хэш TLS соединения (32 hex + \0, или "" если нет) */
+const char *dispatcher_get_last_ja3(void);
 
 /* --- Health-check failover --- */
 
