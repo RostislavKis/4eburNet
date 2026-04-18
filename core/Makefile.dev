@@ -94,6 +94,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/dpi/dpi_filter.c \
           $(SRCDIR)/dpi/dpi_payload.c \
           $(SRCDIR)/dpi/dpi_strategy.c \
+          $(SRCDIR)/dpi/dpi_adapt.c \
           $(SRCDIR)/dpi/cdn_updater.c \
           $(SRCDIR)/crypto/hmac_sha256.c \
           $(SRCDIR)/proxy/protocols/shadowtls.c \
@@ -284,13 +285,21 @@ test-bloom:
 	  -o /tmp/test_bloom
 	/tmp/test_bloom
 
+test-dpi-adapt:
+	$(TEST_CC) $(TEST_FLAGS) -DCONFIG_EBURNET_DPI=1 \
+	  $(INCLUDES) \
+	  src/dpi/dpi_adapt.c \
+	  tests/test_dpi_adapt.c \
+	  -o /tmp/test_dpi_adapt
+	/tmp/test_dpi_adapt
+
 test-simd:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
 	  tests/test_simd_strcmp.c \
 	  -o /tmp/test_simd
 	/tmp/test_simd
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async test-bloom test-simd
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async test-bloom test-simd test-dpi-adapt
 
 # ── geo_compile (инструмент компиляции .lst → .gbin) ──────────────
 
@@ -366,7 +375,7 @@ help:
 	@echo "4eburNet Makefile.dev — доступные таргеты:"
 	@echo ""
 	@echo "  make                     — сборка x86_64 dev бинарника"
-	@echo "  make test                — запустить все тесты (20 суитов)"
+	@echo "  make test                — запустить все тесты (21 суит)"
 	@echo "  make clean               — удалить артефакты сборки"
 	@echo "  make geo-compile         — собрать geo_compile для хоста"
 	@echo "  make geo-compile-mipsel  — кросс-компиляция geo_compile для mipsel"
@@ -379,6 +388,6 @@ help:
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
   test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async \
-  test-bloom test-simd \
+  test-bloom test-simd test-dpi-adapt \
   geo-compile geo-compile-mipsel geo-compile-aarch64 \
   cross-mipsel cross-aarch64 sync-dashboard

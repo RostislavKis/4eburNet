@@ -31,6 +31,7 @@
 #if CONFIG_EBURNET_DPI
 #include "dpi/dpi_filter.h"
 #include "dpi/dpi_strategy.h"
+#include "dpi/dpi_adapt.h"
 #endif
 #include "crypto/tls.h"
 #include "net_utils.h"
@@ -154,6 +155,10 @@ static int stls_ssl_recv(void *ssl, char *buf, int sz, void *ctx)
 static dispatcher_state_t *g_dispatcher   = NULL;
 static const EburNetConfig *g_config      = NULL;
 static rules_engine_t     *g_rules_engine = NULL;
+#if CONFIG_EBURNET_DPI
+/* Глобальный кэш адаптивных DPI стратегий */
+DpiAdaptTable g_dpi_adapt;
+#endif
 #if CONFIG_EBURNET_FAKE_IP
 static fake_ip_table_t    *g_fake_ip      = NULL;
 #endif
@@ -579,6 +584,16 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
 
 static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 {
+#if CONFIG_EBURNET_DPI
+    /* Соединение закрывается — DPI применялось, но upstream не ответил → отказ */
+    if (r->dpi_first_done && !r->dpi_success) {
+        uint32_t dst_ip = (r->dst.ss_family == AF_INET)
+            ? ntohl(((struct sockaddr_in *)&r->dst)->sin_addr.s_addr) : 0u;
+        if (dst_ip)
+            dpi_adapt_report(&g_dpi_adapt, dst_ip,
+                             r->dpi_strategy, DPI_RESULT_FAIL);
+    }
+#endif
     if (r->use_tls) {
         tls_close(r->tls);
         free(r->tls); r->tls = NULL;
@@ -886,7 +901,12 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
         if (!r->use_tls && r->dpi_bypass && !r->dpi_first_done) {
             r->dpi_first_done = true;
 
-            /* Инициализация стратегии из g_config (один проход) */
+            /* Получить стратегию из адаптивного кэша */
+            uint32_t dst_ip = (r->dst.ss_family == AF_INET)
+                ? ntohl(((struct sockaddr_in *)&r->dst)->sin_addr.s_addr) : 0u;
+            r->dpi_strategy = dpi_adapt_get(&g_dpi_adapt, dst_ip);
+
+            /* Инициализация параметров стратегии из g_config */
             dpi_strategy_config_t strat;
             memset(&strat, 0, sizeof(strat));
             strat.enabled      = true;
@@ -903,24 +923,34 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
                     log_msg(LOG_WARN, "DPI: fake_sni обрезан: %s:%d", __FILE__, __LINE__);
             }
 
-            /* fake+TTL: malloc чтобы не переполнять стек MIPS (8KB) */
-            uint8_t *fake_buf = malloc(DPI_FAKE_PKT_SIZE);
-            if (fake_buf) {
-                int fake_len = dpi_make_fake_payload(fake_buf, DPI_FAKE_PKT_SIZE,
-                                                      DPI_PROTO_TCP,
-                                                      strat.fake_sni);
-                if (fake_len > 0) {
-                    if (dpi_send_fake(r->upstream_fd, fake_buf, fake_len,
-                                      strat.fake_ttl, strat.fake_repeats) < 0)
-                        log_msg(LOG_DEBUG,
-                                "dpi: fake+TTL упал, продолжаем фрагментацию");
+            bool do_fake = (r->dpi_strategy == DPI_STRAT_FAKE_TTL ||
+                            r->dpi_strategy == DPI_STRAT_BOTH);
+            bool do_frag = (r->dpi_strategy == DPI_STRAT_FRAGMENT ||
+                            r->dpi_strategy == DPI_STRAT_BOTH);
+
+            if (do_fake) {
+                /* malloc чтобы не переполнять стек MIPS (8KB) */
+                uint8_t *fake_buf = malloc(DPI_FAKE_PKT_SIZE);
+                if (fake_buf) {
+                    int fake_len = dpi_make_fake_payload(fake_buf, DPI_FAKE_PKT_SIZE,
+                                                          DPI_PROTO_TCP,
+                                                          strat.fake_sni);
+                    if (fake_len > 0) {
+                        if (dpi_send_fake(r->upstream_fd, fake_buf, fake_len,
+                                          strat.fake_ttl, strat.fake_repeats) < 0)
+                            log_msg(LOG_DEBUG, "dpi: fake+TTL упал, продолжаем");
+                    }
+                    free(fake_buf);
                 }
-                free(fake_buf);
             }
 
-            return (ssize_t)dpi_send_fragment(r->upstream_fd,
-                                               ds->relay_buf, (int)n,
-                                               strat.split_pos);
+            if (do_frag) {
+                return (ssize_t)dpi_send_fragment(r->upstream_fd,
+                                                   ds->relay_buf, (int)n,
+                                                   strat.split_pos);
+            }
+            /* DPI_STRAT_NONE или DPI_STRAT_FAKE_TTL (без фрагментации):
+             * продолжаем обычной записью в upstream (fall-through) */
         }
 #endif
 
@@ -1059,6 +1089,11 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
     /* splice удалён: shared pipe = data corruption (H-12, C-05) */
 
     ds->health_reset_at = time(NULL) + TIMEOUT_HEALTH_RESET_SEC;
+
+#if CONFIG_EBURNET_DPI
+    dpi_adapt_init(&g_dpi_adapt);
+    dpi_adapt_load(&g_dpi_adapt, "/etc/4eburnet/dpi_cache.bin");
+#endif
 
     log_msg(LOG_INFO, "Диспетчер запущен (макс. %d соединений, буфер: %zu)",
             ds->conns_max, ds->relay_buf_size);
@@ -1401,6 +1436,17 @@ static void relay_handle_active(dispatcher_state_t *ds, relay_conn_t *r,
         for (;;) {
             ssize_t transferred = relay_transfer(ds, r, false);
             if (transferred > 0) {
+#if CONFIG_EBURNET_DPI
+                /* Первые данные от upstream → DPI стратегия сработала */
+                if (r->dpi_first_done && !r->dpi_success) {
+                    r->dpi_success = true;
+                    uint32_t dst_ip = (r->dst.ss_family == AF_INET)
+                        ? ntohl(((struct sockaddr_in *)&r->dst)->sin_addr.s_addr) : 0u;
+                    if (dst_ip)
+                        dpi_adapt_report(&g_dpi_adapt, dst_ip,
+                                         r->dpi_strategy, DPI_RESULT_SUCCESS);
+                }
+#endif
                 r->bytes_out += transferred;
                 r->last_active = now;
                 continue;
