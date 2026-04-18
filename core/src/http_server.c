@@ -1,6 +1,7 @@
 #include "http_server.h"
 #include "logo_png.h"
 
+#include <stdbool.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -20,10 +21,13 @@ static void route_api_status(HttpConn *conn, int epoll_fd);
 static void route_ipc_passthrough(HttpConn *conn, int epoll_fd, const char *cmd);
 static void route_api_servers(HttpConn *conn, int epoll_fd);
 static void route_api_dns(HttpConn *conn, int epoll_fd);
-static void route_api_control(HttpConn *conn, int epoll_fd);
+static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_token);
 
 /* ── Буфер для IPC ответа — статический, не в стеке ──────────────── */
 static char s_ipc_buf[4096];
+
+/* ── Токен /api/control, инициализируется в http_server_init ─────── */
+static char s_api_token[64];
 
 /* ── Вспомогательная функция закрытия соединения ─────────────────── */
 static void conn_close(HttpConn *conn, int epoll_fd)
@@ -593,7 +597,7 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
 
     /* POST /api/control → управление демоном */
     if (strcmp(p, "/api/control") == 0 && conn->is_post) {
-        route_api_control(conn, epoll_fd);
+        route_api_control(conn, epoll_fd, s_api_token);
         return;
     }
 
@@ -606,8 +610,33 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
 /* ── POST /api/control — управление демоном ──────────────────────── */
 /* Принимает {"action":"start|stop|reload"}, выполняет через init.d.
    system() вызывается с & — не блокирует epoll-цикл демона.          */
-static void route_api_control(HttpConn *conn, int epoll_fd)
+static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_token)
 {
+    /* Если токен задан — требовать Authorization: Bearer <token> */
+    if (api_token[0] != '\0') {
+        bool auth_ok = false;
+        const char *auth = strstr(conn->buf, "Authorization: Bearer ");
+        if (!auth) auth = strstr(conn->buf, "authorization: bearer ");
+        if (auth) {
+            auth += strlen("Authorization: Bearer ");
+            size_t tlen = strlen(api_token);
+            auth_ok = (strncmp(auth, api_token, tlen) == 0 &&
+                       (auth[tlen] == '\r' || auth[tlen] == '\n' ||
+                        auth[tlen] == '\0'));
+        }
+        if (!auth_ok) {
+            const char err[] = "{\"ok\":false,\"error\":\"unauthorized\"}";
+            http_send(conn, epoll_fd, 401, "application/json",
+                      err, sizeof(err) - 1);
+            return;
+        }
+    } else {
+        const char err[] = "{\"ok\":false,\"error\":\"api_token not configured\"}";
+        http_send(conn, epoll_fd, 403, "application/json",
+                  err, sizeof(err) - 1);
+        return;
+    }
+
     /* Тело запроса расположено после \r\n\r\n */
     const char *body = strstr(conn->buf, "\r\n\r\n");
     if (body) body += 4;
@@ -689,7 +718,7 @@ int http_server_init(HttpServer *srv)
     struct sockaddr_in addr = {
         .sin_family      = AF_INET,
         .sin_port        = htons(HTTP_PORT),
-        .sin_addr.s_addr = INADDR_ANY,
+        .sin_addr.s_addr = htonl(INADDR_LOOPBACK),  /* 127.0.0.1 — только локально */
     };
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
@@ -705,6 +734,19 @@ int http_server_init(HttpServer *srv)
     }
 
     srv->listen_fd = fd;
+
+    /* Читать токен из UCI при инициализации */
+    srv->api_token[0] = '\0';
+    FILE *tf = popen("uci -q get 4eburnet.main.api_token 2>/dev/null", "r");
+    if (tf) {
+        if (fgets(srv->api_token, sizeof(srv->api_token), tf)) {
+            size_t l = strlen(srv->api_token);
+            if (l > 0 && srv->api_token[l-1] == '\n') srv->api_token[l-1] = '\0';
+        }
+        pclose(tf);
+    }
+    snprintf(s_api_token, sizeof(s_api_token), "%s", srv->api_token);
+
     return 0;
 }
 
