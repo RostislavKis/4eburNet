@@ -208,7 +208,7 @@ int dns_server_register_epoll(dns_server_t *ds, int master_epoll_fd)
         int max_e = fake_ip_max_entries_for_profile(
             profile, dcfg->fake_ip_pool_size);
         const char *range = dcfg->fake_ip_range[0]
-            ? dcfg->fake_ip_range : "198.18.0.0/15";
+            ? dcfg->fake_ip_range : "198.51.100.0/24";
         if (fake_ip_init(&ds->fake_ip, ds->cfg,
                           range, max_e) == 0) {
             ds->fake_ip_ready = true;
@@ -661,10 +661,9 @@ skip_rate:;
                     "DNS: async DoT start failed (%s), dropped", q.qname);
             }
 
-            /* DEBT-3: sync fallback удалён — async пул исчерпан, клиент повторит */
             free(ctx);
             log_msg(LOG_WARN,
-                "DNS: async DoH/DoT пул исчерпан, %s dropped (клиент повторит)",
+                "DNS: async пул исчерпан для %s, SERVFAIL (клиент повторит)",
                 q.qname);
             goto out;
         }
