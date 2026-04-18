@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>4eburNet Dashboard</title>
+<style>
+:root{--bg0:#0b0d12;--bg1:#111318;--bg2:#181b24;--bg3:#1e2230;--bg4:#252a3a;--acc:#4ade80;--acc2:#22d3ee;--acc3:#a78bfa;--warn:#fbbf24;--danger:#f87171;--muted:#3d4460;--text:#dde4f0;--text2:#7b8ab0;--border:rgba(255,255,255,0.07);--font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono','Fira Mono',monospace;--r:10px;--tip-bg:#0e1525;--tip-border:rgba(34,211,238,.35);--tip-text:#dde4f0;--tip-after:rgba(34,211,238,.35)}
+body.sand{--bg0:#f2ede0;--bg1:#faf6ea;--bg2:#ede6d0;--bg3:#e5dcc0;--bg4:#d8cfb0;--text:#2c2410;--text2:#6b5838;--border:rgba(0,0,0,0.1);--muted:#b09a70;--acc:#2a6e36;--acc2:#1a5e70;--acc3:#6030a0;--warn:#7a5800;--danger:#802020;--tip-bg:#f0ead8;--tip-border:rgba(90,120,80,.4);--tip-text:#2c2410;--tip-after:rgba(90,120,80,.4)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;font-family:var(--font);background:var(--bg0);color:var(--text);font-size:13px;line-height:1.5}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:4px}
+.shell{display:flex;height:100vh;overflow:hidden}
+.sb{width:220px;background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .22s;overflow:hidden}
+.sb.mini{width:54px}
+.sb-head{padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);overflow:hidden;flex-shrink:0}
+.logo-fb{width:36px;height:36px;min-width:36px;border-radius:11px;background:linear-gradient(135deg,#4ade80,#22d3ee);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(74,222,128,.4);flex-shrink:0;overflow:hidden}
+.logo-fb img{width:36px;height:36px;border-radius:11px;object-fit:cover}
+.logo-fb span{font-family:var(--mono);font-weight:900;font-size:13px;color:#0b0d12}
+.logo-info{overflow:hidden;white-space:nowrap;transition:opacity .2s}
+.sb.mini .logo-info{opacity:0;width:0}
+.logo-name{font-weight:700;font-size:15px;letter-spacing:-.3px}
+.logo-ver{font-size:10px;color:var(--text2);font-family:var(--mono)}
+.nav{flex:1;overflow-y:auto;padding:5px 0}
+.ni{display:flex;align-items:center;gap:10px;padding:8px 16px;cursor:pointer;color:var(--text2);border-left:2px solid transparent;transition:all .13s;white-space:nowrap;overflow:hidden}
+.ni:hover{color:var(--text);background:var(--bg2)}
+.ni.on{color:var(--acc);background:rgba(74,222,128,.06);border-left-color:var(--acc)}
+.ni-ic{width:16px;height:16px;flex-shrink:0}
+.sb.mini .ni-lbl,.sb.mini .ni-nb,.sb.mini .sb-stats,.sb.mini .coll-lbl{opacity:0;width:0;overflow:hidden}
+.ni-nb{margin-left:auto;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;font-family:var(--mono);flex-shrink:0}
+.nbg{background:var(--acc);color:#000}.nbc{background:var(--acc2);color:#000}.nbp{background:var(--acc3);color:#000}
+.sb-foot{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0;overflow:hidden}
+.sb-stats{font-size:11px;color:var(--text2);margin-bottom:6px}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--acc);display:inline-block;margin-right:5px;animation:sdp 2s infinite}
+@keyframes sdp{0%,100%{opacity:1}50%{opacity:.4}}
+.coll{width:100%;background:none;border:none;cursor:pointer;color:var(--text2);font-size:11px;display:flex;align-items:center;gap:6px;padding:4px 0;font-family:var(--font)}
+.coll:hover{color:var(--text)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:50px;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:8px;flex-shrink:0;overflow:hidden}
+.tb-t{font-size:15px;font-weight:600;white-space:nowrap}
+.badge{padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;font-family:var(--mono);white-space:nowrap}
+.bg{background:rgba(74,222,128,.12);color:var(--acc);border:1px solid rgba(74,222,128,.2)}
+.bc{background:rgba(34,211,238,.1);color:var(--acc2);border:1px solid rgba(34,211,238,.2)}
+.bp{background:rgba(167,139,250,.1);color:var(--acc3);border:1px solid rgba(167,139,250,.2)}
+.bw{background:rgba(251,191,36,.1);color:var(--warn);border:1px solid rgba(251,191,36,.2)}
+.bd{background:rgba(248,113,113,.1);color:var(--danger);border:1px solid rgba(248,113,113,.2)}
+.tb-r{margin-left:auto;display:flex;gap:8px;align-items:center;flex-shrink:0}
+.btn{padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;font-size:12px;transition:all .13s;font-family:var(--font)}
+.btn:hover{background:var(--bg4);color:var(--text)}
+.btn-g{border-color:rgba(74,222,128,.3);color:var(--acc);background:rgba(74,222,128,.08)}.btn-g:hover{background:rgba(74,222,128,.15)}
+.btn-d{border-color:rgba(248,113,113,.3);color:var(--danger);background:rgba(248,113,113,.08)}.btn-d:hover{background:rgba(248,113,113,.15)}
+.btn-c{border-color:rgba(34,211,238,.3);color:var(--acc2);background:rgba(34,211,238,.07)}.btn-c:hover{background:rgba(34,211,238,.14)}
+.btn-full{width:100%;padding:9px}
+.page{display:none;flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 20px;flex-direction:column;gap:14px}
+.page.on{display:flex}
+.tip{position:relative;display:inline-flex;align-items:center;vertical-align:middle}
+.tq{width:15px;height:15px;border-radius:50%;background:var(--bg4);border:1px solid var(--border);font-size:9px;font-weight:700;cursor:help;display:inline-flex;align-items:center;justify-content:center;color:var(--text2);flex-shrink:0;margin-left:5px;line-height:1}
+.tq:hover+.tip-box{display:block!important}
+.tip-box{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--tip-bg);border:1px solid var(--tip-border);border-radius:9px;padding:9px 12px;font-size:11px;color:var(--tip-text);line-height:1.6;width:260px;white-space:normal;z-index:9999;pointer-events:none;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+.tip-box::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--tip-after)}
+.panel{background:var(--bg1);border:1px solid var(--border);border-radius:12px;overflow:hidden;flex-shrink:0}
+.ph{padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.ph-t{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text2)}
+.ph-r{margin-left:auto;display:flex;gap:6px;align-items:center}
+.pb{padding:12px 16px}
+.ib{min-width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:var(--text2);font-size:12px;transition:all .13s;padding:0 6px;font-family:var(--font)}
+.ib:hover{color:var(--acc);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.07)}
+.srow{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.sc{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px}
+.sc-l{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:2px}
+.sc-v{font-size:22px;font-weight:700;font-family:var(--mono);line-height:1}
+.sc-s{font-size:11px;color:var(--text2);margin-top:4px}
+.cg{color:var(--acc)}.cc{color:var(--acc2)}.cp{color:var(--acc3)}.cw{color:var(--warn)}.cd{color:var(--danger)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.wan{background:linear-gradient(135deg,rgba(74,222,128,.07),rgba(34,211,238,.04));border:1px solid rgba(74,222,128,.15);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:16px;flex-shrink:0}
+.chart{height:70px;position:relative;overflow:hidden;background:var(--bg2);border-radius:6px;margin-top:10px}
+.bar{position:absolute;bottom:0;background:rgba(74,222,128,.22);border-top:1px solid rgba(74,222,128,.45)}
+.gp{background:var(--bg1);border:1px solid var(--border);border-radius:12px;overflow:hidden;flex-shrink:0}
+.gph{padding:11px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .13s}
+.gph:hover{background:var(--bg2)}
+.gdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.gname{font-size:14px;font-weight:600}
+.gtype{font-size:10px;padding:1px 7px;border-radius:4px;font-family:var(--mono);font-weight:700}
+.gbody{display:none;border-top:1px solid var(--border)}
+.gbody.open{display:block}
+.gc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:7px;padding:12px 16px}
+.gc{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:9px;cursor:pointer;transition:all .13s}
+.gc:hover{border-color:rgba(255,255,255,.13)}
+.gc.sel{border-color:var(--acc);background:rgba(74,222,128,.06)}
+.gc-name{font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gc-meta{font-size:10px;color:var(--text2);font-family:var(--mono)}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{color:var(--muted);font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.6px;padding:7px 10px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.03);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:rgba(255,255,255,.02)}
+.tbl-wrap{overflow-x:auto}
+.ptag{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;font-family:var(--mono)}
+.pvless{background:rgba(167,139,250,.12);color:var(--acc3)}.ptrojan{background:rgba(251,191,36,.1);color:var(--warn)}.pss{background:rgba(34,211,238,.1);color:var(--acc2)}.pawg{background:rgba(74,222,128,.1);color:var(--acc)}.phy2{background:rgba(248,113,113,.1);color:var(--danger)}
+.port-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.port-c{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px}
+.port-num{font-family:var(--mono);font-size:26px;font-weight:800;color:var(--acc2)}
+.port-name{font-size:13px;font-weight:600;margin:4px 0}
+.port-desc{font-size:11px;color:var(--text2);line-height:1.5}
+.port-proto{font-size:10px;font-family:var(--mono);color:var(--muted);margin-top:6px}
+.set-g{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.set-s{background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:16px}
+.set-t{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text2);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.sr{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03);gap:10px}
+.sr:last-child{border:none}
+.sl{font-size:13px;flex:1}
+.sd{font-size:11px;color:var(--text2)}
+.dns-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.dns-row:last-child{border:none}
+.dns-key{font-size:11px;color:var(--text2);min-width:160px;flex-shrink:0}
+.dns-val{font-family:var(--mono);font-size:12px;color:var(--acc2)}
+.empty-ph{font-size:12px;color:var(--muted);padding:20px;text-align:center}
+.qr-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:center;justify-content:center}
+.qr-modal.open{display:flex}
+.qr-inner{background:var(--bg1);border:1px solid rgba(34,211,238,.25);border-radius:16px;padding:28px;min-width:340px;box-shadow:0 16px 64px rgba(0,0,0,.6)}
+label{font-size:12px;color:var(--text2);display:flex;align-items:center;gap:4px;margin-bottom:4px}
+input[type=text],input[type=number],select{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:7px 10px;color:var(--text);font-size:12px;outline:none;font-family:var(--font);width:100%;transition:border-color .13s}
+input:focus,select:focus{border-color:rgba(34,211,238,.4)}
+@media(max-width:900px){.srow{grid-template-columns:repeat(3,1fr)}.g2,.set-g{grid-template-columns:1fr}}
+@media(max-width:600px){.srow{grid-template-columns:repeat(2,1fr)}.sb{width:54px}.sb .logo-info,.sb .ni-lbl,.sb .ni-nb,.sb .sb-stats,.sb .coll-lbl{opacity:0;width:0;overflow:hidden}}
+</style>
+</head>
+<body>
+<div class="shell">
+<div class="sb" id="sb">
+  <div class="sb-head">
+    <div class="logo-fb" id="logo-wrap">
+      <img src="/logo.png" alt="4N" onerror="this.style.display='none';document.getElementById('logo-fb').style.display='flex'">
+      <span id="logo-fb" style="display:none">4N</span>
+    </div>
+    <div class="logo-info">
+      <div class="logo-name">4eburNet</div>
+      <div class="logo-ver" id="lver">v—&nbsp;&middot;&nbsp;—</div>
+    </div>
+  </div>
+  <nav class="nav">
+    <div class="ni on" data-p="overview"><svg class="ni-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span class="ni-lbl">Обзор</span></div>
+    <div class="ni" data-p="groups"><svg class="ni-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="ni-lbl">Группы</span><span class="ni-nb nbg" id="nb-groups">—</span></div>
+    <div class="ni" data-p="servers"><svg class="ni-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg><span class="ni-lbl">Серверы</span><span class="ni-nb nbc" id="nb-servers">—</span></div>
+    <div class="ni" data-p="dns"><svg class="ni-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="22"/><path d="M2 12h20"/></svg><span class="ni-lbl">DNS</span></div>
+    <div class="ni" data-p="ports"><svg class="ni-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg><span class="ni-lbl">Порты / TPROXY</span></div>
+    <div class="ni" data-p="settings"><svg class="ni-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="ni-lbl">Настройки</span></div>
+  </nav>
+  <div class="sb-foot">
+    <div class="sb-stats"><div><span class="sdot" id="sdot"></span><span style="font-family:var(--mono);color:var(--acc)" id="sb-mode">—</span></div><div style="padding-left:12px;margin-top:2px">Аптайм: <span id="upsb" style="color:var(--acc2);font-family:var(--mono)">—</span></div></div>
+    <button class="coll" id="coll"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg><span class="coll-lbl">Свернуть</span></button>
+  </div>
+</div>
+
+<div class="main">
+<div class="topbar">
+  <span class="tb-t" id="ptitle">Обзор</span>
+  <span class="badge bg" id="tb-ver">v—</span>
+  <span class="badge bc" id="tb-mode">—</span>
+  <span class="badge bp" id="tb-profile">—</span>
+  <span style="font-family:var(--mono);font-size:11px;color:var(--text2)" id="upt">—</span>
+  <div class="tb-r">
+    <button class="btn btn-d" id="ss-btn" onclick="daemonCtl()">■ Стоп</button>
+    <span class="tip"><button class="btn" onclick="daemonReload()">⟳ Конфиг</button><span class="tip-box">Перезагрузить конфиг без перезапуска демона. Применяет изменения из /etc/config/4eburnet</span></span>
+    <span class="tip"><button class="btn btn-c" onclick="openQR()">⊞ QR</button><span class="tip-box">QR-код для быстрого доступа к дашборду (http://ip:8080). Для серверов — QR кнопка в таблице Серверов</span></span>
+  </div>
+</div>
+
+<!-- Обзор -->
+<div class="page on" id="p-overview">
+  <div class="srow">
+    <div class="sc">
+      <div class="sc-l">Статус<span class="tip"><span class="tq">?</span><span class="tip-box">Состояние демона 4eburnetd. Активен = запущен и принимает трафик через TPROXY</span></span></div>
+      <div class="sc-v" id="ov-status" style="font-size:15px;padding-top:4px">—</div>
+      <div class="sc-s" id="ov-profile">—</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Соединения<span class="tip"><span class="tq">?</span><span class="tip-box">Активные TCP/UDP соединения через TPROXY прокси-демон</span></span></div>
+      <div class="sc-v cc" id="ov-conn">—</div>
+      <div class="sc-s" id="ov-conn-total">всего: —</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">DNS<span class="tip"><span class="tq">?</span><span class="tip-box">DNS запросы обработанные встроенным сервером на порту 53</span></span></div>
+      <div class="sc-v" id="ov-dns">—</div>
+      <div class="sc-s" id="ov-dns-cached">кэш: —</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Реклама<span class="tip"><span class="tq">?</span><span class="tip-box">Домены из geosite-ads.lst заблокированные через DNS NXDOMAIN</span></span></div>
+      <div class="sc-v cd" id="ov-ads">—</div>
+      <div class="sc-s">DNS заблокировано</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Трекеры<span class="tip"><span class="tq">?</span><span class="tip-box">EasyPrivacy: счётчики, пиксели соцсетей — заблокированы через DNS</span></span></div>
+      <div class="sc-v cw" id="ov-trk">—</div>
+      <div class="sc-s">DNS заблокировано</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Угрозы<span class="tip"><span class="tq">?</span><span class="tip-box">URLhaus malware/phishing домены заблокированные через DNS</span></span></div>
+      <div class="sc-v cp" id="ov-thr">—</div>
+      <div class="sc-s">DNS заблокировано</div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="wan">
+      <div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px">Режим маршрутизации</div>
+        <div style="font-family:var(--mono);font-size:22px;font-weight:800;color:var(--acc)" id="ov-mode-big">—</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px" id="ov-ver-line">Загрузка...</div>
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Аптайм</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:var(--acc2)" id="ov-uptime">—</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">:53 DNS · :7893 TPROXY · :8080 Dashboard</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="ph-t">Proxy группы</span><div class="ph-r"><button class="ib" onclick="go('groups')">→ все</button></div></div>
+      <div class="pb" style="padding:8px 16px" id="ov-groups-list">
+        <div class="empty-ph">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Группы -->
+<div class="page" id="p-groups">
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:12px;color:var(--text2)" id="groups-summary">—</span>
+    <button class="ib" style="margin-left:auto" onclick="fetchGroups()">↻</button>
+  </div>
+  <div id="groups-list">
+    <div class="empty-ph">Загрузка...</div>
+  </div>
+</div>
+
+<!-- Серверы -->
+<div class="page" id="p-servers">
+  <div style="display:flex;gap:8px;align-items:center">
+    <span style="font-size:12px;color:var(--text2)" id="servers-summary">—</span>
+    <button class="ib" style="margin-left:auto" onclick="fetchServers()">↻</button>
+  </div>
+  <div class="panel">
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Имя</th><th>Тип</th><th>Хост</th><th>Порт</th><th>Действия</th></tr></thead>
+        <tbody id="servers-tbody">
+          <tr><td colspan="5" class="empty-ph">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- DNS -->
+<div class="page" id="p-dns">
+  <div class="panel">
+    <div class="ph"><span class="ph-t">DNS настройки<span class="tip"><span class="tq">?</span><span class="tip-box">Настройки DNS из UCI конфига /etc/config/4eburnet секция 'dns'. Для изменений используй UCI или LuCI.</span></span></span><div class="ph-r"><button class="ib" onclick="fetchDns()">↻</button></div></div>
+    <div class="pb" id="dns-body">
+      <div class="empty-ph">Загрузка...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Порты -->
+<div class="page" id="p-ports">
+  <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Порты используемые 4eburNet на роутере <span class="tip"><span class="tq">?</span><span class="tip-box">4eburNet перехватывает трафик прозрачно. Клиенты в сети не знают о его существовании. Firewall правило блокирует :8080 снаружи (только LAN).</span></span></div>
+  <div class="port-grid">
+    <div class="port-c"><div class="port-num">53</div><div class="port-name">DNS сервер</div><div class="port-desc">Перехват всех DNS запросов сети. Раздельный резолвинг: RU-домены → провайдер, остальное → DoH</div><div class="port-proto">UDP · TCP · 0.0.0.0 (вся сеть)</div></div>
+    <div class="port-c"><div class="port-num">7893</div><div class="port-name">TPROXY порт</div><div class="port-desc">Прозрачный прокси. Весь помеченный трафик (fwmark 0x01) перенаправляется ядром сюда и обрабатывается демоном 4eburnetd</div><div class="port-proto">TCP · UDP · 127.0.0.1 (локально)</div></div>
+    <div class="port-c"><div class="port-num">8080</div><div class="port-name">Dashboard HTTP</div><div class="port-desc">Встроенный веб-интерфейс (этот дашборд). Доступен по http://IP_роутера:8080 из любого устройства в LAN</div><div class="port-proto">TCP · 0.0.0.0 (только LAN)</div></div>
+  </div>
+  <div class="panel">
+    <div class="ph"><span class="ph-t">TPROXY маршрутизация</span></div>
+    <div class="pb">
+      <div style="background:var(--bg2);border-radius:8px;padding:12px;font-family:var(--mono);font-size:12px;line-height:1.9">
+        <div style="color:var(--muted)"># nftables правила (упрощённо)</div>
+        <div><span style="color:var(--acc2)">nft</span> add rule inet 4eburnet prerouting</div>
+        <div style="padding-left:20px"><span style="color:var(--warn)">meta l4proto</span> { tcp, udp } <span style="color:var(--warn)">tproxy to</span> <span style="color:var(--acc)">127.0.0.1:7893</span></div>
+        <div style="margin-top:8px;color:var(--muted)"># маршрутизация</div>
+        <div><span style="color:var(--acc2)">ip rule add</span> fwmark 0x1 table 100</div>
+        <div><span style="color:var(--acc2)">ip route add</span> local 0.0.0.0/0 dev lo table 100</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Настройки -->
+<div class="page" id="p-settings">
+  <div class="set-g">
+    <div class="set-s">
+      <div class="set-t">Оформление</div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+        <button class="btn" id="theme-dark" onclick="setTheme('')" style="flex:1">🌙 Тёмная</button>
+        <button class="btn" id="theme-sand" onclick="setTheme('sand')" style="flex:1">🏜 Песчаная</button>
+      </div>
+      <div style="font-size:11px;color:var(--text2)">Тема сохраняется в браузере</div>
+    </div>
+    <div class="set-s">
+      <div class="set-t">Управление демоном</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <button class="btn btn-g btn-full" onclick="daemonCtl()">▶ Старт</button>
+        <button class="btn btn-d btn-full" onclick="daemonCtl()">■ Стоп</button>
+        <button class="btn btn-full" onclick="daemonReload()">⟳ Перезагрузить конфиг</button>
+        <button class="btn btn-full" onclick="alert('Скоро')">⬇ Обновить GeoIP</button>
+      </div>
+      <div style="background:var(--bg2);border-radius:8px;padding:12px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.7px">Статус</div>
+        <div style="font-size:12px;font-family:var(--mono);display:grid;grid-template-columns:auto 1fr;gap:4px 12px" id="sys-info">
+          <span style="color:var(--text2)">Статус</span><span id="si-status">—</span>
+          <span style="color:var(--text2)">Версия</span><span id="si-ver">—</span>
+          <span style="color:var(--text2)">Профиль</span><span id="si-profile">—</span>
+          <span style="color:var(--text2)">Режим</span><span id="si-mode">—</span>
+          <span style="color:var(--text2)">Аптайм</span><span id="si-uptime">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="set-s">
+      <div class="set-t">QR-доступ к дашборду</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Отсканируй для быстрого доступа с телефона</div>
+      <div style="margin-bottom:10px">
+        <label>IP роутера</label>
+        <input type="text" id="qr-ip-set" value="" placeholder="192.168.2.1" oninput="renderQRText()">
+      </div>
+      <div id="qr-url-set" style="font-family:var(--mono);font-size:12px;color:var(--acc2);word-break:break-all;background:var(--bg2);border-radius:6px;padding:8px 10px;margin-bottom:8px">—</div>
+      <button class="btn btn-c" onclick="copyQR()">📋 Скопировать ссылку</button>
+    </div>
+  </div>
+</div>
+
+
+</div><!-- .main -->
+</div><!-- .shell -->
+
+<!-- QR Modal -->
+<div class="qr-modal" id="qr-modal">
+  <div class="qr-inner">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:16px;font-weight:700">⊞ QR-код для доступа</h3>
+      <button class="ib" onclick="document.getElementById('qr-modal').classList.remove('open')">✕</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <label>IP роутера (LAN)</label>
+      <input type="text" id="qr-ip" placeholder="192.168.2.1" oninput="renderQRModal()">
+    </div>
+    <div id="qr-url-modal" style="font-family:var(--mono);font-size:13px;color:var(--acc2);word-break:break-all;text-align:center;background:var(--bg2);border-radius:8px;padding:14px;margin-bottom:14px">—</div>
+    <div style="display:flex;gap:8px;justify-content:center">
+      <button class="btn btn-g" onclick="copyQRModal()">📋 Скопировать</button>
+      <button class="btn" onclick="document.getElementById('qr-modal').classList.remove('open')">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ── Навигация ─────────────────────────────────────────────────────── */
+const PAGES = {
+  overview:'Обзор', groups:'Группы', servers:'Серверы',
+  dns:'DNS', ports:'Порты / TPROXY', settings:'Настройки'
+};
+function go(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.ni').forEach(n => n.classList.remove('on'));
+  const pg = document.getElementById('p-' + id);
+  if (pg) pg.classList.add('on');
+  const ni = document.querySelector('[data-p=' + id + ']');
+  if (ni) ni.classList.add('on');
+  document.getElementById('ptitle').textContent = PAGES[id] || id;
+}
+document.querySelectorAll('.ni').forEach(n => n.addEventListener('click', () => go(n.dataset.p)));
+document.getElementById('qr-modal').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+
+/* ── Sidebar collapse ──────────────────────────────────────────────── */
+let mini = false;
+document.getElementById('coll').addEventListener('click', () => {
+  mini = !mini;
+  document.getElementById('sb').classList.toggle('mini', mini);
+  document.querySelector('.coll-lbl').textContent = mini ? '' : 'Свернуть';
+});
+
+/* ── Форматирование ────────────────────────────────────────────────── */
+function fmtUptime(s) {
+  if (!s || s < 0) return '—';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return h + 'ч ' + String(m).padStart(2,'0') + 'м ' + String(sec).padStart(2,'0') + 'с';
+  return m + 'м ' + String(sec).padStart(2,'0') + 'с';
+}
+function fmtNum(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('ru-RU');
+}
+
+/* ── Состояние ─────────────────────────────────────────────────────── */
+let uptimeSecs = 0;
+let daemonRunning = false;
+
+/* ── /api/status ───────────────────────────────────────────────────── */
+async function fetchStatus() {
+  try {
+    const d = await fetch('/api/status').then(r => r.json());
+    const running = d.status === 'running';
+    daemonRunning = running;
+    uptimeSecs = d.uptime || 0;
+
+    /* топбар */
+    document.getElementById('tb-ver').textContent    = 'v' + (d.version || '—');
+    document.getElementById('tb-mode').textContent   = d.mode    || '—';
+    document.getElementById('tb-profile').textContent = d.profile || '—';
+
+    /* сайдбар */
+    document.getElementById('lver').textContent      = (d.version || '—') + ' · ' + (d.profile || '—');
+    document.getElementById('sb-mode').textContent   = d.mode    || '—';
+    const dot = document.getElementById('sdot');
+    dot.style.background = running ? 'var(--acc)' : 'var(--danger)';
+
+    /* кнопка старт/стоп */
+    const btn = document.getElementById('ss-btn');
+    btn.textContent  = running ? '■ Стоп' : '▶ Старт';
+    btn.className    = 'btn ' + (running ? 'btn-d' : 'btn-g');
+
+    /* обзор */
+    const st = document.getElementById('ov-status');
+    st.textContent = running ? 'Активен' : 'Остановлен';
+    st.className   = 'sc-v ' + (running ? 'cg' : 'cd');
+    document.getElementById('ov-profile').textContent  = (d.profile || '—') + (running ? '' : '');
+    document.getElementById('ov-mode-big').textContent = d.mode    || '—';
+    document.getElementById('ov-ver-line').textContent = '4eburNet v' + (d.version || '—') + ' · ' + (d.profile || '—');
+
+    /* настройки */
+    document.getElementById('si-status').textContent  = running ? '● Работает' : '● Остановлен';
+    document.getElementById('si-status').style.color  = running ? 'var(--acc)' : 'var(--danger)';
+    document.getElementById('si-ver').textContent     = d.version || '—';
+    document.getElementById('si-profile').textContent = d.profile  || '—';
+    document.getElementById('si-mode').textContent    = d.mode     || '—';
+  } catch(e) {
+    document.getElementById('ov-status').textContent = 'Ошибка';
+    document.getElementById('ov-status').className   = 'sc-v cd';
+  }
+}
+
+/* ── Аптайм-тикер ──────────────────────────────────────────────────── */
+setInterval(() => {
+  uptimeSecs++;
+  const s = fmtUptime(uptimeSecs);
+  document.getElementById('upsb').textContent  = s;
+  document.getElementById('upt').textContent   = '↑ ' + s;
+  document.getElementById('ov-uptime').textContent = s;
+  document.getElementById('si-uptime').textContent = s;
+}, 1000);
+
+/* ── /api/stats ────────────────────────────────────────────────────── */
+async function fetchStats() {
+  try {
+    const d = await fetch('/api/stats').then(r => r.json());
+    document.getElementById('ov-conn').textContent       = fmtNum(d.connections_active);
+    document.getElementById('ov-conn-total').textContent = 'всего: ' + fmtNum(d.connections_total);
+    document.getElementById('ov-dns').textContent        = fmtNum(d.dns_queries);
+    document.getElementById('ov-dns-cached').textContent = 'кэш: ' + fmtNum(d.dns_cached);
+    document.getElementById('ov-ads').textContent        = fmtNum(d.blocked_ads);
+    document.getElementById('ov-trk').textContent        = fmtNum(d.blocked_trackers);
+    document.getElementById('ov-thr').textContent        = fmtNum(d.blocked_threats);
+  } catch(e) {}
+}
+
+/* ── /api/groups ───────────────────────────────────────────────────── */
+async function fetchGroups() {
+  try {
+    const d = await fetch('/api/groups').then(r => r.json());
+    const groups = d.groups || d || [];
+    if (!Array.isArray(groups)) { renderGroupsEmpty(); return; }
+
+    document.getElementById('nb-groups').textContent     = groups.length;
+    document.getElementById('groups-summary').textContent = groups.length + ' групп';
+
+    /* Обзор: мини-список */
+    const ovList = document.getElementById('ov-groups-list');
+    if (groups.length === 0) {
+      ovList.innerHTML = '<div class="empty-ph">Нет групп в конфиге</div>';
+    } else {
+      ovList.innerHTML = groups.slice(0,5).map(g => {
+        const c = g.healthy === false ? 'var(--danger)' : g.latency > 300 ? 'var(--warn)' : 'var(--acc)';
+        const lat = g.latency ? g.latency + 'мс' : (g.healthy === false ? 'timeout' : '—');
+        return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">' +
+          '<div style="width:8px;height:8px;border-radius:50%;background:' + c + ';flex-shrink:0"></div>' +
+          '<span style="flex:1;font-size:13px;font-weight:500">' + esc(g.name) + '</span>' +
+          '<span style="font-size:11px;color:var(--text2)">' + esc(g.type||'—') + '·' + (g.servers||0) + '</span>' +
+          '<span style="font-size:11px;font-family:var(--mono);color:' + c + '">' + lat + '</span>' +
+          '</div>';
+      }).join('') + (groups.length > 5 ? '<div style="font-size:11px;color:var(--text2);padding:5px 0">+ ещё ' + (groups.length-5) + '</div>' : '');
+    }
+
+    /* Страница Группы: раскрывающиеся карточки */
+    const list = document.getElementById('groups-list');
+    if (groups.length === 0) {
+      list.innerHTML = '<div class="empty-ph">Нет групп в конфиге</div>';
+    } else {
+      list.innerHTML = groups.map(g => {
+        const c = g.healthy === false ? 'var(--danger)' : g.latency > 300 ? 'var(--warn)' : 'var(--acc)';
+        const lat = g.latency ? g.latency + ' мс' : '—';
+        const typeColor = {select:'var(--acc)',urltest:'var(--acc2)','url-test':'var(--acc2)',fallback:'var(--warn)','load-balance':'var(--acc3)'}[g.type] || 'var(--muted)';
+        const srvItems = (g.server_list||[]).map(s =>
+          '<div class="gc"><div class="gc-name">' + esc(s) + '</div></div>'
+        ).join('');
+        return '<div class="gp">' +
+          '<div class="gph" onclick="this.nextElementSibling.classList.toggle(\'open\');const a=this.querySelector(\'.garr\');if(a)a.textContent=this.nextElementSibling.classList.contains(\'open\')?\'▴\':\'▾\'">' +
+          '<div class="gdot" style="background:' + c + '"></div>' +
+          '<span class="gname">' + esc(g.name) + '</span>' +
+          '<span class="gtype" style="background:rgba(255,255,255,.06);color:' + typeColor + '">' + esc(g.type||'—') + '</span>' +
+          '<span style="font-size:11px;color:var(--text2);margin-left:4px">' + (g.servers||0) + ' серв.</span>' +
+          (g.latency ? '<span style="font-size:11px;font-family:var(--mono);color:' + c + ';margin-left:auto">' + lat + '</span>' : '') +
+          '<span class="garr" style="margin-left:8px;color:var(--muted);font-size:12px">▾</span>' +
+          '</div>' +
+          '<div class="gbody">' +
+          (srvItems ? '<div class="gc-grid">' + srvItems + '</div>' : '<div class="empty-ph">Нет данных о серверах</div>') +
+          '</div></div>';
+      }).join('');
+    }
+  } catch(e) { renderGroupsEmpty(); }
+}
+function renderGroupsEmpty() {
+  document.getElementById('ov-groups-list').innerHTML = '<div class="empty-ph">Нет данных</div>';
+  document.getElementById('groups-list').innerHTML    = '<div class="empty-ph">Нет данных</div>';
+}
+
+/* ── /api/servers ──────────────────────────────────────────────────── */
+async function fetchServers() {
+  try {
+    const d = await fetch('/api/servers').then(r => r.json());
+    const servers = Array.isArray(d) ? d : (d.servers || []);
+    document.getElementById('nb-servers').textContent     = servers.length;
+    document.getElementById('servers-summary').textContent = servers.length + ' серверов';
+    const tbody = document.getElementById('servers-tbody');
+    if (servers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-ph">Нет серверов в конфиге. Добавь серверы через UCI или LuCI.</td></tr>';
+    } else {
+      const typeClass = {vless:'pvless',trojan:'ptrojan',ss:'pss',awg:'pawg',hysteria2:'phy2','hysteria-2':'phy2'};
+      tbody.innerHTML = servers.map(s =>
+        '<tr>' +
+        '<td style="font-weight:500">' + esc(s.name) + '</td>' +
+        '<td><span class="ptag ' + (typeClass[s.type]||'') + '">' + esc(s.type||'—') + '</span></td>' +
+        '<td style="font-family:var(--mono);color:var(--text2)">' + esc(s.host||'—') + '</td>' +
+        '<td style="font-family:var(--mono)">' + (s.port||'—') + '</td>' +
+        '<td><button class="ib" data-srv="' + esc(JSON.stringify(s)) + '" onclick="showServerQR(JSON.parse(this.dataset.srv))">QR</button></td>' +
+        '</tr>'
+      ).join('');
+    }
+  } catch(e) {
+    document.getElementById('servers-tbody').innerHTML = '<tr><td colspan="5" class="empty-ph">Ошибка загрузки</td></tr>';
+  }
+}
+
+/* ── /api/dns ──────────────────────────────────────────────────────── */
+const DNS_LABELS = {
+  enabled:'DNS включён', listen_port:'Порт прослушивания',
+  upstream_bypass:'Upstream bypass (провайдер)', upstream_proxy:'Upstream proxy (DoH через прокси)',
+  upstream_default:'Upstream default (прямой)', upstream_fallback:'Upstream fallback',
+  upstream_port:'Порт upstream', cache_size:'Размер кэша',
+  parallel_query:'Параллельные запросы', fake_ip_enabled:'Fake IP включён',
+  fake_ip_range:'Fake IP диапазон', fake_ip_cidr:'Fake IP CIDR',
+  fake_ip_ttl:'Fake IP TTL (сек)', doh_enabled:'DoH включён',
+  doh_url:'DoH URL', doh_ip:'DoH IP', doh_sni:'DoH SNI'
+};
+async function fetchDns() {
+  try {
+    const d = await fetch('/api/dns').then(r => r.json());
+    const body = document.getElementById('dns-body');
+    const entries = Object.entries(d).filter(([k]) => k !== 'error');
+    if (entries.length === 0) {
+      body.innerHTML = '<div class="empty-ph">DNS секция не настроена в конфиге</div>';
+    } else {
+      body.innerHTML = entries.map(([k,v]) =>
+        '<div class="dns-row">' +
+        '<span class="dns-key">' + esc(DNS_LABELS[k] || k) + '</span>' +
+        '<span class="dns-val">' + esc(String(v)) + '</span>' +
+        '</div>'
+      ).join('');
+    }
+  } catch(e) {
+    document.getElementById('dns-body').innerHTML = '<div class="empty-ph">Ошибка загрузки DNS настроек</div>';
+  }
+}
+
+/* ── Управление демоном ────────────────────────────────────────────── */
+function daemonCtl() {
+  const action = daemonRunning ? 'stop' : 'start';
+  const label  = daemonRunning ? 'остановить' : 'запустить';
+  if (!confirm('Действительно ' + label + ' 4eburnetd?')) return;
+  fetch('/api/control', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action})
+  }).catch(() => {}).finally(() => { setTimeout(fetchStatus, 1500); });
+}
+function daemonReload() {
+  fetch('/api/control', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action:'reload'})
+  }).catch(() => {}).finally(() => { setTimeout(fetchStatus, 1500); });
+}
+
+/* ── QR ────────────────────────────────────────────────────────────── */
+function openQR() {
+  document.getElementById('qr-modal').classList.add('open');
+  document.getElementById('qr-ip').value = location.hostname || '192.168.2.1';
+  renderQRModal();
+}
+function renderQRModal() {
+  const ip  = document.getElementById('qr-ip').value || location.hostname || '192.168.2.1';
+  const url = 'http://' + ip + ':8080';
+  document.getElementById('qr-url-modal').textContent = url;
+}
+function copyQRModal() {
+  const ip  = document.getElementById('qr-ip').value || location.hostname || '192.168.2.1';
+  const url = 'http://' + ip + ':8080';
+  copyToClipboard(url);
+}
+function renderQRText() {
+  const ip  = document.getElementById('qr-ip-set').value || location.hostname || '192.168.2.1';
+  const url = 'http://' + ip + ':8080';
+  document.getElementById('qr-url-set').textContent = url;
+}
+function copyQR() {
+  const ip  = document.getElementById('qr-ip-set').value || location.hostname || '192.168.2.1';
+  copyToClipboard('http://' + ip + ':8080');
+}
+function copyToClipboard(text) {
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => alert('Скопировано: ' + text));
+  else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); alert('Скопировано: ' + text); }
+}
+function showServerQR(s) {
+  let uri = '';
+  const name = encodeURIComponent(s.name || 'server');
+
+  if (s.type === 'vless') {
+    const params = new URLSearchParams();
+    params.set('encryption', 'none');
+    if (s.security)  params.set('security',  s.security);
+    if (s.sni)       params.set('sni',        s.sni);
+    if (s.fp)        params.set('fp',         s.fp);
+    if (s.transport) params.set('type',       s.transport);
+    if (s.pbk)       params.set('pbk',        s.pbk);
+    if (s.sid)       params.set('sid',        s.sid);
+    uri = 'vless://' + encodeURIComponent(s.uuid || '') +
+          '@' + s.host + ':' + s.port +
+          '?' + params.toString() + '#' + name;
+
+  } else if (s.type === 'trojan') {
+    const params = new URLSearchParams();
+    params.set('security', s.security || 'tls');
+    if (s.sni)       params.set('sni',  s.sni);
+    if (s.fp)        params.set('fp',   s.fp);
+    if (s.transport) params.set('type', s.transport);
+    uri = 'trojan://' + encodeURIComponent(s.password || '') +
+          '@' + s.host + ':' + s.port +
+          '?' + params.toString() + '#' + name;
+
+  } else if (s.type === 'awg') {
+    uri = '[Interface]\n' +
+          (s.private_key ? 'PrivateKey = ' + s.private_key + '\n' : '') +
+          'Address = 10.0.0.2/32\n' +
+          'DNS = ' + (s.dns || '1.1.1.1') + '\n' +
+          (s.mtu ? 'MTU = ' + s.mtu + '\n' : '') +
+          '[Peer]\n' +
+          (s.public_key ? 'PublicKey = ' + s.public_key + '\n' : '') +
+          'AllowedIPs = 0.0.0.0/0, ::/0\n' +
+          'Endpoint = ' + s.host + ':' + s.port + '\n';
+  } else {
+    uri = s.type + '://' + s.host + ':' + s.port;
+  }
+
+  /* Показать в QR-модале */
+  const modal = document.getElementById('qr-modal');
+  const urlEl = document.getElementById('qr-url-modal');
+  if (urlEl) urlEl.textContent = uri;
+  const title = modal ? modal.querySelector('h3') : null;
+  if (title) title.textContent = '⊞ ' + esc(s.name || 'Сервер');
+  if (modal) modal.classList.add('open');
+}
+
+/* ── XSS-безопасная эскейп-функция ────────────────────────────────── */
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Переключение темы ─────────────────────────────────────────────── */
+function setTheme(cls) {
+  document.body.className = cls;
+  localStorage.setItem('4eb-theme', cls);
+  const d = document.getElementById('theme-dark');
+  const s = document.getElementById('theme-sand');
+  if (d) d.className = 'btn' + (cls === '' ? ' btn-g' : '');
+  if (s) s.className = 'btn' + (cls === 'sand' ? ' btn-g' : '');
+}
+/* Применить сохранённую тему при загрузке */
+(function() { const t = localStorage.getItem('4eb-theme') || ''; setTheme(t); })();
+
+/* ── Инициализация настроек QR ─────────────────────────────────────── */
+document.getElementById('qr-ip-set').value = location.hostname || '192.168.2.1';
+renderQRText();
+
+/* ── Первоначальная загрузка ───────────────────────────────────────── */
+fetchStatus();
+fetchStats();
+fetchGroups();
+fetchServers();
+fetchDns();
+
+/* ── Периодический опрос ───────────────────────────────────────────── */
+setInterval(fetchStatus, 5000);
+setInterval(fetchStats,  5000);
+setInterval(fetchGroups, 30000);
+</script>
+</body>
+</html>

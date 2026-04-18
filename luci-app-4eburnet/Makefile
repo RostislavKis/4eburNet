@@ -15,57 +15,25 @@ define Package/luci-app-4eburnet
 endef
 
 define Package/luci-app-4eburnet/description
-  Веб-интерфейс LuCI для управления 4eburnetd.
-  VLESS+Reality, Trojan, Shadowsocks, AmneziaWG, Hysteria2, ShadowTLS v3.
-  DPI bypass, DNS over HTTPS/TLS, подписки, устройства.
+  Минимальная LuCI-вкладка для 4eburnetd.
+  Показывает статус демона и ссылку на embedded dashboard (:8080).
 endef
 
 define Build/Compile
 endef
 
 define Package/luci-app-4eburnet/install
-	# ── Legacy Lua controller (OpenWrt 22.03 + luci-compat) ────────
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
-	$(INSTALL_DATA) ./luasrc/controller/4eburnet.lua \
-	  $(1)/usr/lib/lua/luci/controller/
-
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/lib/4eburnet
-	$(INSTALL_DATA) ./luasrc/lib/4eburnet/*.lua \
-	  $(1)/usr/lib/lua/luci/lib/4eburnet/
-
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/4eburnet
-	$(INSTALL_DATA) ./luasrc/view/4eburnet/*.htm \
-	  $(1)/usr/lib/lua/luci/view/4eburnet/
-
-	# ── Статические ресурсы (CSS, JS, logo) ────────────────────────
-	$(INSTALL_DIR) $(1)/www/luci-static/4eburnet
-	$(INSTALL_DATA) ./htdocs/luci-static/4eburnet/style.css \
-	  $(1)/www/luci-static/4eburnet/
-	$(INSTALL_DATA) ./htdocs/luci-static/4eburnet/app.js \
-	  $(1)/www/luci-static/4eburnet/
-	if [ -f ./htdocs/luci-static/4eburnet/logo.png ]; then \
-	  $(INSTALL_DATA) ./htdocs/luci-static/4eburnet/logo.png \
-	    $(1)/www/luci-static/4eburnet/; \
-	fi
-
-	if [ -d ./htdocs/luci-static/4eburnet/fonts ]; then \
-	  $(INSTALL_DIR) $(1)/www/luci-static/4eburnet/fonts; \
-	  $(INSTALL_DATA) ./htdocs/luci-static/4eburnet/fonts/*.woff2 \
-	    $(1)/www/luci-static/4eburnet/fonts/; \
-	fi
-
-	# ── LuCI JS views (ucode backend) ─────────────────────────────
+	# ── LuCI JS view (mini tab) ────────────────────────────────────
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/4eburnet
-	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/4eburnet/*.js \
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/4eburnet/overview.js \
 	  $(1)/www/luci-static/resources/view/4eburnet/
 
-	if [ -d ./htdocs/luci-static/resources/4eburnet ]; then \
-	  $(INSTALL_DIR) $(1)/www/luci-static/resources/4eburnet; \
-	  $(INSTALL_DATA) ./htdocs/luci-static/resources/4eburnet/* \
-	    $(1)/www/luci-static/resources/4eburnet/; \
-	fi
+	# ── Logo (для mini tab) ────────────────────────────────────────
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/4eburnet
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/4eburnet/logo.png \
+	  $(1)/www/luci-static/resources/4eburnet/
 
-	# ── rpcd ucode backend + ACL + menu ────────────────────────────
+	# ── rpcd ucode backend (только status) ────────────────────────
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/4eburnet.uc \
 	  $(1)/usr/share/rpcd/ucode/
@@ -91,12 +59,20 @@ define Package/luci-app-4eburnet/install
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/40-4eburnet \
 	  $(1)/etc/hotplug.d/iface/
 
-	# ── sub_convert.py ─────────────────────────────────────────────
+	# ── sub_convert.py + embedded dashboard + geo скрипты ────────
 	$(INSTALL_DIR) $(1)/usr/share/4eburnet
 	$(INSTALL_BIN) ./files/usr/share/4eburnet/sub_convert.py \
 	  $(1)/usr/share/4eburnet/
+	$(INSTALL_DATA) ./files/usr/share/4eburnet/dashboard.html \
+	  $(1)/usr/share/4eburnet/
+	$(INSTALL_DATA) ./files/usr/share/4eburnet/4eburNet.png \
+	  $(1)/usr/share/4eburnet/
+	$(INSTALL_BIN) ./files/usr/share/4eburnet/geo_convert.sh \
+	  $(1)/usr/share/4eburnet/
+	$(INSTALL_BIN) ./files/usr/share/4eburnet/geo_update.sh \
+	  $(1)/usr/share/4eburnet/
 
-	# ── DPI файлы (ipset, whitelist, autohosts) ────────────────────
+	# ── DPI файлы ──────────────────────────────────────────────────
 	$(INSTALL_DIR) $(1)/etc/4eburnet/dpi
 	$(INSTALL_DATA) ./files/etc/4eburnet/dpi/ipset.txt \
 	  $(1)/etc/4eburnet/dpi/

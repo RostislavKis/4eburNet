@@ -27,6 +27,9 @@ stop_service() {
 	start-stop-daemon --stop --quiet --pidfile "$PIDFILE" \
 		--exec "$PROG" --retry TERM/5/KILL/5 2>/dev/null
 	rm -f "$PIDFILE"
+	# Убрать nftables и ip rule — трафик не должен идти в никуда после остановки
+	nft delete table inet 4eburnet 2>/dev/null || true
+	ip rule del fwmark 0x1 table 100 2>/dev/null || true
 }
 
 reload_service() {
