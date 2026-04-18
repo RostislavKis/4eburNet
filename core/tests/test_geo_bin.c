@@ -179,6 +179,73 @@ int main(void)
     if (gm_bin.count > 0)
         ASSERT(gm_bin.categories[0].mmap_addr != NULL, "reload: mmap режим");
 
+    /* ── Z3: невалидный magic → -1 без краша ── */
+    {
+        const char *bad_gbin = "/tmp/test_bad_magic.gbin";
+        const char *bad_lst  = "/tmp/test_bad_magic.lst";
+        FILE *bf = fopen(bad_gbin, "wb");
+        ASSERT(bf != NULL, "Z3: fopen bad_magic.gbin");
+        if (bf) {
+            uint8_t buf[64];
+            memset(buf, 0, sizeof(buf));
+            memcpy(buf, "XXX1", 4); /* неверный magic */
+            buf[4] = 1;             /* version=1 */
+            fwrite(buf, 1, sizeof(buf), bf);
+            fclose(bf);
+        }
+        geo_manager_t gm_z3;
+        memset(&gm_z3, 0, sizeof(gm_z3));
+        gm_z3.categories = calloc(4, sizeof(geo_category_t));
+        gm_z3.capacity   = 4;
+        int rz3 = geo_load_category(&gm_z3, "z3_bad", GEO_REGION_UNKNOWN, bad_lst);
+        ASSERT(rz3 != 0, "Z3: невалидный magic → load fail (-1)");
+        geo_manager_free(&gm_z3);
+        unlink(bad_gbin);
+        unlink(bad_lst);
+    }
+
+    /* ── Z4: truncated файл (< 36 байт header) → -1 без краша ── */
+    {
+        const char *trunc_gbin = "/tmp/test_truncated.gbin";
+        const char *trunc_lst  = "/tmp/test_truncated.lst";
+        FILE *tf = fopen(trunc_gbin, "wb");
+        ASSERT(tf != NULL, "Z4: fopen truncated.gbin");
+        if (tf) {
+            uint8_t buf[20];
+            memset(buf, 0, sizeof(buf));
+            memcpy(buf, "GEO1", 4); /* верный magic, файл обрезан до 20 < 36 байт */
+            fwrite(buf, 1, sizeof(buf), tf);
+            fclose(tf);
+        }
+        geo_manager_t gm_z4;
+        memset(&gm_z4, 0, sizeof(gm_z4));
+        gm_z4.categories = calloc(4, sizeof(geo_category_t));
+        gm_z4.capacity   = 4;
+        int rz4 = geo_load_category(&gm_z4, "z4_trunc", GEO_REGION_UNKNOWN, trunc_lst);
+        ASSERT(rz4 != 0, "Z4: truncated файл → load fail (-1)");
+        geo_manager_free(&gm_z4);
+        unlink(trunc_gbin);
+        unlink(trunc_lst);
+    }
+
+    /* ── Z5: cat_type читается из hdr без ручного override ── */
+    /* GBIN_PATH скомпилирован с cat_type=1 (ADS).
+     * Имя "noname_test" не содержит "ads" → name-based → GENERIC=0.
+     * bin режим должен перезаписать cat_type из hdr → ADS=1. */
+    {
+        geo_manager_t gm_z5;
+        memset(&gm_z5, 0, sizeof(gm_z5));
+        gm_z5.categories = calloc(4, sizeof(geo_category_t));
+        gm_z5.capacity   = 4;
+        int rz5 = geo_load_category(&gm_z5, "noname_test",
+                                    GEO_REGION_UNKNOWN, LST_PATH);
+        ASSERT(rz5 == 0, "Z5: load ok");
+        if (gm_z5.count > 0 && gm_z5.categories[0].mmap_addr != NULL)
+            ASSERT(gm_z5.categories[0].cat_type == GEO_CAT_ADS,
+                   "Z5: cat_type из hdr = ADS (bin режим, имя без 'ads')");
+        geo_manager_free(&gm_z5);
+    }
+
     /* ── Cleanup ── */
     geo_manager_free(&gm_bin);
     geo_manager_free(&gm_heap);
