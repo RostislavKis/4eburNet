@@ -10,8 +10,16 @@
 /* Создаёт Unix socket сервер, возвращает fd или -1 */
 int  ipc_init(void);
 
-/* Обрабатывает одно входящее IPC соединение (неблокирующий) */
-void ipc_process(int server_fd, EburNetState *state);
+/* Принять новое соединение и зарегистрировать в epoll ET */
+void ipc_accept(int server_fd, EburNetState *state, int epoll_fd);
+
+/* Обработать epoll-событие на IPC client fd (state machine) */
+/* Возвращает 0 — продолжать, -1 — соединение закрыто */
+int  ipc_client_event(void *client_ptr, uint32_t events,
+                       EburNetState *state);
+
+/* Проверить, принадлежит ли ptr пулу IPC клиентов */
+bool ipc_is_client_ptr(const void *ptr);
 
 /* Закрывает сервер и удаляет socket-файл */
 void ipc_cleanup(int server_fd);

@@ -272,7 +272,13 @@ test-sniffer:
 	  -o /tmp/test_sniffer
 	/tmp/test_sniffer
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin
+test-ipc-async:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  tests/test_ipc_async.c \
+	  -o /tmp/test_ipc_async
+	/tmp/test_ipc_async
+
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async
 
 # ── geo_compile (инструмент компиляции .lst → .gbin) ──────────────
 
@@ -348,6 +354,6 @@ help:
 .PHONY: all clean run install-vm test help \
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
-  test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin \
+  test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async \
   geo-compile geo-compile-mipsel \
   cross-mipsel cross-aarch64 sync-dashboard
