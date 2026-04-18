@@ -448,6 +448,10 @@ rules_send:
     case IPC_CMD_DPI_GET: {
         /* P6-01: вернуть текущие DPI настройки */
         const EburNetConfig *cfg = state->config;
+        if (!cfg) {
+            ipc_set_response(c, "{\"error\":\"config not ready\"}");
+            break;
+        }
         char esc_sni[512];
         json_escape_str(cfg->dpi_fake_sni, esc_sni, sizeof(esc_sni));
         snprintf(buf, IPC_RESPONSE_MAX,
