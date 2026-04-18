@@ -240,3 +240,19 @@ rm -f "$TMP"  # не достигается при set -e
 1. П3 (`uclient-fetch` без atomic) — может привести к partial file на следующем рестарте
 2. П2 (geo swap при пустой загрузке) — потеря 877K доменов при пустом geo_dir
 3. П1 (`dns_rules_init` без проверки) — тихая деградация при OOM reload
+
+---
+
+## Post-audit fixes (коммит 7c49a89)
+
+| ID | Действие | Статус |
+| -- | -------- | ------ |
+| П1 | dns_rules_init() return проверяется при reload | ✓ |
+| П2 | geo swap только если new_geo.count > 0 | ✓ |
+| П3 | uclient-fetch → .tmp + rename | ✓ |
+| З1 | NFT_FAKE_IP_CIDR → cfg->dns.fake_ip_range | ✓ |
+| З2 | dns_rules_load_file мёртвый код удалён | ✓ |
+| З3 | geo_convert.sh: grep + fallback на true при 0 совпадениях | ✓ |
+
+**Итог: 0 блокеров, 0 открытых проблем.**
+**4eburNet v1.0 — production ready.**
