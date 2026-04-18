@@ -13,6 +13,8 @@
 #include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/epoll.h>
+#include <sys/uio.h>
 #include <errno.h>
 #include <time.h>
 #include <poll.h>
@@ -20,8 +22,84 @@
 /* Размер буфера для ответов (достаточно для 200+ серверов/групп) */
 #define IPC_RESPONSE_MAX 65536
 
-/* Таймаут блокирующего чтения payload (мс) */
-#define IPC_RECV_TIMEOUT_MS 500
+/* Максимум одновременных IPC клиентов */
+#define IPC_MAX_CLIENTS 8
+
+/* ── State machine ─────────────────────────────────────────────────── */
+
+typedef enum {
+    IPC_CS_FREE         = 0,
+    IPC_CS_READING_HDR  = 1,
+    IPC_CS_READING_BODY = 2,
+    IPC_CS_WRITING      = 3,
+} ipc_cs_t;
+
+typedef struct {
+    int           fd;
+    ipc_cs_t      state;
+    /* чтение заголовка */
+    uint8_t       hdr_buf[sizeof(ipc_header_t)];
+    size_t        hdr_read;
+    ipc_header_t  hdr;
+    /* чтение payload (опциональный) */
+    char         *payload;
+    size_t        payload_read;
+    /* ответ — inline буфер без malloc в hot path */
+    ipc_header_t  resp_hdr;
+    char          resp_body[IPC_RESPONSE_MAX];
+    size_t        resp_body_len;
+    size_t        resp_sent;
+} ipc_client_t;
+
+static ipc_client_t g_clients[IPC_MAX_CLIENTS];
+static int          g_epoll_fd = -1;
+
+static ipc_client_t *ipc_client_alloc(int fd)
+{
+    for (int i = 0; i < IPC_MAX_CLIENTS; i++) {
+        if (g_clients[i].state == IPC_CS_FREE) {
+            memset(&g_clients[i], 0, sizeof(g_clients[i]));
+            g_clients[i].fd    = fd;
+            g_clients[i].state = IPC_CS_READING_HDR;
+            return &g_clients[i];
+        }
+    }
+    return NULL;
+}
+
+static void ipc_client_free(ipc_client_t *c)
+{
+    if (c->payload) { free(c->payload); c->payload = NULL; }
+    if (c->fd >= 0) { close(c->fd);     c->fd      = -1;  }
+    c->state = IPC_CS_FREE;
+}
+
+bool ipc_is_client_ptr(const void *ptr)
+{
+    return ptr >= (const void *)&g_clients[0] &&
+           ptr <  (const void *)&g_clients[IPC_MAX_CLIENTS];
+}
+
+/* Заполнить resp_body уже записанным содержимым (snprintf прямо в resp_body),
+ * либо скопировать из внешней строки — и перейти в состояние WRITING. */
+static void ipc_set_response(ipc_client_t *c, const char *json)
+{
+    size_t len = strlen(json);
+    if (len >= sizeof(c->resp_body))
+        len = sizeof(c->resp_body) - 1;
+    if (json != c->resp_body)
+        memcpy(c->resp_body, json, len);
+    c->resp_body[len]  = '\0';
+    c->resp_body_len   = len;
+    c->resp_hdr = (ipc_header_t){
+        .version    = EBURNET_IPC_VERSION,
+        .command    = 0,
+        .length     = (uint16_t)(len > UINT16_MAX ? UINT16_MAX : len),
+        .request_id = 0,
+    };
+    c->resp_sent = 0;
+    c->state     = IPC_CS_WRITING;
+}
 
 /* Контекст для команд proxy_group/rule_provider/rules_engine/geo */
 static proxy_group_manager_t    *g_pgm = NULL;
@@ -42,80 +120,6 @@ void ipc_set_3x_context(proxy_group_manager_t *pgm,
 
 /* Backlog для listen() — количество ожидающих подключений */
 #define IPC_LISTEN_BACKLOG 8
-
-/* Прочитать ровно n байт с таймаутом IPC_RECV_TIMEOUT_MS.
- * Возвращает количество прочитанных байт или -1 при ошибке/таймауте. */
-static ssize_t ipc_recv_payload(int fd, char *buf, size_t n)
-{
-    if (n == 0) return 0;
-
-    /* Установить receive timeout */
-    struct timeval tv = {
-        .tv_sec  = IPC_RECV_TIMEOUT_MS / 1000,
-        .tv_usec = (IPC_RECV_TIMEOUT_MS % 1000) * 1000,
-    };
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
-        log_msg(LOG_WARN, "ipc: SO_RCVTIMEO: %s", strerror(errno));
-
-    size_t received = 0;
-    while (received < n) {
-        ssize_t r = recv(fd, buf + received, n - received, 0);
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            /* EAGAIN/EWOULDBLOCK = таймаут SO_RCVTIMEO */
-            log_msg(LOG_WARN, "IPC: таймаут при чтении payload (%zu/%zu)",
-                    received, n);
-            return -1;
-        }
-        if (r == 0) return -1;  /* соединение закрыто */
-        received += (size_t)r;
-    }
-    return (ssize_t)received;
-}
-
-/* Отправка строки в подключённый сокет */
-/* Записать все байты — повтор при EINTR, возврат -1 при ошибке */
-static int ipc_write_all(int fd, const void *buf, size_t n)
-{
-    size_t sent = 0;
-    while (sent < n) {
-        ssize_t r = write(fd, (const char *)buf + sent, n - sent);
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        if (r == 0) return -1;
-        sent += (size_t)r;
-    }
-    return 0;
-}
-
-static void ipc_respond(int client_fd, const char *json)
-{
-    size_t resp_len = strlen(json);
-    if (resp_len > UINT16_MAX) {
-        resp_len = UINT16_MAX;
-        /* Откатиться до последнего } или ] чтобы не сломать JSON */
-        const char *p = json + resp_len - 1;
-        while (p > json && *p != '}' && *p != ']')
-            p--;
-        if (p > json)
-            resp_len = (size_t)(p - json + 1);
-        log_msg(LOG_WARN, "IPC: ответ обрезан до %zu байт", resp_len);
-    }
-    ipc_header_t resp = {
-        .version    = EBURNET_IPC_VERSION,
-        .command    = 0,
-        .length     = (uint16_t)resp_len,
-        .request_id = 0,
-    };
-
-    /* Отправляем заголовок, затем тело */
-    if (ipc_write_all(client_fd, &resp, sizeof(resp)) < 0)
-        return;
-    if (ipc_write_all(client_fd, json, resp.length) < 0)
-        return;
-}
 
 int ipc_init(void)
 {
@@ -199,67 +203,15 @@ static size_t json_get_str(const char *json, const char *key,
 }
 
 /*
- * ipc_process — обработчик всех IPC команд в одной функции.
- * Единый switch минимизирует overhead диспетчеризации.
- * Каждая команда независима — таблица handler-указателей не оправдана.
+ * ipc_dispatch — обработать команду, уже прочитанную state machine.
+ * Пишет ответ в c->resp_body и переводит c->state в IPC_CS_WRITING.
  */
-void ipc_process(int server_fd, EburNetState *state)
+static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
 {
-    /* accept4: CLOEXEC для безопасности; НЕ NONBLOCK — клиент локальный */
-    int client_fd = accept4(server_fd, NULL, NULL, SOCK_CLOEXEC);
-    if (client_fd < 0)
-        return;
+    /* buf указывает прямо в inline буфер — нет malloc */
+    char *buf = c->resp_body;
 
-    /* Таймаут 3с — клиент локальный root, сетевых задержек нет */
-    struct timeval tv = {.tv_sec = 3, .tv_usec = 0};
-    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    /* Только root может управлять демоном через IPC */
-    struct ucred cred = {0};
-    socklen_t cred_len = sizeof(cred);
-    /* Fail-secure: если PEERCRED недоступен — отклоняем */
-    if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED,
-                   &cred, &cred_len) != 0) {
-        log_msg(LOG_WARN,
-            "IPC: SO_PEERCRED недоступен, соединение отклонено");
-        close(client_fd);
-        return;
-    }
-    if (cred.uid != 0) {
-        log_msg(LOG_WARN,
-            "IPC: отклонён non-root клиент (uid=%u)",
-            (unsigned)cred.uid);
-        close(client_fd);
-        return;
-    }
-
-    /* Читаем заголовок команды — блокирующий с таймаутом 3с */
-    ipc_header_t hdr;
-    ssize_t n = recv(client_fd, &hdr, sizeof(hdr), 0);
-    if (n != (ssize_t)sizeof(hdr)) {
-        log_msg(LOG_WARN, "IPC: неполный заголовок (%zd байт)", n);
-        close(client_fd);
-        return;
-    }
-
-    /* Проверка версии протокола */
-    if (hdr.version != EBURNET_IPC_VERSION) {
-        log_msg(LOG_WARN, "IPC: неизвестная версия протокола %u", hdr.version);
-        ipc_respond(client_fd, "{\"error\":\"version mismatch\"}");
-        close(client_fd);
-        return;
-    }
-
-    /* M-03: heap вместо 2048B на MIPS стеке */
-    char *buf = malloc(IPC_RESPONSE_MAX);
-    if (!buf) {
-        ipc_respond(client_fd, "{\"error\":\"OOM\"}");
-        close(client_fd);
-        return;
-    }
-
-    switch ((ipc_command_t)hdr.command) {
+    switch ((ipc_command_t)c->hdr.command) {
     case IPC_CMD_STATUS: {
         time_t uptime = time(NULL) - state->start_time;
         const char *profile = "unknown";
@@ -282,19 +234,19 @@ void ipc_process(int server_fd, EburNetState *state)
                  "\"mode\":\"%s\",\"geo_loaded\":%s}",
                  EBURNET_VERSION, profile, (long)uptime,
                  mode, geo_ok ? "true" : "false");
-        ipc_respond(client_fd, buf);
+        ipc_set_response(c, buf);
         break;
     }
 
     case IPC_CMD_RELOAD:
         state->reload = true;
-        ipc_respond(client_fd, "{\"status\":\"ok\"}");
+        ipc_set_response(c, "{\"status\":\"ok\"}");
         log_msg(LOG_INFO, "IPC: запрошена перезагрузка конфига");
         break;
 
     case IPC_CMD_STOP:
         state->running = false;
-        ipc_respond(client_fd, "{\"status\":\"stopping\"}");
+        ipc_set_response(c, "{\"status\":\"stopping\"}");
         log_msg(LOG_INFO, "IPC: запрошена остановка");
         break;
 
@@ -314,48 +266,26 @@ void ipc_process(int server_fd, EburNetState *state)
                  (unsigned long long)atomic_load(&g_stats.blocked_ads),
                  (unsigned long long)atomic_load(&g_stats.blocked_trackers),
                  (unsigned long long)atomic_load(&g_stats.blocked_threats));
-        ipc_respond(client_fd, buf);
+        ipc_set_response(c, buf);
         break;
 
     case IPC_CMD_GROUP_LIST:
         if (g_pgm) {
-            /* Динамический буфер: ~200 на группу + ~80 на сервер */
-            size_t gl_need = 64;
-            for (int gi = 0; gi < g_pgm->count; gi++)
-                gl_need += 200 + (size_t)g_pgm->groups[gi].server_count * 80;
-            char *gbuf = malloc(gl_need);
-            if (!gbuf) {
-                ipc_respond(client_fd, "{\"error\":\"OOM\"}");
-                break;
-            }
-            proxy_group_to_json(g_pgm, gbuf, gl_need);
-            ipc_respond(client_fd, gbuf);
-            free(gbuf);
+            /* Пишем прямо в c->resp_body — нет отдельного malloc */
+            proxy_group_to_json(g_pgm, buf, IPC_RESPONSE_MAX);
+            ipc_set_response(c, buf);
         } else {
-            ipc_respond(client_fd, "{\"groups\":[]}");
+            ipc_set_response(c, "{\"groups\":[]}");
         }
         break;
 
     case IPC_CMD_GROUP_SELECT: {
-        /* M-04: payload на heap (было 2049B на стеке) */
-        char *payload = calloc(1, IPC_RESPONSE_MAX + 1);
-        if (!payload) { ipc_respond(client_fd, "{\"error\":\"OOM\"}"); break; }
-        if (hdr.length > 0) {
-            ssize_t pr = ipc_recv_payload(client_fd, payload, hdr.length);
-            if (pr < 0) {
-                ipc_respond(client_fd,
-                    "{\"status\":\"error\",\"msg\":\"payload read failed\"}");
-                free(payload);
-                break;
-            }
-            payload[pr] = '\0';
-        }
+        /* payload уже прочитан state machine в c->payload */
+        const char *payload = c->payload ? c->payload : "";
         char grp[64] = {0}, srv[64] = {0};
         json_get_str(payload, "group",  grp, sizeof(grp));
         json_get_str(payload, "server", srv, sizeof(srv));
-        free(payload);
         if (grp[0] && srv[0] && g_pgm) {
-            /* Найти server_idx по имени сервера в cfg->servers[] */
             int srv_idx = -1;
             for (int si = 0; si < g_pgm->cfg->server_count; si++) {
                 if (strcmp(g_pgm->cfg->servers[si].name, srv) == 0) {
@@ -366,16 +296,13 @@ void ipc_process(int server_fd, EburNetState *state)
             int r = (srv_idx >= 0)
                     ? proxy_group_select_manual(g_pgm, grp, srv_idx)
                     : -1;
-            if (r == 0)
-                ipc_respond(client_fd, "{\"status\":\"ok\"}");
-            else
-                ipc_respond(client_fd,
-                    "{\"status\":\"error\",\"msg\":\"group or server not found\"}");
+            ipc_set_response(c, r == 0
+                ? "{\"status\":\"ok\"}"
+                : "{\"status\":\"error\",\"msg\":\"group or server not found\"}");
         } else if (!g_pgm) {
-            ipc_respond(client_fd,
-                "{\"status\":\"error\",\"msg\":\"no groups\"}");
+            ipc_set_response(c, "{\"status\":\"error\",\"msg\":\"no groups\"}");
         } else {
-            ipc_respond(client_fd,
+            ipc_set_response(c,
                 "{\"status\":\"error\",\"msg\":\"missing group or server\"}");
         }
         break;
@@ -384,50 +311,36 @@ void ipc_process(int server_fd, EburNetState *state)
     case IPC_CMD_GROUP_TEST:
         if (g_pgm) {
             proxy_group_tick(g_pgm);
-            ipc_respond(client_fd, "{\"status\":\"ok\"}");
+            ipc_set_response(c, "{\"status\":\"ok\"}");
         } else {
-            ipc_respond(client_fd, "{\"error\":\"no groups\"}");
+            ipc_set_response(c, "{\"error\":\"no groups\"}");
         }
         break;
 
     case IPC_CMD_PROVIDER_LIST:
         if (g_rpm) {
             rule_provider_to_json(g_rpm, buf, IPC_RESPONSE_MAX);
-            ipc_respond(client_fd, buf);
+            ipc_set_response(c, buf);
         } else {
-            ipc_respond(client_fd, "{\"providers\":[]}");
+            ipc_set_response(c, "{\"providers\":[]}");
         }
         break;
 
     case IPC_CMD_PROVIDER_UPDATE: {
-        /* M-04: payload на heap */
-        char *payload = calloc(1, IPC_RESPONSE_MAX + 1);
-        if (!payload) { ipc_respond(client_fd, "{\"error\":\"OOM\"}"); break; }
-        if (hdr.length > 0) {
-            ssize_t pr = ipc_recv_payload(client_fd, payload, hdr.length);
-            if (pr < 0) {
-                ipc_respond(client_fd,
-                    "{\"status\":\"error\",\"msg\":\"payload read failed\"}");
-                free(payload);
-                break;
-            }
-            payload[pr] = '\0';
-        }
+        /* payload уже прочитан state machine в c->payload */
+        const char *payload = c->payload ? c->payload : "";
         char pname[64] = {0};
         json_get_str(payload, "name", pname, sizeof(pname));
-        free(payload);
         if (pname[0] && g_rpm) {
             int r = rule_provider_update(g_rpm, pname);
-            if (r == 0)
-                ipc_respond(client_fd, "{\"status\":\"ok\"}");
-            else
-                ipc_respond(client_fd,
-                    "{\"status\":\"error\",\"msg\":\"provider not found\"}");
+            ipc_set_response(c, r == 0
+                ? "{\"status\":\"ok\"}"
+                : "{\"status\":\"error\",\"msg\":\"provider not found\"}");
         } else if (!g_rpm) {
-            ipc_respond(client_fd,
+            ipc_set_response(c,
                 "{\"status\":\"error\",\"msg\":\"no providers\"}");
         } else {
-            ipc_respond(client_fd,
+            ipc_set_response(c,
                 "{\"status\":\"error\",\"msg\":\"missing name\"}");
         }
         break;
@@ -435,18 +348,12 @@ void ipc_process(int server_fd, EburNetState *state)
 
     case IPC_CMD_RULES_LIST:
         if (g_re && g_re->sorted_rules) {
-            /* ~200 байт на правило + запас */
-            size_t need = (size_t)g_re->rule_count * 200 + 64;
-            if (need < 256) need = 256;
-            char *rbuf = malloc(need);
-            if (!rbuf) {
-                ipc_respond(client_fd, "{\"error\":\"OOM\"}");
-                break;
-            }
+            /* Пишем прямо в c->resp_body (= buf) */
             size_t pos = 0;
+            size_t need = IPC_RESPONSE_MAX;
             int w;
 #define IPC_SNPRINTF(fmt, ...) do { \
-    w = snprintf(rbuf + pos, need - pos, fmt, ##__VA_ARGS__); \
+    w = snprintf(buf + pos, need - pos, fmt, ##__VA_ARGS__); \
     if (w < 0 || (size_t)w >= need - pos) goto rules_trunc; \
     pos += (size_t)w; \
 } while(0)
@@ -464,17 +371,17 @@ void ipc_process(int server_fd, EburNetState *state)
             IPC_SNPRINTF("]}");
             goto rules_send;
 rules_trunc:
-            /* B6-01: при truncation — валидный JSON вместо обрезанного */
+            /* B6-01: при truncation — валидный JSON */
             log_msg(LOG_WARN, "ipc: rules list truncated");
-            snprintf(rbuf, need,
-                "{\"rules\":[],\"truncated\":true}");
+            pos = 0;
+            snprintf(buf, need, "{\"rules\":[],\"truncated\":true}");
+            pos = strlen(buf);
 rules_send:
 #undef IPC_SNPRINTF
-            if (pos > 0 && pos < need) rbuf[pos] = '\0';
-            ipc_respond(client_fd, rbuf);
-            free(rbuf);
+            if (pos < need) buf[pos] = '\0';
+            ipc_set_response(c, buf);
         } else {
-            ipc_respond(client_fd, "{\"rules\":[]}");
+            ipc_set_response(c, "{\"rules\":[]}");
         }
         break;
 
@@ -484,7 +391,7 @@ rules_send:
             p += (size_t)snprintf(buf + p, IPC_RESPONSE_MAX - p,
                 "{\"region\":\"%s\",\"categories\":[",
                 geo_region_name(g_gm->current_region));
-            /* B6-02: резерв 4 байта под "]}\0" — гарантия валидного JSON */
+            /* B6-02: резерв 4 байта под "]}\0" */
             const size_t geo_reserve = 4;
             for (int gi = 0; gi < g_gm->count &&
                  p < IPC_RESPONSE_MAX - 128 - geo_reserve; gi++) {
@@ -500,55 +407,185 @@ rules_send:
                     gc->v4_count, gc->v6_count,
                     gc->domain_count, gc->suffix_count);
             }
-            /* Всегда закрыть JSON — место зарезервировано */
             if (p >= IPC_RESPONSE_MAX - geo_reserve)
                 p = IPC_RESPONSE_MAX - geo_reserve;
             p += (size_t)snprintf(buf + p, IPC_RESPONSE_MAX - p, "]}");
-            ipc_respond(client_fd, buf);
+            ipc_set_response(c, buf);
         } else {
-            ipc_respond(client_fd, "{\"region\":\"UNKNOWN\",\"categories\":[]}");
+            ipc_set_response(c,
+                "{\"region\":\"UNKNOWN\",\"categories\":[]}");
         }
         break;
 
 #if CONFIG_EBURNET_DPI
     case IPC_CMD_CDN_UPDATE:
         state->cdn_update_requested = true;
-        ipc_respond(client_fd,
+        ipc_set_response(c,
             "{\"status\":\"ok\",\"msg\":\"cdn update scheduled\"}");
         log_msg(LOG_INFO, "IPC: запрошено обновление CDN IP");
         break;
 
     case IPC_CMD_DPI_GET: {
         /* P6-01: вернуть текущие DPI настройки */
-        const EburNetConfig *c = state->config;
+        const EburNetConfig *cfg = state->config;
         char esc_sni[512];
-        json_escape_str(c->dpi_fake_sni, esc_sni, sizeof(esc_sni));
+        json_escape_str(cfg->dpi_fake_sni, esc_sni, sizeof(esc_sni));
         snprintf(buf, IPC_RESPONSE_MAX,
             "{\"enabled\":%s,\"split_pos\":%d,\"fake_ttl\":%d,"
             "\"fake_count\":%d,\"fake_sni\":\"%s\"}",
-            c->dpi_enabled ? "true" : "false",
-            c->dpi_split_pos, c->dpi_fake_ttl,
-            c->dpi_fake_repeats, esc_sni);
-        ipc_respond(client_fd, buf);
+            cfg->dpi_enabled ? "true" : "false",
+            cfg->dpi_split_pos, cfg->dpi_fake_ttl,
+            cfg->dpi_fake_repeats, esc_sni);
+        ipc_set_response(c, buf);
         break;
     }
 
     case IPC_CMD_DPI_SET:
-        /* DPI настройки меняются через UCI + reload — здесь только подтверждение */
         state->reload = true;
-        ipc_respond(client_fd, "{\"status\":\"ok\",\"msg\":\"reload scheduled\"}");
+        ipc_set_response(c,
+            "{\"status\":\"ok\",\"msg\":\"reload scheduled\"}");
         log_msg(LOG_INFO, "IPC: запрошено обновление DPI настроек (reload)");
         break;
 #endif
 
     default:
-        log_msg(LOG_WARN, "IPC: неизвестная команда %u", hdr.command);
-        ipc_respond(client_fd, "{\"error\":\"unknown command\"}");
+        log_msg(LOG_WARN, "IPC: неизвестная команда %u", c->hdr.command);
+        ipc_set_response(c, "{\"error\":\"unknown command\"}");
         break;
     }
+}
 
-    free(buf);
-    close(client_fd);
+/* ── ipc_accept ────────────────────────────────────────────────────── */
+
+void ipc_accept(int server_fd, EburNetState *state, int epoll_fd)
+{
+    (void)state;
+    g_epoll_fd = epoll_fd;
+
+    int cfd = accept4(server_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    if (cfd < 0) return;
+
+    /* Fail-secure: только root */
+    struct ucred cr;
+    socklen_t cl = sizeof(cr);
+    if (getsockopt(cfd, SOL_SOCKET, SO_PEERCRED, &cr, &cl) < 0 ||
+        cr.uid != 0) {
+        log_msg(LOG_WARN, "IPC: отклонён non-root или SO_PEERCRED fail");
+        close(cfd);
+        return;
+    }
+
+    ipc_client_t *c = ipc_client_alloc(cfd);
+    if (!c) {
+        log_msg(LOG_WARN, "IPC: все %d слота заняты", IPC_MAX_CLIENTS);
+        close(cfd);
+        return;
+    }
+
+    struct epoll_event ev = {
+        .events   = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP,
+        .data.ptr = c,
+    };
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, cfd, &ev) < 0)
+        ipc_client_free(c);
+}
+
+/* ── ipc_client_event: state machine ──────────────────────────────── */
+
+int ipc_client_event(void *ptr, uint32_t events, EburNetState *state)
+{
+    ipc_client_t *c = (ipc_client_t *)ptr;
+
+    if (events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR))
+        goto close_client;
+
+    /* ── READING_HDR ─────────────────────────────────────────────── */
+    if (c->state == IPC_CS_READING_HDR && (events & EPOLLIN)) {
+        for (;;) {
+            ssize_t n = recv(c->fd,
+                             c->hdr_buf + c->hdr_read,
+                             sizeof(ipc_header_t) - c->hdr_read,
+                             MSG_DONTWAIT);
+            if (n < 0) { if (errno == EAGAIN) break; goto close_client; }
+            if (n == 0) goto close_client;
+            c->hdr_read += (size_t)n;
+            if (c->hdr_read == sizeof(ipc_header_t)) break;
+        }
+        if (c->hdr_read == sizeof(ipc_header_t)) {
+            memcpy(&c->hdr, c->hdr_buf, sizeof(ipc_header_t));
+            if (c->hdr.version != EBURNET_IPC_VERSION) {
+                /* Неверная версия — отправить ошибку и закрыть */
+                ipc_set_response(c, "{\"error\":\"version mismatch\"}");
+            } else if (c->hdr.length > 0) {
+                /* uint16_t гарантирует length <= 65535 < IPC_RESPONSE_MAX */
+                c->payload = malloc((size_t)c->hdr.length + 1);
+                if (!c->payload) {
+                    ipc_set_response(c, "{\"error\":\"OOM\"}");
+                } else {
+                    c->state = IPC_CS_READING_BODY;
+                }
+            } else {
+                ipc_dispatch(c, state);
+            }
+        }
+    }
+
+    /* ── READING_BODY ─────────────────────────────────────────────── */
+    if (c->state == IPC_CS_READING_BODY && (events & EPOLLIN)) {
+        for (;;) {
+            ssize_t n = recv(c->fd,
+                             c->payload + c->payload_read,
+                             c->hdr.length - c->payload_read,
+                             MSG_DONTWAIT);
+            if (n < 0) { if (errno == EAGAIN) break; goto close_client; }
+            if (n == 0) goto close_client;
+            c->payload_read += (size_t)n;
+            if (c->payload_read == c->hdr.length) break;
+        }
+        if (c->payload_read == c->hdr.length) {
+            c->payload[c->hdr.length] = '\0';
+            ipc_dispatch(c, state);
+        }
+    }
+
+    /* ── WRITING — writev header+body за 1 syscall ────────────────── */
+    if (c->state == IPC_CS_WRITING && (events & EPOLLOUT)) {
+        size_t total = sizeof(ipc_header_t) + c->resp_body_len;
+        for (;;) {
+            if (c->resp_sent >= total) break;
+            struct iovec iov[2];
+            int niov = 0;
+            if (c->resp_sent < sizeof(ipc_header_t)) {
+                iov[niov].iov_base =
+                    (char *)&c->resp_hdr + c->resp_sent;
+                iov[niov].iov_len  =
+                    sizeof(ipc_header_t) - c->resp_sent;
+                niov++;
+            }
+            size_t bd = c->resp_sent > sizeof(ipc_header_t)
+                        ? c->resp_sent - sizeof(ipc_header_t) : 0;
+            if (bd < c->resp_body_len) {
+                iov[niov].iov_base = c->resp_body + bd;
+                iov[niov].iov_len  = c->resp_body_len - bd;
+                niov++;
+            }
+            if (niov == 0) break;
+            ssize_t r = writev(c->fd, iov, niov);
+            if (r < 0) { if (errno == EAGAIN) break; goto close_client; }
+            c->resp_sent += (size_t)r;
+        }
+        if (c->resp_sent >= total) {
+            epoll_ctl(g_epoll_fd, EPOLL_CTL_DEL, c->fd, NULL);
+            ipc_client_free(c);
+            return 0;
+        }
+    }
+    return 0;
+
+close_client:
+    epoll_ctl(g_epoll_fd, EPOLL_CTL_DEL, c->fd, NULL);
+    ipc_client_free(c);
+    return -1;
 }
 
 void ipc_cleanup(int server_fd)
