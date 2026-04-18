@@ -3,6 +3,7 @@
 #include "constants.h"
 #include "stats.h"
 #include "net_utils.h"
+#include "routing/nftables.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,12 +229,16 @@ static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
         }
         const char *mode = (state->config && state->config->mode[0])
                            ? state->config->mode : "unknown";
+        bool flow_ok = exec_cmd_contains(
+            "nft list flowtables 2>/dev/null", NFT_FLOWTABLE_NAME);
         snprintf(buf, IPC_RESPONSE_MAX,
                  "{\"status\":\"running\",\"version\":\"%s\","
                  "\"profile\":\"%s\",\"uptime\":%ld,"
-                 "\"mode\":\"%s\",\"geo_loaded\":%s}",
+                 "\"mode\":\"%s\",\"geo_loaded\":%s,"
+                 "\"flow_offload\":%s}",
                  EBURNET_VERSION, profile, (long)uptime,
-                 mode, geo_ok ? "true" : "false");
+                 mode, geo_ok ? "true" : "false",
+                 flow_ok ? "true" : "false");
         ipc_set_response(c, buf);
         break;
     }

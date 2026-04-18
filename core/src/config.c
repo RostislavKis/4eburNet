@@ -249,6 +249,8 @@ static void apply_eburnet_option(EburNetConfig *cfg, const char *key, const char
             if (_n < 0 || (size_t)_n >= sizeof(cfg->cdn_fastly_url))
                 log_msg(LOG_WARN, "config: обрезано: cdn_fastly_url");
         }
+    } else if (strcmp(key, "flow_offload") == 0) {
+        cfg->flow_offload = (strcmp(value, "1") == 0);
     } else {
         log_msg(LOG_WARN, "Неизвестная опция 4eburnet: %s", key);
     }

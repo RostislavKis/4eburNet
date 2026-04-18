@@ -48,6 +48,11 @@
 #define NFT_CHAIN_OFFLOAD   "offload_bypass"
 #define NFT_PRIO_OFFLOAD    -300    /* раньше всех наших цепочек */
 
+/* Flow offload для DIRECT трафика (v1.1-3) */
+#define NFT_FLOWTABLE_NAME  "eburnet_ft"
+#define NFT_CHAIN_FLOW      "flow_forward"
+#define NFT_PRIO_FLOW       -1      /* до fw4 forward (priority filter=0) */
+
 
 /* Максимум записей в одной атомарной загрузке batch */
 #define NFT_BATCH_MAX       10000
@@ -142,6 +147,11 @@ nft_result_t nft_set_load_file(const char *set_name,
 /* --- HW Offload bypass (DEC-018) --- */
 
 nft_result_t nft_offload_bypass_init(void);
+
+/* --- Flow offload для DIRECT трафика (v1.1-3) --- */
+
+int  nft_flow_offload_enable(void);
+void nft_flow_offload_disable(void);
 
 /* --- Вспомогательные --- */
 
