@@ -6,6 +6,7 @@
 GEO_DIR="/etc/4eburnet/geo"
 SHARE_DIR="/usr/share/4eburnet"
 GEO_CONVERT="${SHARE_DIR}/geo_convert.sh"
+GEO_COMPILE="/usr/bin/geo_compile"
 LOG_TAG="4eburnet-geo"
 
 # Базовый URL для прямых списков
@@ -17,9 +18,12 @@ logger -t "$LOG_TAG" "Запуск обновления geo списков..."
 echo "=== geo_update: $(date) ==="
 
 # Вспомогательная: скачать прямой файл
+# $1=name $2=url $3=region(0-99) $4=cat_type(0-3)
 fetch_direct() {
     local name="$1"
     local url="$2"
+    local region="${3:-0}"
+    local cat_type="${4:-0}"
     local out="${GEO_DIR}/${name}"
     local tmp="${out}.tmp"
 
@@ -34,6 +38,11 @@ fetch_direct() {
         mv "$tmp" "$out"
         logger -t "$LOG_TAG" "$name: $COUNT записей"
         echo "OK: $name ($COUNT записей)"
+        if [ -x "$GEO_COMPILE" ]; then
+            "$GEO_COMPILE" "$out" "${out%.lst}.gbin" "$region" "$cat_type" 2>/dev/null \
+                && logger -t "$LOG_TAG" "$name: .gbin скомпилирован" \
+                || logger -t "$LOG_TAG" "WARN: $name .gbin не скомпилирован"
+        fi
     else
         rm -f "$tmp"
         echo "FAIL: $name — скачивание не удалось"
@@ -43,13 +52,13 @@ fetch_direct() {
 }
 
 # 1. geoip-ru.lst — CIDR списки РФ
-fetch_direct "geoip-ru.lst" "${BASE_URL}/geoip-ru.lst"
+fetch_direct "geoip-ru.lst" "${BASE_URL}/geoip-ru.lst" 1 0
 
 # 2. geosite-ru.lst — домены в зоне .ru
-fetch_direct "geosite-ru.lst" "${BASE_URL}/geosite-ru.lst"
+fetch_direct "geosite-ru.lst" "${BASE_URL}/geosite-ru.lst" 1 0
 
 # 3. geosite-ads.lst — рекламные домены
-fetch_direct "geosite-ads.lst" "${BASE_URL}/geosite-ads.lst"
+fetch_direct "geosite-ads.lst" "${BASE_URL}/geosite-ads.lst" 0 1
 
 # 4. geosite-trackers.lst — трекеры (EasyPrivacy adblock формат)
 if [ -x "$GEO_CONVERT" ]; then
@@ -57,7 +66,12 @@ if [ -x "$GEO_CONVERT" ]; then
     "$GEO_CONVERT" trackers \
         "https://easylist.to/easylist/easyprivacy.txt" \
         "${GEO_DIR}/geosite-trackers.lst" \
-        && logger -t "$LOG_TAG" "geosite-trackers.lst обновлён" \
+        && { logger -t "$LOG_TAG" "geosite-trackers.lst обновлён"
+             [ -x "$GEO_COMPILE" ] && "$GEO_COMPILE" \
+                 "${GEO_DIR}/geosite-trackers.lst" \
+                 "${GEO_DIR}/geosite-trackers.gbin" 0 2 2>/dev/null \
+                 && logger -t "$LOG_TAG" "geosite-trackers.lst: .gbin скомпилирован" \
+                 || logger -t "$LOG_TAG" "WARN: geosite-trackers.lst .gbin не скомпилирован"; } \
         || logger -t "$LOG_TAG" "WARN: geosite-trackers.lst не обновлён"
 else
     echo "WARN: geo_convert.sh не найден, trackers пропущен"
@@ -69,7 +83,12 @@ if [ -x "$GEO_CONVERT" ]; then
     "$GEO_CONVERT" threats \
         "https://urlhaus.abuse.ch/downloads/hostfile/" \
         "${GEO_DIR}/geosite-threats.lst" \
-        && logger -t "$LOG_TAG" "geosite-threats.lst обновлён" \
+        && { logger -t "$LOG_TAG" "geosite-threats.lst обновлён"
+             [ -x "$GEO_COMPILE" ] && "$GEO_COMPILE" \
+                 "${GEO_DIR}/geosite-threats.lst" \
+                 "${GEO_DIR}/geosite-threats.gbin" 0 3 2>/dev/null \
+                 && logger -t "$LOG_TAG" "geosite-threats.lst: .gbin скомпилирован" \
+                 || logger -t "$LOG_TAG" "WARN: geosite-threats.lst .gbin не скомпилирован"; } \
         || logger -t "$LOG_TAG" "WARN: geosite-threats.lst не обновлён"
 else
     echo "WARN: geo_convert.sh не найден, threats пропущен"

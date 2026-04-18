@@ -234,6 +234,16 @@ test-dns-geosite:
 	  -o /tmp/test_dns_geosite
 	/tmp/test_dns_geosite tests/data/test_ads.lst
 
+test-geo-bin:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) -I../tools \
+	  -DGEO_COMPILE_LIB \
+	  src/log.c \
+	  src/geo/geo_loader.c \
+	  ../tools/geo_compile.c \
+	  tests/test_geo_bin.c \
+	  -o /tmp/test_geo_bin
+	/tmp/test_geo_bin
+
 test-blake2b:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
 	  src/crypto/blake2b.c \
@@ -262,7 +272,24 @@ test-sniffer:
 	  -o /tmp/test_sniffer
 	/tmp/test_sniffer
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin
+
+# ── geo_compile (инструмент компиляции .lst → .gbin) ──────────────
+
+geo-compile:
+	$(CC) -std=gnu2x -O2 -Iinclude -o ../tools/geo_compile ../tools/geo_compile.c
+	@echo "geo_compile собран: ../tools/geo_compile"
+
+geo-compile-mipsel:
+	@test -d "$(TC_MIPSEL)" || { echo "ОШИБКА: TC_MIPSEL не найден: $(TC_MIPSEL)"; exit 1; }
+	mkdir -p $(PREBUILT_DIR)/mipsel
+	$(TC_MIPSEL)/mipsel-openwrt-linux-musl-gcc \
+		-std=gnu2x -O2 -static -Iinclude \
+		-march=mips32r2 -mabi=32 \
+		-o $(PREBUILT_DIR)/mipsel/geo_compile \
+		../tools/geo_compile.c
+	$(TC_MIPSEL)/mipsel-openwrt-linux-musl-strip --strip-all $(PREBUILT_DIR)/mipsel/geo_compile
+	@ls -lh $(PREBUILT_DIR)/mipsel/geo_compile
 
 # ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
@@ -308,16 +335,19 @@ cross-aarch64:
 help:
 	@echo "4eburNet Makefile.dev — доступные таргеты:"
 	@echo ""
-	@echo "  make                  — сборка x86_64 dev бинарника"
-	@echo "  make test             — запустить все тесты (14 суитов)"
-	@echo "  make clean            — удалить артефакты сборки"
-	@echo "  make cross-mipsel     — кросс-компиляция MIPS (TC_MIPSEL=path)"
-	@echo "  make cross-aarch64    — кросс-компиляция ARM64 (TC_AARCH64=path)"
-	@echo "  make help             — этот список"
+	@echo "  make                     — сборка x86_64 dev бинарника"
+	@echo "  make test                — запустить все тесты (18 суитов)"
+	@echo "  make clean               — удалить артефакты сборки"
+	@echo "  make geo-compile         — собрать geo_compile для хоста"
+	@echo "  make geo-compile-mipsel  — кросс-компиляция geo_compile для mipsel"
+	@echo "  make cross-mipsel        — кросс-компиляция MIPS (TC_MIPSEL=path)"
+	@echo "  make cross-aarch64       — кросс-компиляция ARM64 (TC_AARCH64=path)"
+	@echo "  make help                — этот список"
 	@echo ""
 
 .PHONY: all clean run install-vm test help \
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
-  test-blake2b test-salamander test-varint test-dns-geosite \
+  test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin \
+  geo-compile geo-compile-mipsel \
   cross-mipsel cross-aarch64 sync-dashboard

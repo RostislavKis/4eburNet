@@ -15,6 +15,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 /* Начальная ёмкость массива категорий */
 #define GEO_CATEGORIES_INITIAL 8
@@ -74,12 +76,28 @@ static void ptrie_free(ptrie_node_t *n);  /* forward decl */
 static void free_category_data(geo_category_t *c)
 {
     ptrie_free(c->trie_v4); c->trie_v4 = NULL;
-    free(c->v4); c->v4 = NULL; c->v4_count = 0;
-    free(c->v6); c->v6 = NULL; c->v6_count = 0;
-    for (int i = 0; i < c->domain_count; i++) free(c->domains[i]);
-    free(c->domains); c->domains = NULL; c->domain_count = 0;
-    for (int i = 0; i < c->suffix_count; i++) free(c->suffixes[i]);
-    free(c->suffixes); c->suffixes = NULL; c->suffix_count = 0;
+
+    if (c->mmap_addr) {
+        /* bin режим: v4/v6 указывают в mmap — не free() */
+        munmap(c->mmap_addr, c->mmap_size);
+        c->mmap_addr          = NULL;
+        c->mmap_size          = 0;
+        c->bin_domain_offsets = NULL;
+        c->bin_suffix_offsets = NULL;
+        c->bin_string_pool    = NULL;
+        c->v4 = NULL; c->v4_count = 0;
+        c->v6 = NULL; c->v6_count = 0;
+        c->domain_count = 0;
+        c->suffix_count = 0;
+    } else {
+        /* heap режим */
+        free(c->v4); c->v4 = NULL; c->v4_count = 0;
+        free(c->v6); c->v6 = NULL; c->v6_count = 0;
+        for (int i = 0; i < c->domain_count; i++) free(c->domains[i]);
+        free(c->domains); c->domains = NULL; c->domain_count = 0;
+        for (int i = 0; i < c->suffix_count; i++) free(c->suffixes[i]);
+        free(c->suffixes); c->suffixes = NULL; c->suffix_count = 0;
+    }
     c->loaded = false;
 }
 
@@ -311,6 +329,113 @@ void geo_manager_free(geo_manager_t *gm)
     memset(gm, 0, sizeof(*gm));
 }
 
+/* ── Бинарный поиск по bin offsets (без malloc, без глобала) ────────────── */
+
+static int bin_find_domain(const uint32_t *offsets, int count,
+                            const char *pool, const char *key)
+{
+    int lo = 0, hi = count - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int cmp = strcmp(key, pool + offsets[mid]);
+        if (cmp == 0) return mid;
+        if (cmp < 0) hi = mid - 1;
+        else         lo = mid + 1;
+    }
+    return -1;
+}
+
+/* ── Загрузить категорию из .gbin через mmap ─────────────────────────────
+ * Возвращает 0 при успехе. При ошибке возвращает -1 и c не изменяется.
+ * При успехе: c->mmap_addr != NULL, домены через bin_domain_offsets. */
+static int geo_load_category_bin(geo_category_t *c, const char *path)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+
+    struct stat st;
+    if (fstat(fd, &st) < 0 ||
+        st.st_size < (off_t)sizeof(geo_bin_header_t)) {
+        close(fd);
+        return -1;
+    }
+
+    void *map = mmap(NULL, (size_t)st.st_size,
+                     PROT_READ, MAP_SHARED | MAP_NORESERVE, fd, 0);
+    close(fd);
+    if (map == MAP_FAILED) return -1;
+
+    const geo_bin_header_t *hdr = (const geo_bin_header_t *)map;
+
+    /* Проверить magic и версию */
+    if (memcmp(hdr->magic, GEO_BIN_MAGIC, 4) != 0 ||
+        hdr->version != GEO_BIN_VERSION) {
+        munmap(map, (size_t)st.st_size);
+        return -1;
+    }
+
+    /* Проверить что файл не меньше ожидаемого */
+    size_t expected = geobin_pool_off(hdr->domain_count, hdr->suffix_count,
+                                      hdr->v4_count, hdr->v6_count)
+                      + hdr->string_pool_size;
+    if ((size_t)st.st_size < expected) {
+        munmap(map, (size_t)st.st_size);
+        return -1;
+    }
+
+    /* Всё ОК — освободить предыдущие данные и установить mmap */
+    free_category_data(c);
+
+    const uint8_t *base = (const uint8_t *)map;
+
+    c->mmap_addr          = map;
+    c->mmap_size          = (size_t)st.st_size;
+    c->bin_domain_offsets = (const uint32_t *)
+        (base + geobin_domain_offsets_off());
+    c->bin_suffix_offsets = (const uint32_t *)
+        (base + geobin_suffix_offsets_off(hdr->domain_count));
+    c->bin_string_pool    = (const char *)
+        (base + geobin_pool_off(hdr->domain_count, hdr->suffix_count,
+                                hdr->v4_count,     hdr->v6_count));
+
+    /* v4/v6 указывают прямо в mmap — без malloc */
+    c->v4 = (geo_cidr4_t *)
+        (base + geobin_v4_off(hdr->domain_count, hdr->suffix_count));
+    c->v4_count = (int)hdr->v4_count;
+    c->v6 = (geo_cidr6_t *)
+        (base + geobin_v6_off(hdr->domain_count, hdr->suffix_count,
+                               hdr->v4_count));
+    c->v6_count = (int)hdr->v6_count;
+
+    c->domain_count = (int)hdr->domain_count;
+    c->suffix_count = (int)hdr->suffix_count;
+    c->region       = (geo_region_t)hdr->region;
+    c->cat_type     = (geo_cat_type_t)hdr->cat_type;
+    c->loaded       = true;
+    c->loaded_at    = time(NULL);
+
+    /* Построить Patricia trie из mmap'd v4 данных (trie nodes — heap) */
+    if (c->v4_count > 0) {
+        c->trie_v4 = ptrie_alloc();
+        if (c->trie_v4) {
+            for (int j = 0; j < c->v4_count; j++) {
+                if (ptrie_insert(c->trie_v4,
+                                 c->v4[j].net, c->v4[j].mask,
+                                 c->region) < 0) {
+                    ptrie_free(c->trie_v4);
+                    c->trie_v4 = NULL;
+                    log_msg(LOG_WARN,
+                        "GeoIP %s: trie OOM в bin режиме, fallback O(n)",
+                        c->name);
+                    break;
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
 /* ── geo_load_category ──────────────────────────────────────────────────── */
 
 int geo_load_category(geo_manager_t *gm, const char *name,
@@ -335,6 +460,25 @@ int geo_load_category(geo_manager_t *gm, const char *name,
     else if (strstr(name, "tracker")) c->cat_type = GEO_CAT_TRACKERS;
     else if (strstr(name, "threat"))  c->cat_type = GEO_CAT_THREATS;
     else                              c->cat_type = GEO_CAT_GENERIC;
+
+    /* Попробовать бинарный формат .gbin (mmap, без heap) */
+    {
+        char bin_path[264];
+        int n = snprintf(bin_path, sizeof(bin_path), "%s", path);
+        if (n > 4 && (size_t)n < sizeof(bin_path) - 2 &&
+            strcmp(bin_path + n - 4, ".lst") == 0) {
+            memcpy(bin_path + n - 4, ".gbin", 6);
+            if (geo_load_category_bin(c, bin_path) == 0) {
+                log_msg(LOG_INFO,
+                    "GeoIP %s: %d IPv4, %d IPv6, %d домен, %d суффикс [mmap]",
+                    name, c->v4_count, c->v6_count,
+                    c->domain_count, c->suffix_count);
+                return 0;
+            }
+        }
+    }
+
+    /* Fallback: .lst через fgets + strdup */
 
     /* Освободить старые данные если были */
     free_category_data(c);
@@ -526,26 +670,41 @@ geo_region_t geo_match_domain(const geo_manager_t *gm, const char *domain)
         const geo_category_t *c = &gm->categories[i];
         if (!c->loaded) continue;
 
-        /* 1. Точное совпадение — bsearch O(log n) */
-        if (c->domain_count > 0) {
-            const char *key = domain;
-            if (bsearch(&key, c->domains, c->domain_count,
-                        sizeof(char *), cmp_str))
+        if (c->mmap_addr) {
+            /* bin режим: поиск через offsets в string pool */
+            if (c->domain_count > 0 &&
+                bin_find_domain(c->bin_domain_offsets, c->domain_count,
+                                c->bin_string_pool, domain) >= 0)
                 return c->region;
-        }
 
-        /* 2. Суффикс — bsearch по отсортированному массиву суффиксов.
-              Перебираем все суффиксы домена:
-              sub.example.com → example.com → com */
-        if (c->suffix_count > 0) {
-            const char *p = domain;
-            while (p) {
-                const char *key = p;
-                if (bsearch(&key, c->suffixes, c->suffix_count,
+            if (c->suffix_count > 0) {
+                const char *p = domain;
+                while (p) {
+                    if (bin_find_domain(c->bin_suffix_offsets, c->suffix_count,
+                                        c->bin_string_pool, p) >= 0)
+                        return c->region;
+                    p = strchr(p, '.');
+                    if (p) p++;
+                }
+            }
+        } else {
+            /* heap режим: bsearch по char** */
+            if (c->domain_count > 0) {
+                const char *key = domain;
+                if (bsearch(&key, c->domains, c->domain_count,
                             sizeof(char *), cmp_str))
                     return c->region;
-                p = strchr(p, '.');
-                if (p) p++;
+            }
+            if (c->suffix_count > 0) {
+                const char *p = domain;
+                while (p) {
+                    const char *key = p;
+                    if (bsearch(&key, c->suffixes, c->suffix_count,
+                                sizeof(char *), cmp_str))
+                        return c->region;
+                    p = strchr(p, '.');
+                    if (p) p++;
+                }
             }
         }
     }
@@ -559,21 +718,39 @@ geo_cat_type_t geo_match_domain_cat(const geo_manager_t *gm, const char *domain)
     for (int i = 0; i < gm->count; i++) {
         const geo_category_t *c = &gm->categories[i];
         if (!c->loaded || c->cat_type == GEO_CAT_GENERIC) continue;
-        if (c->domain_count > 0) {
-            const char *key = domain;
-            if (bsearch(&key, c->domains, (size_t)c->domain_count,
-                        sizeof(char *), cmp_str))
+
+        if (c->mmap_addr) {
+            if (c->domain_count > 0 &&
+                bin_find_domain(c->bin_domain_offsets, c->domain_count,
+                                c->bin_string_pool, domain) >= 0)
                 return c->cat_type;
-        }
-        if (c->suffix_count > 0) {
-            const char *p = domain;
-            while (p) {
-                const char *key = p;
-                if (bsearch(&key, c->suffixes, (size_t)c->suffix_count,
+            if (c->suffix_count > 0) {
+                const char *p = domain;
+                while (p) {
+                    if (bin_find_domain(c->bin_suffix_offsets, c->suffix_count,
+                                        c->bin_string_pool, p) >= 0)
+                        return c->cat_type;
+                    p = strchr(p, '.');
+                    if (p) p++;
+                }
+            }
+        } else {
+            if (c->domain_count > 0) {
+                const char *key = domain;
+                if (bsearch(&key, c->domains, (size_t)c->domain_count,
                             sizeof(char *), cmp_str))
                     return c->cat_type;
-                p = strchr(p, '.');
-                if (p) p++;
+            }
+            if (c->suffix_count > 0) {
+                const char *p = domain;
+                while (p) {
+                    const char *key = p;
+                    if (bsearch(&key, c->suffixes, (size_t)c->suffix_count,
+                                sizeof(char *), cmp_str))
+                        return c->cat_type;
+                    p = strchr(p, '.');
+                    if (p) p++;
+                }
             }
         }
     }
