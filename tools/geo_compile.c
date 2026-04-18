@@ -169,9 +169,9 @@ int geo_compile_file(const char *in_path, const char *out_path,
         if (len == 0 || line[0] == '#' || len > 253) continue;
 
         if (strchr(line, ':')) {
-            if (vi6 < n_v6) parse_cidr6_c(line, &v6[vi6++]);
+            if (vi6 < n_v6 && parse_cidr6_c(line, &v6[vi6])) vi6++;
         } else if (strchr(line, '/')) {
-            if (vi4 < n_v4) parse_cidr4_c(line, &v4[vi4++]);
+            if (vi4 < n_v4 && parse_cidr4_c(line, &v4[vi4])) vi4++;
         } else if (line[0] == '.') {
             if (si < n_sfx) {
                 char *dup = strdup(line + 1);
@@ -326,8 +326,18 @@ int main(int argc, char *argv[])
             argv[0]);
         return 1;
     }
+    char *end3, *end4;
+    long region_l   = strtol(argv[3], &end3, 10);
+    long cat_type_l = strtol(argv[4], &end4, 10);
+    if (*end3 || region_l < 0 || region_l > 99) {
+        fprintf(stderr, "geo_compile: неверный region '%s' (0-99)\n", argv[3]);
+        return 1;
+    }
+    if (*end4 || cat_type_l < 0 || cat_type_l > 3) {
+        fprintf(stderr, "geo_compile: неверный cat_type '%s' (0-3)\n", argv[4]);
+        return 1;
+    }
     return geo_compile_file(argv[1], argv[2],
-                            (uint32_t)atoi(argv[3]),
-                            (uint32_t)atoi(argv[4]));
+                            (uint32_t)region_l, (uint32_t)cat_type_l);
 }
 #endif /* GEO_COMPILE_LIB */
