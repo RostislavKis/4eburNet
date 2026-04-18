@@ -1,6 +1,10 @@
 #include "http_server.h"
 #include "logo_png.h"
 #include "4eburnet.h"
+#include "config.h"
+#include "stats.h"
+#include "routing/nftables.h"
+#include "routing/tc_fast.h"
 #if CONFIG_EBURNET_DPI
 #include "dpi/dpi_adapt.h"
 #endif
@@ -15,6 +19,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <signal.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <netinet/in.h>
@@ -27,12 +33,23 @@ static void route_ipc_passthrough(HttpConn *conn, int epoll_fd, const char *cmd)
 static void route_api_servers(HttpConn *conn, int epoll_fd);
 static void route_api_dns(HttpConn *conn, int epoll_fd);
 static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_token);
+static void route_api_geo(HttpConn *conn, int epoll_fd);
+static void route_api_logs(HttpConn *conn, int epoll_fd);
 
-/* ── Буфер для IPC ответа — статический, не в стеке ──────────────── */
+/* ── Буферы для ответов — статические, не в стеке ────────────────── */
 static char s_ipc_buf[4096];
+static char s_logs_buf[8192];
 
 /* ── Токен /api/control, инициализируется в http_server_init ─────── */
 static char s_api_token[64];
+
+/* ── Конфиг-указатель для toggle управления ──────────────────────── */
+static const EburNetConfig *s_cfg = NULL;
+
+void http_server_set_config(const EburNetConfig *cfg)
+{
+    s_cfg = cfg;
+}
 
 /* ── Вспомогательная функция закрытия соединения ─────────────────── */
 static void conn_close(HttpConn *conn, int epoll_fd)
@@ -254,14 +271,37 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
         fclose(mf);
     }
 
+    /* Собрать DPI статистику */
+    uint32_t dpi_adapt_count = 0, dpi_adapt_hits = 0;
+#if CONFIG_EBURNET_DPI
+    dpi_adapt_stats(&g_dpi_adapt, &dpi_adapt_count, &dpi_adapt_hits);
+#endif
+
     /* Сформировать JSON */
     int n = snprintf(s_ipc_buf, sizeof(s_ipc_buf),
         "{\"status\":\"%s\",\"version\":\"1.0.0\","
-        "\"uptime\":%ld,\"mode\":\"%s\",\"profile\":\"%s\""
-        ",\"last_ja3\":\"%s\"}",
+        "\"uptime\":%ld,\"mode\":\"%s\",\"profile\":\"%s\","
+        "\"last_ja3\":\"%s\","
+        "\"flow_offload\":%s,\"tc_fast\":%s,"
+        "\"dpi_enabled\":%s,"
+        "\"dpi_adapt_count\":%u,\"dpi_adapt_hits\":%u,"
+        "\"conn_active\":%llu,\"conn_total\":%llu,"
+        "\"dns_queries\":%llu,\"dns_cached\":%llu,"
+        "\"blocked_ads\":%llu,\"blocked_trackers\":%llu,\"blocked_threats\":%llu}",
         running ? "running" : "stopped",
         uptime, mode, profile,
-        dispatcher_get_last_ja3());
+        dispatcher_get_last_ja3(),
+        nft_flow_offload_is_active() ? "true" : "false",
+        tc_fast_is_active()          ? "true" : "false",
+        (s_cfg && s_cfg->dpi_enabled) ? "true" : "false",
+        dpi_adapt_count, dpi_adapt_hits,
+        (unsigned long long)atomic_load(&g_stats.connections_active),
+        (unsigned long long)atomic_load(&g_stats.connections_total),
+        (unsigned long long)atomic_load(&g_stats.dns_queries_total),
+        (unsigned long long)atomic_load(&g_stats.dns_cached_total),
+        (unsigned long long)atomic_load(&g_stats.blocked_ads),
+        (unsigned long long)atomic_load(&g_stats.blocked_trackers),
+        (unsigned long long)atomic_load(&g_stats.blocked_threats));
 
     http_send(conn, epoll_fd, 200, "application/json",
               s_ipc_buf, (size_t)(n > 0 ? n : 0));
@@ -629,6 +669,18 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
         return;
     }
 
+    /* GET /api/geo → список geo баз */
+    if (strncmp(p, "/api/geo", 8) == 0 && !conn->is_post) {
+        route_api_geo(conn, epoll_fd);
+        return;
+    }
+
+    /* GET /api/logs → лог-файл */
+    if (strncmp(p, "/api/logs", 9) == 0 && !conn->is_post) {
+        route_api_logs(conn, epoll_fd);
+        return;
+    }
+
     /* Всё остальное → 404 */
     const char body404[] = "{\"error\":\"not found\"}";
     http_send(conn, epoll_fd, 404, "application/json",
@@ -730,10 +782,157 @@ static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_toke
 #endif
         http_send(conn, epoll_fd, 200, "application/json",
                   ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "flow_offload_on", 15) == 0) {
+        nft_flow_offload_enable();
+        log_msg(LOG_INFO, "flow offload: включён из dashboard");
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "flow_offload_off", 16) == 0) {
+        nft_flow_offload_disable();
+        log_msg(LOG_INFO, "flow offload: выключен из dashboard");
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "tc_fast_on", 10) == 0) {
+        if (s_cfg) {
+            const char *iface = s_cfg->lan_interface[0]
+                                ? s_cfg->lan_interface : "br-lan";
+            tc_fast_enable(iface, s_cfg->lan_prefix, s_cfg->lan_mask);
+        }
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "tc_fast_off", 11) == 0) {
+        const char *iface = (s_cfg && s_cfg->lan_interface[0])
+                            ? s_cfg->lan_interface : "br-lan";
+        tc_fast_disable(iface);
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "dpi_on", 6) == 0) {
+        system("uci set 4eburnet.main.dpi_enabled=1;"
+               "uci commit 4eburnet >/dev/null 2>&1 &");
+        /* SIGHUP перезагрузит конфиг в основном процессе */
+        FILE *pf = fopen("/var/run/4eburnet.pid", "r");
+        if (pf) {
+            int _pid = 0;
+            if (fscanf(pf, "%d", &_pid) == 1 && _pid > 0) kill(_pid, SIGHUP);
+            fclose(pf);
+        }
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "dpi_off", 7) == 0) {
+        system("uci set 4eburnet.main.dpi_enabled=0;"
+               "uci commit 4eburnet >/dev/null 2>&1 &");
+        FILE *pf = fopen("/var/run/4eburnet.pid", "r");
+        if (pf) {
+            int _pid = 0;
+            if (fscanf(pf, "%d", &_pid) == 1 && _pid > 0) kill(_pid, SIGHUP);
+            fclose(pf);
+        }
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
     } else {
         http_send(conn, epoll_fd, 400, "application/json",
                   err_resp, strlen(err_resp));
     }
+}
+
+/* ── GET /api/geo — список .gbin файлов с размерами и bloom статусом ── */
+static void route_api_geo(HttpConn *conn, int epoll_fd)
+{
+    const char *geo_dir = "/etc/4eburnet/geo";
+    if (s_cfg && s_cfg->geo_dir[0]) geo_dir = s_cfg->geo_dir;
+
+    int pos = 0;
+    int cap = (int)sizeof(s_ipc_buf);
+    pos += snprintf(s_ipc_buf + pos, (size_t)(cap - pos), "{\"files\":[");
+
+    DIR *d = opendir(geo_dir);
+    bool first = true;
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d)) != NULL && pos < cap - 128) {
+            /* Только .gbin файлы */
+            size_t nlen = strlen(e->d_name);
+            if (nlen < 6 || strcmp(e->d_name + nlen - 5, ".gbin") != 0) continue;
+
+            char fullpath[256];
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", geo_dir, e->d_name);
+            struct stat st;
+            if (stat(fullpath, &st) != 0) continue;
+
+            /* Имя без расширения */
+            char name[64];
+            int namelen = (int)nlen - 5;
+            if (namelen > (int)sizeof(name) - 1) namelen = (int)sizeof(name) - 1;
+            memcpy(name, e->d_name, (size_t)namelen);
+            name[namelen] = '\0';
+
+            /* Есть ли .bloom файл? */
+            char bloom_path[256];
+            snprintf(bloom_path, sizeof(bloom_path), "%s/%.*s.bloom",
+                     geo_dir, namelen, e->d_name);
+            bool has_bloom = (access(bloom_path, F_OK) == 0);
+
+            pos += snprintf(s_ipc_buf + pos, (size_t)(cap - pos),
+                            "%s{\"name\":\"%s\",\"size_kb\":%ld,\"bloom\":%s}",
+                            first ? "" : ",", name,
+                            (long)(st.st_size / 1024),
+                            has_bloom ? "true" : "false");
+            first = false;
+        }
+        closedir(d);
+    }
+
+    if (pos < cap - 4) pos += snprintf(s_ipc_buf + pos, (size_t)(cap - pos), "]}");
+    http_send(conn, epoll_fd, 200, "application/json",
+              s_ipc_buf, (size_t)(pos > 0 ? pos : 0));
+}
+
+/* ── GET /api/logs — последние строки из лог-файла ─────────────────── */
+static void route_api_logs(HttpConn *conn, int epoll_fd)
+{
+    int pos = 0;
+    int cap = (int)sizeof(s_logs_buf);
+    pos += snprintf(s_logs_buf + pos, (size_t)(cap - pos), "{\"lines\":[");
+
+    FILE *f = fopen(EBURNET_LOG_FILE, "r");
+    if (f) {
+        /* Кольцевой буфер из 200 строк */
+        static char lines[200][160];
+        int head = 0, count = 0;
+        char ln[160];
+        while (fgets(ln, sizeof(ln), f)) {
+            /* Убрать \n */
+            size_t ll = strlen(ln);
+            if (ll > 0 && ln[ll - 1] == '\n') ln[ll - 1] = '\0';
+            strncpy(lines[head], ln, 159);
+            lines[head][159] = '\0';
+            head = (head + 1) % 200;
+            if (count < 200) count++;
+        }
+        fclose(f);
+
+        /* Вывести в хронологическом порядке */
+        bool first = true;
+        int start = (count < 200) ? 0 : head;
+        for (int i = 0; i < count && pos < cap - 256; i++) {
+            int idx = (start + i) % 200;
+            /* JSON-escape: заменить " на \", \ на \\ */
+            char esc[320];
+            int ep = 0;
+            for (const char *p = lines[idx]; *p && ep < 315; p++) {
+                if (*p == '"' || *p == '\\') esc[ep++] = '\\';
+                esc[ep++] = *p;
+            }
+            esc[ep] = '\0';
+            pos += snprintf(s_logs_buf + pos, (size_t)(cap - pos),
+                            "%s\"%s\"", first ? "" : ",", esc);
+            first = false;
+        }
+    }
+
+    if (pos < cap - 4) pos += snprintf(s_logs_buf + pos, (size_t)(cap - pos), "]}");
+    http_send(conn, epoll_fd, 200, "application/json",
+              s_logs_buf, (size_t)(pos > 0 ? pos : 0));
 }
 
 /* ── http_server_init ─────────────────────────────────────────────── */
