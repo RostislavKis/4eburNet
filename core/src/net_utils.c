@@ -514,7 +514,7 @@ static int http_do_tls_get(int fd, const char *sni_host,
     ssize_t total = 0;
 
     while (1) {
-        ssize_t n = tls_recv(&tls, buf, 4096);
+        ssize_t n = tls_recv(tls, buf, 4096);
         if (n <= 0) break;
 
         if (!headers_done) {

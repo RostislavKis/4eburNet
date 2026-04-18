@@ -22,6 +22,8 @@
 #include "dpi/cdn_updater.h"
 #include "dpi/dpi_filter.h"
 #endif
+#include "http_server.h"
+#include "stats.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +57,21 @@ static proxy_provider_manager_t ppm_state;
 const char *g_dns_bypass_ip = NULL;
 static rules_engine_t re_state;
 static geo_manager_t geo_state;
+
+/* 3.5.5: Callback для dns_rules: консультирует traffic rules
+   при DNS_ACTION_DEFAULT → назначает fake-ip для proxy-доменов. */
+static dns_action_t dns_engine_consult(const char *qname)
+{
+    rule_match_result_t r = rules_engine_match(&re_state, qname, NULL);
+    switch (r.type) {
+    case RULE_TARGET_GROUP:   return DNS_ACTION_PROXY;
+    case RULE_TARGET_REJECT:  return DNS_ACTION_BLOCK;
+    case RULE_TARGET_DIRECT:
+    default:                  return DNS_ACTION_BYPASS;
+    }
+}
+/* Embedded HTTP dashboard — static во избежание 33KB на стеке */
+static HttpServer g_http;
 
 /* Обработчик сигналов завершения */
 static void handle_shutdown(int sig)
@@ -104,6 +121,13 @@ static void geo_load_region_categories(geo_manager_t *gm,
     /* Антиреклама — если файл существует */
     snprintf(path, sizeof(path), "%s/geosite-ads.lst", geo_dir);
     geo_load_category(gm, "ads", GEO_REGION_UNKNOWN, path);
+
+    /* Трекеры и угрозы — graceful: warn если файл отсутствует */
+    snprintf(path, sizeof(path), "%s/geosite-trackers.lst", geo_dir);
+    geo_load_category(gm, "trackers", GEO_REGION_UNKNOWN, path);
+
+    snprintf(path, sizeof(path), "%s/geosite-threats.lst", geo_dir);
+    geo_load_category(gm, "threats", GEO_REGION_UNKNOWN, path);
 }
 
 /* Вывод справки */
@@ -516,8 +540,10 @@ int main(int argc, char *argv[])
             pr_n < 0 || (size_t)pr_n >= PATH_MAX)
             log_msg(LOG_WARN, "Путь правил обрезан");
 
-        rules_create_test_file(bypass_file, RULES_BYPASS);
-        rules_create_test_file(proxy_file,  RULES_PROXY);
+        log_msg(LOG_WARN,
+            "rules: файл правил не найден: %s "
+            "— маршрутизация только через geo и rule_set",
+            bypass_file);
 
         rules_add_source(&rules_state, bypass_file, RULES_BYPASS);
         rules_add_source(&rules_state, proxy_file,  RULES_PROXY);
@@ -652,6 +678,16 @@ int main(int argc, char *argv[])
         ipc_set_3x_context(&pgm_state, &rpm_state, &re_state, &geo_state);
         /* A3: geo_manager для adblock категоризации в DNS */
         dns_state.geo_manager = &geo_state;
+        /* 3.5.1: GEOSITE блокировка — связать geo с dns_rules */
+        dns_rules_set_geo_manager(&geo_state);
+        if (cfg_ptr->dns.block_geosite_ads)
+            dns_rules_add_geosite(GEO_CAT_ADS,      DNS_ACTION_BLOCK);
+        if (cfg_ptr->dns.block_geosite_trackers)
+            dns_rules_add_geosite(GEO_CAT_TRACKERS,  DNS_ACTION_BLOCK);
+        if (cfg_ptr->dns.block_geosite_threats)
+            dns_rules_add_geosite(GEO_CAT_THREATS,   DNS_ACTION_BLOCK);
+        /* 3.5.5: Traffic rules consultation — fake-ip для opencck_domains */
+        dns_rules_set_engine(dns_engine_consult);
     }
 
     /* Установка обработчиков сигналов (M-10: SA_RESTART) */
@@ -717,6 +753,15 @@ int main(int argc, char *argv[])
     if (cfg_ptr->dns.enabled && dns_state.udp_fd >= 0)
         dns_server_register_epoll(&dns_state, master_epoll);
 
+    /* HTTP dashboard — не фатально если порт занят */
+    if (http_server_init(&g_http) == 0) {
+        http_server_register_epoll(&g_http, master_epoll);
+        log_msg(LOG_INFO, "HTTP dashboard: порт %d", HTTP_PORT);
+    } else {
+        log_msg(LOG_WARN, "HTTP dashboard: не удалось запустить на порту %d",
+                HTTP_PORT);
+    }
+
     /* Fake-IP: передать таблицу диспетчеру для reverse lookup */
 #if CONFIG_EBURNET_FAKE_IP
     if (dns_state.fake_ip_ready)
@@ -738,6 +783,11 @@ int main(int argc, char *argv[])
         int n = epoll_wait(master_epoll, events, EPOLL_MAX_EVENTS, EPOLL_TIMEOUT_MS);
 
         for (int i = 0; i < n; i++) {
+            /* HTTP dashboard — первым, до data.ptr check */
+            if (http_server_handle(&g_http, events[i].data.fd,
+                                   master_epoll) == 0)
+                continue;
+
             /* Async DoH/DoT — epoll data.ptr, не data.fd */
             if (cfg_ptr->dns.enabled && dns_state.initialized) {
                 void *ptr = events[i].data.ptr;
@@ -804,6 +854,37 @@ int main(int argc, char *argv[])
                 if (!hc_done)
                     tproxy_handle_event(&tproxy_state, fd);
             }
+        }
+
+        /* HTTP таймаут соединений — каждые ~5 сек (500 тиков × 10мс) */
+        if (dispatcher_state.tick_count % 500 == 0)
+            http_server_tick(&g_http, master_epoll);
+
+        /* Кешировать IPC данные в /tmp для HTTP dashboard
+           (избегаем popen("4eburnetd --ipc") внутри демона — дедлок)
+           Записывать каждые ~3 сек (300 тиков × 10мс).            */
+        if (dispatcher_state.tick_count % 300 == 0) {
+            /* /tmp/4eburnet-stats.json — читается HTTP /api/stats */
+            char stats_json[256];
+            int sn = snprintf(stats_json, sizeof(stats_json),
+                "{\"connections_total\":%llu,\"connections_active\":%llu,"
+                "\"dns_queries\":%llu,\"dns_cached\":%llu,"
+                "\"blocked_ads\":%llu,\"blocked_trackers\":%llu,"
+                "\"blocked_threats\":%llu}",
+                (unsigned long long)atomic_load(&g_stats.connections_total),
+                (unsigned long long)atomic_load(&g_stats.connections_active),
+                (unsigned long long)atomic_load(&g_stats.dns_queries_total),
+                (unsigned long long)atomic_load(&g_stats.dns_cached_total),
+                (unsigned long long)atomic_load(&g_stats.blocked_ads),
+                (unsigned long long)atomic_load(&g_stats.blocked_trackers),
+                (unsigned long long)atomic_load(&g_stats.blocked_threats));
+            if (sn > 0) {
+                FILE *sf = fopen("/tmp/4eburnet-stats.json", "w");
+                if (sf) { fwrite(stats_json, 1, (size_t)sn, sf); fclose(sf); }
+            }
+            /* /tmp/4eburnet-groups.json — заполняется через ipc.c
+               при обработке реального --ipc groups запроса извне.
+               Здесь не вызываем popen("4eburnetd --ipc") — дедлок. */
         }
 
         /* DNS pending таймауты — каждый тик (10ms), CLOCK_MONOTONIC дёшев (L-07) */
@@ -935,6 +1016,16 @@ int main(int argc, char *argv[])
                 dispatcher_set_rules_engine(&re_state);
                 ipc_set_3x_context(&pgm_state, &rpm_state, &re_state,
                                    &geo_state);
+                /* 3.5.1: перепривязать geo_manager после reload */
+                dns_rules_set_geo_manager(&geo_state);
+                if (cfg_ptr->dns.block_geosite_ads)
+                    dns_rules_add_geosite(GEO_CAT_ADS,      DNS_ACTION_BLOCK);
+                if (cfg_ptr->dns.block_geosite_trackers)
+                    dns_rules_add_geosite(GEO_CAT_TRACKERS,  DNS_ACTION_BLOCK);
+                if (cfg_ptr->dns.block_geosite_threats)
+                    dns_rules_add_geosite(GEO_CAT_THREATS,   DNS_ACTION_BLOCK);
+                /* 3.5.5: перепривязать rules_engine после reload */
+                dns_rules_set_engine(dns_engine_consult);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 if (new_cfg_ptr) free(new_cfg_ptr);
@@ -970,6 +1061,7 @@ cleanup:
         state.cdn_pipe_fd = -1;
     }
 #endif
+    http_server_close(&g_http);
     if (master_epoll >= 0) close(master_epoll);
 
     /* Завершение работы */
