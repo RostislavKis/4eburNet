@@ -519,6 +519,12 @@ int main(int argc, char *argv[])
     if (nft_offload_bypass_init() != NFT_OK)
         log_msg(LOG_WARN, "nft: offload bypass не инициализирован");
 
+    /* Flow offload для DIRECT трафика (v1.1-3) */
+    if (cfg_ptr->flow_offload) {
+        if (nft_flow_offload_enable() < 0)
+            log_msg(LOG_WARN, "flow offload: не активирован (software path)");
+    }
+
     /* Менеджер правил маршрутизации */
     if (rules_init(&rules_state) < 0) {
         log_msg(LOG_ERROR, "rules: инициализация провалилась");
@@ -1055,6 +1061,10 @@ int main(int argc, char *argv[])
                     dns_rules_add_geosite(GEO_CAT_THREATS,   DNS_ACTION_BLOCK);
                 /* 3.5.5: перепривязать rules_engine после reload */
                 dns_rules_set_engine(dns_engine_consult);
+                /* Flow offload: переактивировать — WAN мог измениться */
+                nft_flow_offload_disable();
+                if (cfg_ptr->flow_offload)
+                    nft_flow_offload_enable();
                 log_msg(LOG_INFO, "Конфигурация обновлена");
             } else {
                 if (new_cfg_ptr) free(new_cfg_ptr);
@@ -1112,6 +1122,7 @@ cleanup:
     dispatcher_cleanup(&dispatcher_state);
     tproxy_cleanup(&tproxy_state);
     policy_cleanup();
+    nft_flow_offload_disable();
     nft_cleanup();
     ipc_cleanup(state.ipc_fd);
     tls_global_cleanup();
