@@ -783,7 +783,14 @@ int main(int argc, char *argv[])
         int n = epoll_wait(master_epoll, events, EPOLL_MAX_EVENTS, EPOLL_TIMEOUT_MS);
 
         for (int i = 0; i < n; i++) {
-            /* HTTP dashboard — первым, до data.ptr check */
+            /* IPC client (data.ptr) — ПЕРВЫМ: data.fd при ptr = мусорный int */
+            if (ipc_is_client_ptr(events[i].data.ptr)) {
+                ipc_client_event(events[i].data.ptr,
+                                 events[i].events, &state);
+                continue;
+            }
+
+            /* HTTP dashboard */
             if (http_server_handle(&g_http, events[i].data.fd,
                                    master_epoll) == 0)
                 continue;
@@ -800,7 +807,7 @@ int main(int argc, char *argv[])
 
             int fd = events[i].data.fd;
             if (fd == state.ipc_fd) {
-                ipc_process(state.ipc_fd, &state);
+                ipc_accept(state.ipc_fd, &state, master_epoll);
             } else if (cfg_ptr->dns.enabled &&
                        dns_server_is_pending_fd(&dns_state, fd)) {
                 /* Ответ от upstream DNS или TCP DNS клиент */
