@@ -233,8 +233,12 @@ static int vless_protocol_start(relay_conn_t *relay,
     }
 #endif
 
-    if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
+    relay->tls = malloc(sizeof(tls_conn_t));
+    if (!relay->tls) return -1;
+    if (tls_connect_start(relay->tls, relay->upstream_fd, &cfg) < 0) {
+        free(relay->tls); relay->tls = NULL;
         return -1;
+    }
 
     relay->use_tls = true;
     relay->state = RELAY_TLS_SHAKE;
@@ -264,14 +268,14 @@ static int xhttp_protocol_start(relay_conn_t *relay,
     int  resolved_family = AF_INET;
 
     if (inet_pton(AF_INET, server->address,
-                  &(struct in_addr){}) == 1) {
+                  &(struct in_addr){0}) == 1) {
         {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
             if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
                 log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
         }
         resolved_family = AF_INET;
     } else if (inet_pton(AF_INET6, server->address,
-                         &(struct in6_addr){}) == 1) {
+                         &(struct in6_addr){0}) == 1) {
         {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
             if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
                 log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
@@ -397,8 +401,12 @@ static int trojan_protocol_start(relay_conn_t *relay,
     }
 #endif
 
-    if (tls_connect_start(&relay->tls, relay->upstream_fd, &cfg) < 0)
+    relay->tls = malloc(sizeof(tls_conn_t));
+    if (!relay->tls) return -1;
+    if (tls_connect_start(relay->tls, relay->upstream_fd, &cfg) < 0) {
+        free(relay->tls); relay->tls = NULL;
         return -1;
+    }
 
     relay->use_tls = true;
     relay->state = RELAY_TLS_SHAKE;
@@ -571,7 +579,8 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
 static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 {
     if (r->use_tls) {
-        tls_close(&r->tls);
+        tls_close(r->tls);
+        free(r->tls); r->tls = NULL;
         r->use_tls = false;
     }
 
@@ -736,14 +745,14 @@ static int upstream_connect(dispatcher_state_t *ds,
     int  resolved_family = AF_INET;
 
     if (inet_pton(AF_INET, server->address,
-                  &(struct in_addr){}) == 1) {
+                  &(struct in_addr){0}) == 1) {
         {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
             if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
                 log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
         }
         resolved_family = AF_INET;
     } else if (inet_pton(AF_INET6, server->address,
-                         &(struct in6_addr){}) == 1) {
+                         &(struct in6_addr){0}) == 1) {
         {   int _n = snprintf(resolved_ip, sizeof(resolved_ip), "%s", server->address);
             if (_n < 0 || (size_t)_n >= sizeof(resolved_ip))
                 log_msg(LOG_WARN, "dispatcher: resolved_ip обрезан: %s:%d", __FILE__, __LINE__);
@@ -928,7 +937,7 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 #endif
 
         if (r->use_tls)
-            return tls_send(&r->tls, ds->relay_buf, n);
+            return tls_send(r->tls, ds->relay_buf, n);
 
         ssize_t written = 0;
         while (written < n) {
@@ -971,7 +980,7 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 #endif
 
         if (r->use_tls)
-            n = tls_recv(&r->tls, ds->relay_buf, ds->relay_buf_size);
+            n = tls_recv(r->tls, ds->relay_buf, ds->relay_buf_size);
         else
             n = read(r->upstream_fd, ds->relay_buf, ds->relay_buf_size);
 
@@ -1285,7 +1294,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
         if (ep->is_client) return;
         if (!(ev & (EPOLLIN | EPOLLOUT))) return;
 
-        tls_step_result_t tls_rc = tls_connect_step(&r->tls);
+        tls_step_result_t tls_rc = tls_connect_step(r->tls);
         if (tls_rc == TLS_OK) {
             const ServerConfig *server = NULL;
             if (g_config && r->server_idx >= 0)
@@ -1294,7 +1303,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
             /* DEC-025: диагностика Reality shortId */
             if (server && server->reality_short_id[0]) {
                 uint8_t rnd[32];
-                int rn = tls_get_client_random(&r->tls, rnd, sizeof(rnd));
+                int rn = tls_get_client_random(r->tls, rnd, sizeof(rnd));
                 if (rn >= 8) {
                     char hex[17] = {0};
                     for (int hi = 0; hi < 8; hi++) {
@@ -1318,7 +1327,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
             }
 
             if (strcmp(server->protocol, "trojan") == 0) {
-                if (trojan_handshake_start(&r->tls, &r->dst,
+                if (trojan_handshake_start(r->tls, &r->dst,
                                             server->password) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
                     relay_free(ds, r);
@@ -1328,7 +1337,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->state = RELAY_ACTIVE;
                 log_msg(LOG_DEBUG, "relay: Trojan активен");
             } else {
-                if (vless_handshake_start(&r->tls, &r->dst,
+                if (vless_handshake_start(r->tls, &r->dst,
                                            server->uuid) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
                     relay_free(ds, r);
@@ -1353,7 +1362,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
         if (ep->is_client) return;
         if (!(ev & EPOLLIN)) return;
 
-        int vrc = vless_read_response_step(&r->tls,
+        int vrc = vless_read_response_step(r->tls,
             r->vless_resp_buf, &r->vless_resp_len);
         if (vrc == 0) {
             dispatcher_server_result(ds, r->server_idx, true);
