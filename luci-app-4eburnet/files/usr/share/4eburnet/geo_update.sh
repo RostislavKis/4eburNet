@@ -67,11 +67,12 @@ if [ -x "$GEO_CONVERT" ]; then
         "https://easylist.to/easylist/easyprivacy.txt" \
         "${GEO_DIR}/geosite-trackers.lst" \
         && { logger -t "$LOG_TAG" "geosite-trackers.lst обновлён"
-             [ -x "$GEO_COMPILE" ] && "$GEO_COMPILE" \
-                 "${GEO_DIR}/geosite-trackers.lst" \
-                 "${GEO_DIR}/geosite-trackers.gbin" 0 2 2>/dev/null \
-                 && logger -t "$LOG_TAG" "geosite-trackers.lst: .gbin скомпилирован" \
-                 || logger -t "$LOG_TAG" "WARN: geosite-trackers.lst .gbin не скомпилирован"; } \
+             if [ -x "$GEO_COMPILE" ]; then
+                 "$GEO_COMPILE" "${GEO_DIR}/geosite-trackers.lst" \
+                     "${GEO_DIR}/geosite-trackers.gbin" 0 2 2>/dev/null \
+                     && logger -t "$LOG_TAG" "geosite-trackers.lst: .gbin скомпилирован" \
+                     || logger -t "$LOG_TAG" "WARN: geosite-trackers.lst .gbin не скомпилирован"
+             fi; } \
         || logger -t "$LOG_TAG" "WARN: geosite-trackers.lst не обновлён"
 else
     echo "WARN: geo_convert.sh не найден, trackers пропущен"
@@ -84,11 +85,12 @@ if [ -x "$GEO_CONVERT" ]; then
         "https://urlhaus.abuse.ch/downloads/hostfile/" \
         "${GEO_DIR}/geosite-threats.lst" \
         && { logger -t "$LOG_TAG" "geosite-threats.lst обновлён"
-             [ -x "$GEO_COMPILE" ] && "$GEO_COMPILE" \
-                 "${GEO_DIR}/geosite-threats.lst" \
-                 "${GEO_DIR}/geosite-threats.gbin" 0 3 2>/dev/null \
-                 && logger -t "$LOG_TAG" "geosite-threats.lst: .gbin скомпилирован" \
-                 || logger -t "$LOG_TAG" "WARN: geosite-threats.lst .gbin не скомпилирован"; } \
+             if [ -x "$GEO_COMPILE" ]; then
+                 "$GEO_COMPILE" "${GEO_DIR}/geosite-threats.lst" \
+                     "${GEO_DIR}/geosite-threats.gbin" 0 3 2>/dev/null \
+                     && logger -t "$LOG_TAG" "geosite-threats.lst: .gbin скомпилирован" \
+                     || logger -t "$LOG_TAG" "WARN: geosite-threats.lst .gbin не скомпилирован"
+             fi; } \
         || logger -t "$LOG_TAG" "WARN: geosite-threats.lst не обновлён"
 else
     echo "WARN: geo_convert.sh не найден, threats пропущен"
@@ -108,6 +110,12 @@ if uclient-fetch -T 60 \
         mv "$TMP_OPENCCK" "${RULES_DIR}/opencck-domains.lst"
         logger -t "$LOG_TAG" "opencck-domains.lst: $COUNT доменов"
         echo "OK: opencck-domains ($COUNT доменов)"
+        if [ -x "$GEO_COMPILE" ]; then
+            "$GEO_COMPILE" "${RULES_DIR}/opencck-domains.lst" \
+                "${RULES_DIR}/opencck-domains.gbin" 1 0 2>/dev/null \
+                && logger -t "$LOG_TAG" "opencck: .gbin скомпилирован" \
+                || logger -t "$LOG_TAG" "WARN: opencck .gbin не скомпилирован"
+        fi
     else
         rm -f "$TMP_OPENCCK"
         echo "WARN: opencck-domains слишком мал ($COUNT), пропущено"
