@@ -230,6 +230,14 @@ input:focus,select:focus{border-color:rgba(34,211,238,.4)}
       </div>
     </div>
   </div>
+  <div class="panel" id="ja3-panel" style="display:none">
+    <div class="ph">
+      <span class="ph-t">TLS Fingerprint<span class="tip"><span class="tq">?</span><span class="tip-box">JA3 хэш последнего TLS ClientHello. Используется для проверки маскировки под браузер.</span></span></span>
+      <div class="ph-r">
+        <span style="font-size:11px;color:var(--text2);font-family:var(--mono)" id="ov-ja3" title="">—</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Группы -->
@@ -450,6 +458,13 @@ async function fetchStatus() {
       document.getElementById('dpi-adapt-panel').style.display = '';
       document.getElementById('ov-dpi-info').textContent =
         fmtNum(d.dpi_adapt_count) + ' IP · ' + fmtNum(d.dpi_adapt_hits) + ' hits';
+    }
+    /* JA3 fingerprint */
+    if (d.last_ja3 && d.last_ja3.length === 32) {
+      document.getElementById('ja3-panel').style.display = '';
+      const el = document.getElementById('ov-ja3');
+      el.textContent = 'JA3 ' + d.last_ja3.slice(0, 8) + '…';
+      el.title = d.last_ja3;
     }
   } catch(e) {
     document.getElementById('ov-status').textContent = 'Ошибка';
