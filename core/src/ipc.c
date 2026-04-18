@@ -15,9 +15,10 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <time.h>
+#include <poll.h>
 
-/* Размер буфера для ответов */
-#define IPC_RESPONSE_MAX 2048
+/* Размер буфера для ответов (достаточно для 200+ серверов/групп) */
+#define IPC_RESPONSE_MAX 65536
 
 /* Таймаут блокирующего чтения payload (мс) */
 #define IPC_RECV_TIMEOUT_MS 500
@@ -73,12 +74,34 @@ static ssize_t ipc_recv_payload(int fd, char *buf, size_t n)
 }
 
 /* Отправка строки в подключённый сокет */
+/* Записать все байты — повтор при EINTR, возврат -1 при ошибке */
+static int ipc_write_all(int fd, const void *buf, size_t n)
+{
+    size_t sent = 0;
+    while (sent < n) {
+        ssize_t r = write(fd, (const char *)buf + sent, n - sent);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (r == 0) return -1;
+        sent += (size_t)r;
+    }
+    return 0;
+}
+
 static void ipc_respond(int client_fd, const char *json)
 {
     size_t resp_len = strlen(json);
     if (resp_len > UINT16_MAX) {
-        log_msg(LOG_WARN, "IPC: ответ обрезан %zu → %d", resp_len, UINT16_MAX);
         resp_len = UINT16_MAX;
+        /* Откатиться до последнего } или ] чтобы не сломать JSON */
+        const char *p = json + resp_len - 1;
+        while (p > json && *p != '}' && *p != ']')
+            p--;
+        if (p > json)
+            resp_len = (size_t)(p - json + 1);
+        log_msg(LOG_WARN, "IPC: ответ обрезан до %zu байт", resp_len);
     }
     ipc_header_t resp = {
         .version    = EBURNET_IPC_VERSION,
@@ -88,9 +111,9 @@ static void ipc_respond(int client_fd, const char *json)
     };
 
     /* Отправляем заголовок, затем тело */
-    if (write(client_fd, &resp, sizeof(resp)) < 0)
+    if (ipc_write_all(client_fd, &resp, sizeof(resp)) < 0)
         return;
-    if (write(client_fd, json, resp.length) < 0)
+    if (ipc_write_all(client_fd, json, resp.length) < 0)
         return;
 }
 
@@ -182,11 +205,15 @@ static size_t json_get_str(const char *json, const char *key,
  */
 void ipc_process(int server_fd, EburNetState *state)
 {
-    /* Неблокирующий accept + client_fd (H-02) */
-    int client_fd = accept4(server_fd, NULL, NULL,
-                            SOCK_NONBLOCK | SOCK_CLOEXEC);
+    /* accept4: CLOEXEC для безопасности; НЕ NONBLOCK — клиент локальный */
+    int client_fd = accept4(server_fd, NULL, NULL, SOCK_CLOEXEC);
     if (client_fd < 0)
         return;
+
+    /* Таймаут 3с — клиент локальный root, сетевых задержек нет */
+    struct timeval tv = {.tv_sec = 3, .tv_usec = 0};
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
     /* Только root может управлять демоном через IPC */
     struct ucred cred = {0};
@@ -207,23 +234,11 @@ void ipc_process(int server_fd, EburNetState *state)
         return;
     }
 
-    /* Читаем заголовок команды (MSG_DONTWAIT — не блокируем) (H-10) */
+    /* Читаем заголовок команды — блокирующий с таймаутом 3с */
     ipc_header_t hdr;
-    ssize_t n = recv(client_fd, &hdr, sizeof(hdr), MSG_DONTWAIT);
-    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-        /* Данные ещё не прибыли — не ошибка */
-        close(client_fd);
-        return;
-    }
+    ssize_t n = recv(client_fd, &hdr, sizeof(hdr), 0);
     if (n != (ssize_t)sizeof(hdr)) {
         log_msg(LOG_WARN, "IPC: неполный заголовок (%zd байт)", n);
-        close(client_fd);
-        return;
-    }
-
-    /* Проверка длины payload (H-10) */
-    if (hdr.length > IPC_RESPONSE_MAX) {
-        log_msg(LOG_WARN, "IPC: payload слишком большой (%u байт)", hdr.length);
         close(client_fd);
         return;
     }
@@ -545,28 +560,47 @@ void ipc_cleanup(int server_fd)
     }
 }
 
-int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
+/* Подключиться к Unix-сокету с таймаутом через O_NONBLOCK + poll.
+   SO_*TIMEO не влияет на connect() для AF_UNIX — используем poll.
+   Возвращает готовый блокирующий fd или -1. */
+static int ipc_connect_nonblock(const char *path)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0)
-        return -1;
+    if (fd < 0) return -1;
 
-    /* Таймаут 3с на connect/read/write — защита от зависшего демона */
-    struct timeval tv = { .tv_sec = TIMEOUT_IPC_CLIENT_SEC, .tv_usec = 0 };
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
-        log_msg(LOG_WARN, "ipc client: SO_RCVTIMEO: %s", strerror(errno));
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
-        log_msg(LOG_WARN, "ipc client: SO_SNDTIMEO: %s", strerror(errno));
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, EBURNET_IPC_SOCKET, sizeof(addr.sun_path) - 1);
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
 
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(fd);
-        return -1;
+    int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    if (rc < 0 && errno != EINPROGRESS) {
+        close(fd); return -1;
     }
+    if (rc != 0) {
+        struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+        int pr = poll(&pfd, 1, 3000);
+        if (pr <= 0) { close(fd); return -1; }
+        int err = 0; socklen_t elen = sizeof(err);
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen);
+        if (err != 0) { close(fd); return -1; }
+    }
+
+    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+    struct timeval tv = { .tv_sec = TIMEOUT_IPC_CLIENT_SEC, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return fd;
+}
+
+int ipc_send_command(ipc_command_t cmd, char *buf, size_t buf_size)
+{
+    int fd = ipc_connect_nonblock(EBURNET_IPC_SOCKET);
+    if (fd < 0)
+        return -1;
 
     /* Отправляем запрос */
     ipc_header_t hdr = {
@@ -610,21 +644,8 @@ int ipc_send_command_payload(ipc_command_t cmd,
                               const char *payload,
                               char *buf, size_t buf_size)
 {
-    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    int fd = ipc_connect_nonblock(EBURNET_IPC_SOCKET);
     if (fd < 0) return -1;
-
-    struct timeval tv = { .tv_sec = TIMEOUT_IPC_CLIENT_SEC, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, EBURNET_IPC_SOCKET, sizeof(addr.sun_path) - 1);
-
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(fd); return -1;
-    }
 
     uint16_t plen = 0;
     if (payload) {
