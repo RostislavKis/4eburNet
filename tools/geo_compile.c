@@ -295,7 +295,7 @@ int geo_compile_file(const char *in_path, const char *out_path,
     /* Не входит в hdr.string_pool_size — geo_loader принимает size >= expected */
     {
         static const uint8_t pad[16] = {0};
-        fwrite(pad, 1, sizeof(pad), out);
+        ok &= (fwrite(pad, 1, sizeof(pad), out) == sizeof(pad));
     }
     fclose(out);
 
@@ -338,6 +338,8 @@ int geo_compile_file(const char *in_path, const char *out_path,
                       + (size_t)n_sfx * sizeof(uint32_t)
                       + (size_t)n_v4  * sizeof(geo_cidr4_t)
                       + (size_t)n_v6  * sizeof(geo_cidr6_t)
+                      + (bloom_domain ? BLOOM_BYTES : 0u)
+                      + (bloom_suffix ? BLOOM_BYTES : 0u)
                       + actual_pool;
     printf("geo_compile: %s → %s\n", in_path, out_path);
     printf("  домены: %u, суффиксы: %u, IPv4: %u, IPv6: %u\n",

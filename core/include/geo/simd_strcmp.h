@@ -30,10 +30,9 @@ static inline int fast_strcmp(const char *a, const char *b)
             return strcmp(a, b);  /* fallback для точного результата */
         /* Проверить '\0' в va */
         uint8x16_t zero = vdupq_n_u8(0);
-        uint64_t z0 = vgetq_lane_u64(
-                          vreinterpretq_u64_u8(vceqq_u8(va, zero)), 0);
-        uint64_t z1 = vgetq_lane_u64(
-                          vreinterpretq_u64_u8(vceqq_u8(va, zero)), 1);
+        uint8x16_t znull = vceqq_u8(va, zero);
+        uint64_t z0 = vgetq_lane_u64(vreinterpretq_u64_u8(znull), 0);
+        uint64_t z1 = vgetq_lane_u64(vreinterpretq_u64_u8(znull), 1);
         if (z0 | z1) return 0;  /* строки равны, \0 найден */
         a += 16; b += 16;
     }
@@ -62,7 +61,7 @@ static inline int fast_strcmp(const char *a, const char *b)
 #else
 /* SWAR — работает на MIPS32r2 и любой платформе без SIMD.
  * Читает 4 байта через memcpy — безопасен для любого выравнивания.
- * Нет overread: haszero detection останавливает перед концом строки. */
+ * overread безопасен: string_pool имеет 16-byte padding (geo_compile). */
 static inline int fast_strcmp(const char *a, const char *b)
 {
     for (;;) {

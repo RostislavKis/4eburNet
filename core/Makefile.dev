@@ -366,7 +366,7 @@ help:
 	@echo "4eburNet Makefile.dev — доступные таргеты:"
 	@echo ""
 	@echo "  make                     — сборка x86_64 dev бинарника"
-	@echo "  make test                — запустить все тесты (18 суитов)"
+	@echo "  make test                — запустить все тесты (20 суитов)"
 	@echo "  make clean               — удалить артефакты сборки"
 	@echo "  make geo-compile         — собрать geo_compile для хоста"
 	@echo "  make geo-compile-mipsel  — кросс-компиляция geo_compile для mipsel"
