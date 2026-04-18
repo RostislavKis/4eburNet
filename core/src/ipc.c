@@ -229,8 +229,7 @@ static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
         }
         const char *mode = (state->config && state->config->mode[0])
                            ? state->config->mode : "unknown";
-        bool flow_ok = exec_cmd_contains(
-            "nft list flowtables 2>/dev/null", NFT_FLOWTABLE_NAME);
+        bool flow_ok = nft_flow_offload_is_active();
         snprintf(buf, IPC_RESPONSE_MAX,
                  "{\"status\":\"running\",\"version\":\"%s\","
                  "\"profile\":\"%s\",\"uptime\":%ld,"

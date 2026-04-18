@@ -1216,6 +1216,8 @@ nft_result_t nft_offload_bypass_init(void)
 /*  Flow offload для DIRECT трафика (v1.1-3)                          */
 /* ------------------------------------------------------------------ */
 
+static bool g_flow_offload_active = false;
+
 static int get_wan_iface(char *buf, size_t buflen)
 {
     FILE *f = popen("ip route show default | awk '{print $5}' | head -1", "r");
@@ -1224,7 +1226,35 @@ static int get_wan_iface(char *buf, size_t buflen)
     pclose(f);
     size_t l = strlen(buf);
     if (l > 0 && buf[l-1] == '\n') buf[--l] = '\0';
-    return l > 0 ? 0 : -1;
+    /* Валидация: только [a-zA-Z0-9._-], IFNAMSIZ=16 */
+    if (l == 0 || l >= 16) return -1;
+    for (size_t i = 0; i < l; i++) {
+        char c = buf[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'))
+            return -1;
+    }
+    return 0;
+}
+
+static void nft_flow_offload_disable_internal(void)
+{
+    const char *const flush_chain[] = {
+        "nft", "flush", "chain", "inet", NFT_TABLE_NAME,
+        NFT_CHAIN_FLOW, NULL
+    };
+    const char *const del_chain[] = {
+        "nft", "delete", "chain", "inet", NFT_TABLE_NAME,
+        NFT_CHAIN_FLOW, NULL
+    };
+    const char *const del_ft[] = {
+        "nft", "delete", "flowtable", "inet", NFT_TABLE_NAME,
+        NFT_FLOWTABLE_NAME, NULL
+    };
+    char errbuf[64] = {0};
+    exec_cmd_safe(flush_chain, errbuf, sizeof(errbuf));
+    exec_cmd_safe(del_chain,   errbuf, sizeof(errbuf));
+    exec_cmd_safe(del_ft,      errbuf, sizeof(errbuf));
 }
 
 int nft_flow_offload_enable(void)
@@ -1246,7 +1276,7 @@ int nft_flow_offload_enable(void)
     }
 
     /* Удаляем старые объекты — идемпотентность */
-    nft_flow_offload_disable();
+    nft_flow_offload_disable_internal();
 
     char *config = malloc(NFT_ATOMIC_MAX);
     if (!config) return -1;
@@ -1272,33 +1302,27 @@ int nft_flow_offload_enable(void)
     nft_result_t rc = nft_exec_atomic(config);
     free(config);
 
-    if (rc == NFT_OK)
+    if (rc == NFT_OK) {
+        g_flow_offload_active = true;
         log_msg(LOG_INFO,
             "flow offload: активирован (WAN=%s, br-lan)", wan_iface);
-    else
+    } else {
         log_msg(LOG_WARN,
             "flow offload: не активирован: %s", nft_strerror(rc));
+    }
 
     return rc == NFT_OK ? 0 : -1;
 }
 
 void nft_flow_offload_disable(void)
 {
-    const char *const flush_chain[] = {
-        "nft", "flush", "chain", "inet", NFT_TABLE_NAME,
-        NFT_CHAIN_FLOW, NULL
-    };
-    const char *const del_chain[] = {
-        "nft", "delete", "chain", "inet", NFT_TABLE_NAME,
-        NFT_CHAIN_FLOW, NULL
-    };
-    const char *const del_ft[] = {
-        "nft", "delete", "flowtable", "inet", NFT_TABLE_NAME,
-        NFT_FLOWTABLE_NAME, NULL
-    };
-    char errbuf[64] = {0};
-    exec_cmd_safe(flush_chain, errbuf, sizeof(errbuf));
-    exec_cmd_safe(del_chain,   errbuf, sizeof(errbuf));
-    exec_cmd_safe(del_ft,      errbuf, sizeof(errbuf));
+    if (!g_flow_offload_active) return;
+    nft_flow_offload_disable_internal();
+    g_flow_offload_active = false;
     log_msg(LOG_INFO, "flow offload: деактивирован");
+}
+
+bool nft_flow_offload_is_active(void)
+{
+    return g_flow_offload_active;
 }
