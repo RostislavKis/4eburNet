@@ -40,6 +40,11 @@ typedef struct {
 
 /* ── Прототипы функций ────────────────────────────────────────────── */
 
+/* Передать указатель на конфиг для /api/control (tc_fast, dpi toggles).
+   Вызывать из main.c сразу после http_server_init(). */
+typedef struct EburNetConfig EburNetConfig;  /* forward declaration */
+void http_server_set_config(const EburNetConfig *cfg);
+
 /* Создать слушающий сокет на HTTP_PORT.
    Инициализировать пул соединений.
    Возвращает 0 при успехе, -1 при ошибке. */
