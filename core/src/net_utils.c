@@ -640,11 +640,16 @@ int net_http_fetch(const char *url, const char *dest_path)
 static void child_do_fetch(const char *url, const char *dest_path,
                            int pipe_wr)
 {
+    /* Атомарная замена: скачиваем в .tmp, затем rename → нет частичных файлов
+     * при сетевой ошибке или обрыве соединения */
+    char tmp_path[280];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", dest_path);
+
     /* DEC-031: uclient-fetch вместо собственного TLS — совместимость с
      * провайдерами (accessbyme.com, arza.top) чьи серверы требуют
      * full TLS chain validation не реализованную в wolfSSL static build */
     const char *argv[] = {
-        "uclient-fetch", "-q", "-T", "15", "-O", dest_path, url, NULL
+        "uclient-fetch", "-q", "-T", "15", "-O", tmp_path, url, NULL
     };
     pid_t pid = fork();
     if (pid == 0) {
@@ -655,7 +660,17 @@ static void child_do_fetch(const char *url, const char *dest_path,
     if (pid > 0) {
         int status;
         waitpid(pid, &status, 0);
-        rc = WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            if (rename(tmp_path, dest_path) == 0)
+                rc = 0;
+            else {
+                log_msg(LOG_WARN, "fetch: rename %s → %s: %s",
+                        tmp_path, dest_path, strerror(errno));
+                unlink(tmp_path);
+            }
+        } else {
+            unlink(tmp_path);
+        }
     }
     const char *msg = (rc == 0) ? "OK\n" : "ERR\n";
     write(pipe_wr, msg, strlen(msg));

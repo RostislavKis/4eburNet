@@ -17,9 +17,6 @@ void dns_rules_free(void);
 /* Определить действие для домена */
 dns_action_t dns_rules_match(const char *qname);
 
-/* Загрузить домены из файла */
-int dns_rules_load_file(const char *path, dns_action_t action);
-
 /* Перестроить sorted index после загрузки правил */
 void dns_rules_rebuild_index(void);
 

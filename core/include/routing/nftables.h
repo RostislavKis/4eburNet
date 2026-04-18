@@ -48,9 +48,6 @@
 #define NFT_CHAIN_OFFLOAD   "offload_bypass"
 #define NFT_PRIO_OFFLOAD    -300    /* раньше всех наших цепочек */
 
-/* Fake-IP диапазон (RFC 5737 TEST-NET-2, не маршрутизируется).
-   Трафик к этому CIDR перехватывается TPROXY. */
-#define NFT_FAKE_IP_CIDR    "198.51.100.0/24"
 
 /* Максимум записей в одной атомарной загрузке batch */
 #define NFT_BATCH_MAX       10000
@@ -97,8 +94,9 @@ nft_result_t nft_set_flush(const char *set_name);
 
 /* --- Режимы маршрутизации --- */
 
-/* Трафик по правилам: bypass/proxy наборы, остальное напрямую */
-nft_result_t nft_mode_set_rules(void);
+/* Трафик по правилам: bypass/proxy наборы, остальное напрямую.
+ * fake_ip_range — CIDR пула fake-IP из конфига; NULL = "198.51.100.0/24" */
+nft_result_t nft_mode_set_rules(const char *fake_ip_range);
 
 /* Весь трафик через TPROXY кроме bypass */
 nft_result_t nft_mode_set_global(void);
