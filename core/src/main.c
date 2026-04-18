@@ -1072,7 +1072,8 @@ int main(int argc, char *argv[])
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");
             }
 #if CONFIG_EBURNET_DPI
-            /* Сохранить кэш DPI адаптации при каждом reload */
+            /* Гарантировать существование директории и сохранить кэш */
+            (void)mkdir("/etc/4eburnet", 0755);
             dpi_adapt_save(&g_dpi_adapt, "/etc/4eburnet/dpi_cache.bin");
 #endif
             state.reload = false;
@@ -1100,7 +1101,8 @@ int main(int argc, char *argv[])
 
 cleanup:
 #if CONFIG_EBURNET_DPI
-    /* Сохранить кэш DPI при завершении работы */
+    /* Гарантировать существование директории и сохранить кэш */
+    (void)mkdir("/etc/4eburnet", 0755);
     dpi_adapt_save(&g_dpi_adapt, "/etc/4eburnet/dpi_cache.bin");
     if (state.cdn_pipe_fd >= 0) {
         close(state.cdn_pipe_fd);
