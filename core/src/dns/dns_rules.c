@@ -327,13 +327,21 @@ bool dns_is_bogus_response(const char *bogus_list,
     return false;
 }
 
+/* Компаратор только по ключу — для bsearch (cmp_rule_idx включает action) */
+static int cmp_rule_idx_key(const void *a, const void *b)
+{
+    const rule_idx_t *ra = (const rule_idx_t *)a;
+    const rule_idx_t *rb = (const rule_idx_t *)b;
+    return strcmp(ra->key, rb->key);
+}
+
 static dns_action_t idx_lookup(const rule_idx_t *arr, int n,
                                 const char *key)
 {
     if (!arr || n == 0) return DNS_ACTION_DEFAULT;
     rule_idx_t needle = { .key = key };
     const rule_idx_t *found = (const rule_idx_t *)bsearch(
-        &needle, arr, (size_t)n, sizeof(rule_idx_t), cmp_rule_idx);
+        &needle, arr, (size_t)n, sizeof(rule_idx_t), cmp_rule_idx_key);
     if (!found) return DNS_ACTION_DEFAULT;
     /* bsearch может вернуть любой из дубликатов.
        Откатиться к первому — он имеет наивысший приоритет
