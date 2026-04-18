@@ -152,6 +152,7 @@ nft_result_t nft_offload_bypass_init(void);
 
 int  nft_flow_offload_enable(void);
 void nft_flow_offload_disable(void);
+bool nft_flow_offload_is_active(void);
 
 /* --- Вспомогательные --- */
 
