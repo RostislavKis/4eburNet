@@ -278,7 +278,19 @@ test-ipc-async:
 	  -o /tmp/test_ipc_async
 	/tmp/test_ipc_async
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async
+test-bloom:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  tests/test_bloom.c \
+	  -o /tmp/test_bloom
+	/tmp/test_bloom
+
+test-simd:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  tests/test_simd_strcmp.c \
+	  -o /tmp/test_simd
+	/tmp/test_simd
+
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async test-bloom test-simd
 
 # ── geo_compile (инструмент компиляции .lst → .gbin) ──────────────
 
@@ -296,6 +308,17 @@ geo-compile-mipsel:
 		../tools/geo_compile.c
 	$(TC_MIPSEL)/mipsel-openwrt-linux-musl-strip --strip-all $(PREBUILT_DIR)/mipsel/geo_compile
 	@ls -lh $(PREBUILT_DIR)/mipsel/geo_compile
+
+geo-compile-aarch64:
+	@test -d "$(TC_AARCH64)" || { echo "ОШИБКА: TC_AARCH64 не найден: $(TC_AARCH64)"; exit 1; }
+	mkdir -p $(PREBUILT_DIR)/aarch64
+	$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
+		-std=gnu2x -O2 -static -march=armv8-a \
+		-Iinclude \
+		-o $(PREBUILT_DIR)/aarch64/geo_compile \
+		../tools/geo_compile.c
+	$(TC_AARCH64)/aarch64-openwrt-linux-musl-strip --strip-all $(PREBUILT_DIR)/aarch64/geo_compile
+	@ls -lh $(PREBUILT_DIR)/aarch64/geo_compile
 
 # ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
@@ -332,6 +355,7 @@ cross-aarch64:
 	$(MAKE) -f Makefile.dev PROFILE=full \
 		CC=$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_AARCH64) \
+		EXTRA_CFLAGS="-march=armv8-a+simd -O3" \
 		TARGET=$(BUILDDIR)/4eburnetd-aarch64 clean all
 	$(TC_AARCH64)/aarch64-openwrt-linux-musl-strip --strip-all $(BUILDDIR)/4eburnetd-aarch64
 	mkdir -p $(PREBUILT_DIR)/aarch64
@@ -355,5 +379,6 @@ help:
   test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy \
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
   test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async \
-  geo-compile geo-compile-mipsel \
+  test-bloom test-simd \
+  geo-compile geo-compile-mipsel geo-compile-aarch64 \
   cross-mipsel cross-aarch64 sync-dashboard

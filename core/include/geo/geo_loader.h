@@ -81,6 +81,11 @@ typedef struct {
     const uint32_t *bin_suffix_offsets;
     const char     *bin_string_pool;      /* все строки через \0 */
 
+    /* Bloom filter pointers (NULL = нет Bloom, VERSION=1) */
+    const uint8_t  *bin_bloom_domain;
+    const uint8_t  *bin_bloom_suffix;
+    uint32_t        bloom_nbits;           /* BLOOM_BYTES*8, 0 если нет */
+
     bool loaded;
     geo_cat_type_t cat_type; /* adblock категория — определяется по имени файла */
 } geo_category_t;
