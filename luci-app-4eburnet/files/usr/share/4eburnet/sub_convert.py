@@ -454,7 +454,7 @@ def _parse_clash_rule(rule_str: str) -> dict | None:
         'GEOSITE':        'geosite',
         'RULE-SET':       'rule_set',
         'MATCH':          'match',
-        'DST-PORT':       None,
+        'DST-PORT':       'DST_PORT',
         'SRC-PORT':       None,
         'PROCESS-NAME':   None,
         'AND':            None,

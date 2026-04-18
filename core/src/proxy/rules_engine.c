@@ -31,12 +31,13 @@ typedef struct {
 static provider_cache_t s_cache[MAX_PROVIDER_CACHE];
 static int s_cache_count = 0;
 
-/* Сортировка по priority ASC (M-05: без integer overflow) */
+/* Сортировка по priority DESC: высокий приоритет проверяется первым.
+   Правила: 1000 = самое важное (local/reject), 10 = catch-all (MATCH). */
 static int cmp_priority(const void *a, const void *b)
 {
     int pa = ((const TrafficRule *)a)->priority;
     int pb = ((const TrafficRule *)b)->priority;
-    return (pa > pb) - (pa < pb);
+    return (pb > pa) - (pb < pa);
 }
 
 /* Сравнение строк для qsort/bsearch */

@@ -566,23 +566,30 @@ nft_result_t nft_mode_set_rules(void)
 
     snprintf(pre_rules, 1024,
         "\n"
+        /* fake-ip: всегда через прокси (диспетчер делает reverse lookup) */
+        "        ip daddr " NFT_FAKE_IP_CIDR
+            " meta l4proto { tcp, udp }"
+            " meta mark set 0x%02x accept\n"
         "        ip daddr @" NFT_SET_PROXY
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n"
         "        ip6 daddr @" NFT_SET_PROXY6
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
-        NFT_MARK_PROXY, NFT_MARK_PROXY);
+        NFT_MARK_PROXY, NFT_MARK_PROXY, NFT_MARK_PROXY);
 
     snprintf(fwd_rules, 1024,
         "\n"
+        "        ip daddr " NFT_FAKE_IP_CIDR
+            " meta l4proto { tcp, udp }"
+            " meta mark set 0x%02x accept\n"
         "        ip daddr @" NFT_SET_PROXY
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n"
         "        ip6 daddr @" NFT_SET_PROXY6
             " meta l4proto { tcp, udp }"
             " meta mark set 0x%02x accept\n",
-        NFT_MARK_PROXY, NFT_MARK_PROXY);
+        NFT_MARK_PROXY, NFT_MARK_PROXY, NFT_MARK_PROXY);
 
     nft_result_t rc = apply_mode(pre_rules, fwd_rules);
     free(pre_rules); free(fwd_rules);
@@ -644,44 +651,7 @@ nft_result_t nft_mode_set_direct(void)
     return rc;
 }
 
-nft_result_t nft_mode_set_tun(void)
-{
-    /*
-     * Режим TUN:
-     * Вместо tproxy ставим только fwmark.
-     * Трафик перехватывается через ip rule:
-     *   ip rule add fwmark 0x02 table 200 (ROUTE_TABLE_TUN)
-     *   ip route add default dev tun0 table 200
-     *
-     * Порядок правил:
-     *   block → local → bypass → mark (всё остальное)
-     */
-    /* B1-03: буферы на heap */
-    char *pre_rules = malloc(512);
-    char *fwd_rules = malloc(512);
-    if (!pre_rules || !fwd_rules) {
-        free(pre_rules); free(fwd_rules);
-        return NFT_ERR_EXEC;
-    }
-
-    snprintf(pre_rules, 512,
-        "\n"
-        "        meta l4proto { tcp, udp }"
-            " meta mark set 0x%02x accept\n",
-        NFT_MARK_TUN);
-
-    snprintf(fwd_rules, 512,
-        "\n"
-        "        meta l4proto { tcp, udp }"
-            " meta mark set 0x%02x accept\n",
-        NFT_MARK_TUN);
-
-    nft_result_t rc = apply_mode(pre_rules, fwd_rules);
-    free(pre_rules); free(fwd_rules);
-    if (rc == NFT_OK)
-        log_msg(LOG_INFO, "Режим маршрутизации: tun");
-    return rc;
-}
+/* nft_mode_set_tun удалён — TPROXY покрывает все use-cases (DEC-035) */
 
 /* ------------------------------------------------------------------ */
 /*  nft_exec_file — атомарное применение через запись напрямую в файл   */
