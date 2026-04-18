@@ -255,7 +255,14 @@ test-varint:
 	  -o /tmp/test_hysteria2_varint $(WOLFSSL_LIBS)
 	/tmp/test_hysteria2_varint
 
-test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite
+test-sniffer:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  src/log.c src/proxy/sniffer.c \
+	  tests/test_sniffer.c \
+	  -o /tmp/test_sniffer
+	/tmp/test_sniffer
+
+test: test-uri test-udp test-cc test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer
 
 # ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
