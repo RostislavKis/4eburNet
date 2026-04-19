@@ -166,6 +166,8 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 }
 .copy-btn:hover{background:var(--accent);color:#000}
 .ja3-result{margin-top:10px;font-size:13px;padding:8px 12px;border-radius:6px}
+.ech-badge{display:inline-block;min-width:36px;text-align:center;padding:4px 10px;border-radius:12px;font-size:15px;font-weight:700;background:var(--card-border);color:var(--text-muted)}
+.ech-badge.ech-active{background:#7c3aed33;color:#a78bfa}
 .ja3-known{background:rgba(0,212,170,0.1);color:var(--accent)}
 .ja3-unknown{background:rgba(248,81,73,0.1);color:var(--red)}
 
@@ -423,6 +425,18 @@ tr:hover td{background:rgba(255,255,255,0.02)}
             Проверить fingerprint: <a href="https://tls.browserleaks.com" target="_blank" rel="noopener">tls.browserleaks.com</a>
           </div>
         </div>
+
+        <div class="toggle-card">
+          <div class="toggle-header">
+            <span class="toggle-title">ECH / ESNI</span>
+            <button class="help-btn" onclick="showModal('ech')">?</button>
+          </div>
+          <div class="toggle-desc">Encrypted Client Hello — SNI зашифрован, маршрутизация по IP</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+            <span class="ech-badge" id="echBadge">0</span>
+            <span style="font-size:13px;color:var(--text-muted)">подключений с ECH</span>
+          </div>
+        </div>
       </div>
 
       <!-- Группы -->
@@ -569,6 +583,14 @@ var TOOLTIPS = {
       ['ЧТО ЭТО', 'TLS fingerprint по набору шифров, расширений и параметров TLS ClientHello.'],
       ['ДЛЯ ЧЕГО', 'Проверить, маскируется ли ваш клиент под легитимный браузер при использовании XTLS-Reality.'],
       ['КАК РАБОТАЕТ', 'JA3 = MD5(tls_version + ciphers + extensions + groups + ecpf). Reality требует fingerprint Chrome/Firefox для прохождения через DPI.']
+    ]
+  },
+  ech: {
+    title: 'ECH / ESNI Detection',
+    items: [
+      ['ЧТО ЭТО', 'Encrypted Client Hello (RFC 9180) — расширение TLS, шифрующее поле SNI в ClientHello.'],
+      ['ДЛЯ ЧЕГО', 'Счётчик подключений, в которых SNI был зашифрован (ECH) или скрыт (ESNI legacy). Маршрутизация для таких соединений — по IP, а не по домену.'],
+      ['КАК РАБОТАЕТ', '0xfe0d = ECH RFC (Chrome 117+, Firefox 119+). 0xffce = ESNI draft legacy (до 2023). При обнаружении — счётчик инкрементируется, в лог записывается ext-type.']
     ]
   }
 };
@@ -770,6 +792,11 @@ function renderStatus(s) {
   document.getElementById('barAds').style.width = Math.round(ads / maxB * 100) + '%';
   document.getElementById('barTrackers').style.width = Math.round(trackers / maxB * 100) + '%';
   document.getElementById('barThreats').style.width = Math.round(threats / maxB * 100) + '%';
+
+  var ech = Number(s.ech_connections) || 0;
+  var echEl = document.getElementById('echBadge');
+  echEl.textContent = fmt(ech);
+  echEl.className = 'ech-badge' + (ech > 0 ? ' ech-active' : '');
 }
 
 function syncCheck(id, type, val) {

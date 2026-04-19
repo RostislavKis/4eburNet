@@ -1178,6 +1178,12 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
                     else if (ja3[0])
                         log_msg(LOG_INFO,
                             "TLS fingerprint: JA3=%s JA4=%s", ja3, ja4);
+                    if (hello->ech_found) {
+                        log_msg(LOG_DEBUG,
+                            "TLS ECH detected (ext=0x%04x): SNI encrypted, IP-based routing",
+                            (unsigned)hello->ech_ext_type);
+                        stats_inc_ech();
+                    }
                 }
                 free(hello);
             }
