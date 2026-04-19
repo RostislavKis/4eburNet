@@ -150,9 +150,9 @@ static int parse_vless_uri(const char *uri, ServerConfig *s)
         const char *seg_end = amp ? amp
                              : (hash ? hash : p + strlen(p));
 
-        char key[64]      = {0};
-        char val[512]     = {0};
-        char val_dec[512] = {0};
+        char key[64]              = {0};
+        static char val[512];     memset(val, 0, sizeof(val));
+        static char val_dec[512]; memset(val_dec, 0, sizeof(val_dec));
         size_t klen = (size_t)(eq - p);
         size_t vlen = (size_t)(seg_end - eq - 1);
         if (klen < sizeof(key))  memcpy(key, p, klen);

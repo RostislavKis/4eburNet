@@ -193,7 +193,7 @@ int cdn_merge_write(char cidrs[][64], int count, const char *out_path)
     qsort(cidrs, (size_t)count, 64, cmp_cidr_str);
 
     /* Временный файл рядом с целевым */
-    char tmp_path[544];
+    static char tmp_path[544];
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", out_path);
 
     FILE *f = fopen(tmp_path, "w");

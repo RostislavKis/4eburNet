@@ -1086,17 +1086,29 @@ int http_server_handle(HttpServer *srv, int fd, int epoll_fd)
             return 0;
         }
 
-        int n = (int)read(fd, conn->buf + conn->buf_len, (size_t)space);
-        if (n <= 0) {
-            conn_close(conn, epoll_fd);
-            return 0;
+        for (;;) {
+            int n = (int)read(fd, conn->buf + conn->buf_len, (size_t)space);
+            if (n < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                conn_close(conn, epoll_fd);
+                return 0;
+            }
+            if (n == 0) {
+                conn_close(conn, epoll_fd);
+                return 0;
+            }
+            conn->buf_len += n;
+            conn->buf[conn->buf_len] = '\0';
+            if (strstr(conn->buf, "\r\n\r\n")) {
+                conn->headers_done = 1;
+                break;
+            }
+            space = HTTP_BUF_SIZE - 1 - conn->buf_len;
+            if (space <= 0) {
+                conn_close(conn, epoll_fd);
+                return 0;
+            }
         }
-
-        conn->buf_len += n;
-        conn->buf[conn->buf_len] = '\0';
-
-        if (strstr(conn->buf, "\r\n\r\n"))
-            conn->headers_done = 1;
 
         if (!conn->headers_done) {
             if (conn->buf_len >= HTTP_BUF_SIZE - 1)
