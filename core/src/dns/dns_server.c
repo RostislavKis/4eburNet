@@ -26,6 +26,7 @@
 #include <sys/epoll.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 
 int dns_server_init(dns_server_t *ds, const EburNetConfig *cfg)
 {
@@ -60,6 +61,23 @@ int dns_server_init(dns_server_t *ds, const EburNetConfig *cfg)
         .sin_port   = htons(port),
         .sin_addr   = { .s_addr = INADDR_ANY },
     };
+
+    /* Привязать к IP LAN-интерфейса; fallback — INADDR_ANY */
+    if (cfg->lan_interface[0]) {
+        struct ifaddrs *ifa_list = NULL;
+        if (getifaddrs(&ifa_list) == 0) {
+            for (struct ifaddrs *ifa = ifa_list; ifa; ifa = ifa->ifa_next) {
+                if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
+                    continue;
+                if (strcmp(ifa->ifa_name, cfg->lan_interface) != 0)
+                    continue;
+                addr.sin_addr =
+                    ((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+                break;
+            }
+            freeifaddrs(ifa_list);
+        }
+    }
 
     if (bind(ds->udp_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         log_msg(LOG_ERROR, "DNS: bind(UDP :%u): %s", port, strerror(errno));

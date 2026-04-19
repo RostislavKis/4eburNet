@@ -391,6 +391,7 @@ int cdn_updater_update(const struct EburNetConfig *cfg)
     return cdn_do_update(cfg, true);
 }
 
+/* Возвращает read-end pipe (O_NONBLOCK): вызывающий обязан close() после чтения или ошибки */
 int cdn_updater_update_async(const struct EburNetConfig *cfg)
 {
     if (!cfg) return -1;

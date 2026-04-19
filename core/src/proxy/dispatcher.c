@@ -1076,8 +1076,9 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
     ds->stls_buf = malloc(ds->relay_buf_size + 9);
     if (!ds->stls_buf) {
         log_msg(LOG_ERROR, "relay: не удалось выделить stls_buf");
-        free(ds->relay_buf); free(ds->conns);
-        ds->conns = NULL; return -1;
+        free(ds->relay_buf); ds->relay_buf = NULL;
+        free(ds->conns);     ds->conns     = NULL;
+        return -1;
     }
 #endif
 
@@ -1085,9 +1086,8 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
     ds->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     if (ds->epoll_fd < 0) {
         log_msg(LOG_ERROR, "relay: epoll_create1: %s", strerror(errno));
-        free(ds->relay_buf);
-        free(ds->conns);
-        ds->conns = NULL;
+        free(ds->relay_buf); ds->relay_buf = NULL;
+        free(ds->conns);     ds->conns     = NULL;
         return -1;
     }
 

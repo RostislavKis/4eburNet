@@ -4,6 +4,8 @@
 #include "stats.h"
 #include "net_utils.h"
 #include "routing/nftables.h"
+#include "proxy/dispatcher.h"
+#include "http_server.h"
 #if CONFIG_EBURNET_DPI
 #include "dpi/dpi_adapt.h"
 #endif
@@ -241,7 +243,9 @@ static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
                  "{\"status\":\"running\",\"version\":\"%s\","
                  "\"profile\":\"%s\",\"uptime\":%ld,"
                  "\"mode\":\"%s\",\"geo_loaded\":%s,"
-                 "\"flow_offload\":%s"
+                 "\"flow_offload\":%s,"
+                 "\"last_ja3\":\"%s\","
+                 "\"ja3_expected\":\"%s\""
 #if CONFIG_EBURNET_DPI
                  ",\"dpi_adapt_count\":%u"
                  ",\"dpi_adapt_hits\":%u"
@@ -249,7 +253,9 @@ static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
                  "}",
                  EBURNET_VERSION, profile, (long)uptime,
                  mode, geo_ok ? "true" : "false",
-                 flow_ok ? "true" : "false"
+                 flow_ok ? "true" : "false",
+                 dispatcher_get_last_ja3(),
+                 http_server_get_ja3_expected()
 #if CONFIG_EBURNET_DPI
                  , adapt_count, adapt_hits
 #endif
@@ -380,7 +386,9 @@ static void ipc_dispatch(ipc_client_t *c, EburNetState *state)
             IPC_SNPRINTF("{\"rules\":[");
             for (int ri = 0; ri < g_re->rule_count; ri++) {
                 const TrafficRule *tr = &g_re->sorted_rules[ri];
-                char esc_val[512], esc_tgt[128];
+                static char esc_val[512], esc_tgt[128];
+                memset(esc_val, 0, sizeof(esc_val));
+                memset(esc_tgt, 0, sizeof(esc_tgt));
                 json_escape_str(tr->value,  esc_val, sizeof(esc_val));
                 json_escape_str(tr->target, esc_tgt, sizeof(esc_tgt));
                 if (ri > 0) IPC_SNPRINTF(",");
@@ -452,7 +460,8 @@ rules_send:
             ipc_set_response(c, "{\"error\":\"config not ready\"}");
             break;
         }
-        char esc_sni[512];
+        static char esc_sni[512];
+        memset(esc_sni, 0, sizeof(esc_sni));
         json_escape_str(cfg->dpi_fake_sni, esc_sni, sizeof(esc_sni));
         snprintf(buf, IPC_RESPONSE_MAX,
             "{\"enabled\":%s,\"split_pos\":%d,\"fake_ttl\":%d,"
@@ -534,7 +543,7 @@ void ipc_accept(int server_fd, EburNetState *state, int epoll_fd)
     }
 
     struct epoll_event ev = {
-        .events   = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP,
+        .events   = EPOLLIN | EPOLLET | EPOLLRDHUP,
         .data.ptr = c,
     };
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, cfd, &ev) < 0)
@@ -570,7 +579,15 @@ static int ipc_try_write(ipc_client_t *c)
         if (niov == 0) break;
         ssize_t r = writev(c->fd, iov, niov);
         if (r < 0) {
-            if (errno == EAGAIN) return 0;  /* ждём EPOLLOUT */
+            if (errno == EAGAIN) {
+                /* Добавить EPOLLOUT: снимется автоматически при EPOLL_CTL_DEL */
+                struct epoll_event _ev = {
+                    .events   = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP,
+                    .data.ptr = c,
+                };
+                epoll_ctl(g_epoll_fd, EPOLL_CTL_MOD, c->fd, &_ev);
+                return 0;
+            }
             return -1;
         }
         c->resp_sent += (size_t)r;
