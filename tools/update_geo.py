@@ -163,9 +163,15 @@ def fetch_geosite_trackers(out_path: str) -> int:
         return 0
     domains = sorted(domains)
     tmp = out_path + '.tmp'
-    with open(tmp, 'w') as f:
-        f.write('\n'.join(domains) + '\n')
-    os.replace(tmp, out_path)
+    try:
+        with open(tmp, 'w') as f:
+            f.write('\n'.join(domains) + '\n')
+        os.replace(tmp, out_path)
+    except Exception as e:
+        try: os.unlink(tmp)
+        except OSError: pass
+        print(f'ОШИБКА записи: {e}')
+        return -1
 
     print(f'{len(domains)} доменов')
     return len(domains)
@@ -200,9 +206,15 @@ def fetch_geosite_threats(out_path: str) -> int:
         return 0
     domains = sorted(domains)
     tmp = out_path + '.tmp'
-    with open(tmp, 'w') as f:
-        f.write('\n'.join(domains) + '\n')
-    os.replace(tmp, out_path)
+    try:
+        with open(tmp, 'w') as f:
+            f.write('\n'.join(domains) + '\n')
+        os.replace(tmp, out_path)
+    except Exception as e:
+        try: os.unlink(tmp)
+        except OSError: pass
+        print(f'ОШИБКА записи: {e}')
+        return -1
 
     print(f'{len(domains)} доменов')
     return len(domains)
