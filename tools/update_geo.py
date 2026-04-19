@@ -195,7 +195,7 @@ def fetch_geosite_threats(out_path: str) -> int:
             if h != 'localhost':
                 domains.add(h)
 
-    if len(domains) < 1000:
+    if len(domains) < 100:
         print(f'WARN: только {len(domains)} доменов — пропускаю запись')
         return 0
     domains = sorted(domains)
