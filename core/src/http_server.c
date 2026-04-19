@@ -347,7 +347,8 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
         "\"conn_active\":%llu,\"conn_total\":%llu,"
         "\"dns_queries\":%llu,\"dns_cached\":%llu,"
         "\"blocked_ads\":%llu,\"blocked_trackers\":%llu,\"blocked_threats\":%llu,"
-        "\"ech_connections\":%llu}",
+        "\"ech_connections\":%llu,"
+        "\"last_ech_type\":\"0x%04x\"}",
         running ? "running" : "stopped",
         uptime, mode, profile,
         last_ja3, g_ja3_expected, ja3_match ? "true" : "false",
@@ -362,7 +363,8 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
         (unsigned long long)atomic_load(&g_stats.blocked_ads),
         (unsigned long long)atomic_load(&g_stats.blocked_trackers),
         (unsigned long long)atomic_load(&g_stats.blocked_threats),
-        (unsigned long long)atomic_load(&g_stats.ech_connections));
+        (unsigned long long)atomic_load(&g_stats.ech_connections),
+        (unsigned)atomic_load(&g_stats.last_ech_type));
 
     http_send(conn, epoll_fd, 200, "application/json",
               s_ipc_buf, (size_t)(n > 0 ? n : 0));
