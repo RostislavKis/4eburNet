@@ -1,2 +1,0 @@
-# Pre-built binaries (генерируются через make -f core/Makefile.dev cross-*)
-*/4eburnetd
