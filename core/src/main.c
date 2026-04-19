@@ -912,10 +912,17 @@ int main(int argc, char *argv[])
                 proxy_group_to_json(&pgm_state, grp_json_buf, sizeof(grp_json_buf));
                 FILE *gf = fopen("/tmp/4eburnet-groups.json.tmp", "w");
                 if (gf) {
-                    fputs(grp_json_buf, gf);
-                    fclose(gf);
-                    rename("/tmp/4eburnet-groups.json.tmp",
-                           "/tmp/4eburnet-groups.json");
+                    if (fputs(grp_json_buf, gf) == EOF) {
+                        log_msg(LOG_WARN, "groups.json: ошибка записи");
+                        fclose(gf);
+                        unlink("/tmp/4eburnet-groups.json.tmp");
+                    } else {
+                        fclose(gf);
+                        if (rename("/tmp/4eburnet-groups.json.tmp",
+                                   "/tmp/4eburnet-groups.json") != 0)
+                            log_msg(LOG_WARN, "groups.json: rename: %s",
+                                    strerror(errno));
+                    }
                 }
             }
         }
