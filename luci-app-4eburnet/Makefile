@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-4eburnet
-PKG_VERSION:=1.0.0
+PKG_VERSION:=1.2.0  # должно совпадать с EBURNET_VERSION в core/Makefile.dev
 PKG_RELEASE:=1
 
 include $(INCLUDE_DIR)/package.mk

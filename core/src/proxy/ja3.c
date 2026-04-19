@@ -111,6 +111,7 @@ int ja4_compute(const ClientHelloInfo *info, char ja4_out[40])
     static char cipher_str[320];
     static char ext_str[160];
 
+    /* cc/ec: GREASE уже отфильтрован sniffer_parse_hello() — в ciphers/extensions нет 0x?a?a */
     /* Отсортированные ciphers → hex строка */
     uint16_t sorted[JA3_CIPHER_MAX];
     int cc = info->cipher_count;

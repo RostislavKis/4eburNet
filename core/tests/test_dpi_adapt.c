@@ -130,7 +130,7 @@ static void test_save_load(void)
     unlink(path);
 }
 
-/* T5: полная таблица (4096 записей) → новый IP молча игнорируется */
+/* T5: полная таблица (4096 записей) → LRU eviction при переполнении */
 static void test_full_table(void)
 {
     DpiAdaptTable t;
@@ -142,14 +142,14 @@ static void test_full_table(void)
 
     CHECK(t.count == DPI_ADAPT_SLOTS, "T5: count = 4096 после заполнения");
 
-    /* Попытка добавить 4097-й IP должна молча провалиться */
+    /* При переполнении LRU вытесняет старую запись — count не меняется */
     uint32_t before = t.count;
     dpi_adapt_report(&t, 0xFFFFFFFFu, DPI_STRAT_FRAGMENT, DPI_RESULT_SUCCESS);
     CHECK(t.count == before, "T5: count не меняется при переполнении");
 
-    /* get для несуществующего IP в полной таблице → NONE */
+    /* Новый IP доступен после LRU-вытеснения */
     dpi_strat_t s = dpi_adapt_get(&t, 0xFFFFFFFFu);
-    CHECK(s == DPI_STRAT_NONE, "T5: get для несуществующего IP в полной таблице → NONE");
+    CHECK(s == DPI_STRAT_FRAGMENT, "T5: get нового IP после LRU-вытеснения → FRAGMENT");
 }
 
 /* T6: dpi_adapt_stats → count и hits корректны */
