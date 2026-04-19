@@ -391,7 +391,7 @@ cross-aarch64: sync-dashboard
 	$(MAKE) -f Makefile.dev PROFILE=full \
 		CC=$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_AARCH64) \
-		EXTRA_CFLAGS="-march=armv8-a+simd -O3" \
+		EXTRA_CFLAGS="-march=armv8-a+simd -O2" \
 		TARGET=$(BUILDDIR)/4eburnetd-aarch64 clean all
 	$(TC_AARCH64)/aarch64-openwrt-linux-musl-strip --strip-all $(BUILDDIR)/4eburnetd-aarch64
 	mkdir -p $(PREBUILT_DIR)/aarch64

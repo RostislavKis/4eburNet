@@ -13,6 +13,12 @@
   python3 sub_convert.py -i sub.b64 --format base64
   python3 sub_convert.py -i config.json --format singbox
   python3 sub_convert.py --url https://sub.example.com/sub --token TOKEN
+
+ОГРАНИЧЕНИЯ:
+  - YAML anchors (&name / *alias): поддерживаются только при наличии PyYAML.
+    Без PyYAML используется построчный fallback — anchors НЕ разворачиваются.
+    При наличии anchors без PyYAML: pip3 install pyyaml
+  - Emoji в именах серверов (U+1F000+) удаляются _uci_safe() — UCI их не поддерживает.
 """
 
 import sys
@@ -760,7 +766,7 @@ def _uci_safe(s) -> str:
         if ch in ("'", "\\"):
             continue  # UCI shell-unsafe
         if cp >= 0x1F000:
-            continue  # emoji и символы выше
+            continue  # emoji strip: UCI не поддерживает U+1F000+; имена серверов с emoji усекаются молча
         result.append(ch)
     return ''.join(result).strip()
 

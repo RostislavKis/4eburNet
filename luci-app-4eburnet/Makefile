@@ -73,6 +73,10 @@ define Package/luci-app-4eburnet/install
 	  $(1)/usr/share/4eburnet/
 
 	# ── TC fast path kmods (cls_u32, sch_ingress, act_skbedit) ───
+	# ВНИМАНИЕ: .ko файлы собраны под ядро 6.6.73 (OpenWrt 24.10, MT7621A).
+	# При обновлении ядра проверить совместимость vermagic:
+	#   modinfo /lib/modules/4eburnet/sch_ingress.ko | grep vermagic
+	# Ожидаемое значение: "6.6.73 SMP mod_unload MIPS32_R2 32BIT"
 	$(INSTALL_DIR) $(1)/lib/modules/4eburnet
 	$(INSTALL_DATA) ./files/kmods/sch_ingress.ko $(1)/lib/modules/4eburnet/
 	$(INSTALL_DATA) ./files/kmods/cls_u32.ko     $(1)/lib/modules/4eburnet/
