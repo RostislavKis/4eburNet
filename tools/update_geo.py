@@ -135,7 +135,7 @@ def fetch_geosite_ads(out_path: str) -> int:
 _TRACKER_RE = re.compile(
     r'^\|\|([a-zA-Z0-9][a-zA-Z0-9._-]+\.[a-zA-Z]{2,})\^')
 _THREAT_RE = re.compile(
-    r'^0\.0\.0\.0\s+([a-zA-Z0-9][a-zA-Z0-9._-]+\.[a-zA-Z]{2,})')
+    r'^(?:0\.0\.0\.0|127\.0\.0\.1)[\s\t]+([a-zA-Z0-9][a-zA-Z0-9._-]+\.[a-zA-Z]{2,})')
 
 
 def fetch_geosite_trackers(out_path: str) -> int:
