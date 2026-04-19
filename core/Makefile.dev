@@ -48,9 +48,11 @@ else  # full — все функции включены
 endif
 
 EXTRA_CFLAGS ?=
+EBURNET_VERSION ?= 1.2.0
 CFLAGS = -std=gnu2x -Wall -Wextra -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
          -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
          -ffunction-sections -fdata-sections \
+         -DEBURNET_VERSION=\"$(EBURNET_VERSION)\" \
          $(KCONFIG_CFLAGS) $(EXTRA_CFLAGS)
 CFLAGS += -Werror
 WOLFSSL_PREFIX ?= /usr/local/musl-wolfssl
@@ -127,7 +129,7 @@ install-vm: $(TARGET)
 WOLFSSL_INCLUDES = -I$(WOLFSSL_PREFIX)/include
 WOLFSSL_LIBS     = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
 TEST_CC  = musl-gcc
-TEST_FLAGS = -std=gnu2x -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1
+TEST_FLAGS = -std=gnu2x -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1 -Wall -Wextra -Werror
 
 HY2_COMMON = src/crypto/blake2b.c src/crypto/quic_salamander.c \
              src/crypto/quic.c src/proxy/protocols/hysteria2_cc.c \
@@ -341,12 +343,25 @@ geo-compile-aarch64:
 	$(TC_AARCH64)/aarch64-openwrt-linux-musl-strip --strip-all $(PREBUILT_DIR)/aarch64/geo_compile
 	@ls -lh $(PREBUILT_DIR)/aarch64/geo_compile
 
+geo-compile-armv7:
+	@test -d "$(TC_ARMV7)" || { echo "ОШИБКА: TC_ARMV7 не найден: $(TC_ARMV7)"; exit 1; }
+	mkdir -p $(PREBUILT_DIR)/armv7
+	$(TC_ARMV7)/arm-openwrt-linux-musleabihf-gcc \
+		-std=gnu2x -O2 -static -march=armv7-a -mfpu=neon -mfloat-abi=hard \
+		-Iinclude \
+		-o $(PREBUILT_DIR)/armv7/geo_compile \
+		../tools/geo_compile.c
+	$(TC_ARMV7)/arm-openwrt-linux-musleabihf-strip --strip-all $(PREBUILT_DIR)/armv7/geo_compile
+	@ls -lh $(PREBUILT_DIR)/armv7/geo_compile
+
 # ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
 TC_MIPSEL        ?= $(SDK_BASE)/mipsel/sdk-mipsel/staging_dir/toolchain-mipsel_gcc-12.3.0_musl/bin
 TC_AARCH64       ?= $(SDK_BASE)/aarch64/sdk-aarch64/staging_dir/toolchain-aarch64_cortex-a53_gcc-13.3.0_musl/bin
+TC_ARMV7         ?= $(SDK_BASE)/armv7/sdk-armv7/staging_dir/toolchain-arm_cortex-a9+neon_gcc-13.3.0_musl/bin
 WOLFSSL_MIPSEL   ?= /usr/local/musl-wolfssl-mipsel
 WOLFSSL_AARCH64  ?= /usr/local/musl-wolfssl-aarch64
+WOLFSSL_ARMV7    ?= /usr/local/musl-wolfssl-armv7
 PREBUILT_DIR     ?= ../prebuilt
 
 sync-dashboard:
@@ -369,7 +384,7 @@ cross-mipsel: sync-dashboard
 	cp $(BUILDDIR)/4eburnetd-mipsel $(PREBUILT_DIR)/mipsel/4eburnetd
 	ls -lh $(PREBUILT_DIR)/mipsel/4eburnetd
 
-cross-aarch64:
+cross-aarch64: sync-dashboard
 	@test -d "$(TC_AARCH64)" || { echo "ОШИБКА: TC_AARCH64 не найден: $(TC_AARCH64)"; exit 1; }
 	@test -d "$(dir $(WOLFSSL_AARCH64))" || { echo "ОШИБКА: WOLFSSL_AARCH64 не найден: $(WOLFSSL_AARCH64)"; exit 1; }
 	@echo "=== Cross-compile 4eburnetd для aarch64 ==="
@@ -383,16 +398,31 @@ cross-aarch64:
 	cp $(BUILDDIR)/4eburnetd-aarch64 $(PREBUILT_DIR)/aarch64/4eburnetd
 	ls -lh $(PREBUILT_DIR)/aarch64/4eburnetd
 
+cross-armv7: sync-dashboard
+	@test -d "$(TC_ARMV7)" || { echo "ОШИБКА: TC_ARMV7 не найден: $(TC_ARMV7)"; exit 1; }
+	@test -d "$(dir $(WOLFSSL_ARMV7))" || { echo "ОШИБКА: WOLFSSL_ARMV7 не найден: $(WOLFSSL_ARMV7)"; exit 1; }
+	@echo "=== Cross-compile 4eburnetd для armv7 ==="
+	$(MAKE) -f Makefile.dev PROFILE=normal \
+		CC=$(TC_ARMV7)/arm-openwrt-linux-musleabihf-gcc \
+		WOLFSSL_PREFIX=$(WOLFSSL_ARMV7) \
+		EXTRA_CFLAGS="-march=armv7-a -mfpu=neon -mfloat-abi=hard -O2" \
+		TARGET=$(BUILDDIR)/4eburnetd-armv7 clean all
+	$(TC_ARMV7)/arm-openwrt-linux-musleabihf-strip --strip-all $(BUILDDIR)/4eburnetd-armv7
+	mkdir -p $(PREBUILT_DIR)/armv7
+	cp $(BUILDDIR)/4eburnetd-armv7 $(PREBUILT_DIR)/armv7/4eburnetd
+	ls -lh $(PREBUILT_DIR)/armv7/4eburnetd
+
 help:
 	@echo "4eburNet Makefile.dev — доступные таргеты:"
 	@echo ""
 	@echo "  make                     — сборка x86_64 dev бинарника"
-	@echo "  make test                — запустить все тесты (21 суит)"
+	@echo "  make test                — запустить все тесты (22 суита)"
 	@echo "  make clean               — удалить артефакты сборки"
 	@echo "  make geo-compile         — собрать geo_compile для хоста"
 	@echo "  make geo-compile-mipsel  — кросс-компиляция geo_compile для mipsel"
 	@echo "  make cross-mipsel        — кросс-компиляция MIPS (TC_MIPSEL=path)"
 	@echo "  make cross-aarch64       — кросс-компиляция ARM64 (TC_AARCH64=path)"
+	@echo "  make cross-armv7         — кросс-компиляция ARMv7 (TC_ARMV7=path)"
 	@echo "  make help                — этот список"
 	@echo ""
 
@@ -401,5 +431,5 @@ help:
   test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing \
   test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async \
   test-bloom test-simd test-dpi-adapt test-ja3 \
-  geo-compile geo-compile-mipsel geo-compile-aarch64 \
-  cross-mipsel cross-aarch64 sync-dashboard
+  geo-compile geo-compile-mipsel geo-compile-aarch64 geo-compile-armv7 \
+  cross-mipsel cross-aarch64 cross-armv7 sync-dashboard

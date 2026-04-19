@@ -4,7 +4,9 @@
  * Запуск: ./test_ipc_async
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "4eburnet.h"
 
 #include <stdio.h>

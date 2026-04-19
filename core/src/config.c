@@ -1195,6 +1195,7 @@ int config_load(const char *path, EburNetConfig *cfg)
 
     /* Копируем серверы в динамический массив */
     if (srv_count > 0) {
+        if ((size_t)srv_count > SIZE_MAX / sizeof(ServerConfig)) goto cleanup_fail;
         cfg->servers = malloc((size_t)srv_count * sizeof(ServerConfig));
         if (!cfg->servers) {
             log_msg(LOG_ERROR, "Не удалось выделить память для серверов");
@@ -1206,6 +1207,7 @@ int config_load(const char *path, EburNetConfig *cfg)
 
     /* Копируем DNS правила */
     if (dns_rule_count > 0) {
+        if ((size_t)dns_rule_count > SIZE_MAX / sizeof(DnsRule)) { config_free(cfg); goto cleanup_fail; }
         cfg->dns_rules = malloc((size_t)dns_rule_count * sizeof(DnsRule));
         if (!cfg->dns_rules) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для dns_rules");
@@ -1219,6 +1221,7 @@ int config_load(const char *path, EburNetConfig *cfg)
 
     /* Копируем dns_policies */
     if (dp_count > 0) {
+        if ((size_t)dp_count > SIZE_MAX / sizeof(DnsPolicy)) { config_free(cfg); goto cleanup_fail; }
         cfg->dns_policies = malloc((size_t)dp_count * sizeof(DnsPolicy));
         if (!cfg->dns_policies) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для dns_policies");
@@ -1232,6 +1235,7 @@ int config_load(const char *path, EburNetConfig *cfg)
 
     /* Копируем устройства */
     if (dev_count > 0) {
+        if ((size_t)dev_count > SIZE_MAX / sizeof(device_config_t)) { config_free(cfg); goto cleanup_fail; }
         cfg->devices = malloc((size_t)dev_count * sizeof(device_config_t));
         if (!cfg->devices) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для devices");
@@ -1245,6 +1249,7 @@ int config_load(const char *path, EburNetConfig *cfg)
 
     /* proxy groups (H-03: NULL → count=0) */
     if (pg_count > 0) {
+        if ((size_t)pg_count > SIZE_MAX / sizeof(ProxyGroupConfig)) { config_free(cfg); goto cleanup_fail; }
         cfg->proxy_groups = malloc((size_t)pg_count * sizeof(ProxyGroupConfig));
         if (!cfg->proxy_groups) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для proxy_groups");
@@ -1256,6 +1261,7 @@ int config_load(const char *path, EburNetConfig *cfg)
         cfg->proxy_group_count = pg_count;
     }
     if (pp_count > 0) {
+        if ((size_t)pp_count > SIZE_MAX / sizeof(ProxyProviderConfig)) { config_free(cfg); goto cleanup_fail; }
         cfg->proxy_providers = malloc((size_t)pp_count * sizeof(ProxyProviderConfig));
         if (!cfg->proxy_providers) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для proxy_providers");
@@ -1267,6 +1273,7 @@ int config_load(const char *path, EburNetConfig *cfg)
         cfg->proxy_provider_count = pp_count;
     }
     if (rp_count > 0) {
+        if ((size_t)rp_count > SIZE_MAX / sizeof(RuleProviderConfig)) { config_free(cfg); goto cleanup_fail; }
         cfg->rule_providers = malloc((size_t)rp_count * sizeof(RuleProviderConfig));
         if (!cfg->rule_providers) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для rule_providers");
@@ -1278,6 +1285,7 @@ int config_load(const char *path, EburNetConfig *cfg)
         cfg->rule_provider_count = rp_count;
     }
     if (tr_count > 0) {
+        if ((size_t)tr_count > SIZE_MAX / sizeof(TrafficRule)) { config_free(cfg); goto cleanup_fail; }
         cfg->traffic_rules = malloc((size_t)tr_count * sizeof(TrafficRule));
         if (!cfg->traffic_rules) {
             log_msg(LOG_ERROR, "Конфиг: нет памяти для traffic_rules");

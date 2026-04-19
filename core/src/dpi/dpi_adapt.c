@@ -50,7 +50,19 @@ static DpiAdaptRecord *find_slot(DpiAdaptTable *t, uint32_t ip, bool create)
             return r;
         }
     }
-    return NULL;  /* таблица полна */
+    /* LRU: вытеснить запись с наименьшим last_success */
+    uint32_t oldest_time = UINT32_MAX;
+    uint32_t oldest_slot = 0;
+    for (uint32_t j = 0; j < DPI_ADAPT_SLOTS; j++) {
+        if (t->slots[j].last_success < oldest_time) {
+            oldest_time = t->slots[j].last_success;
+            oldest_slot = j;
+        }
+    }
+    DpiAdaptRecord *r = &t->slots[oldest_slot];
+    memset(r, 0, sizeof(*r));
+    r->ip = ip;
+    return r;
 }
 
 dpi_strat_t dpi_adapt_get(const DpiAdaptTable *t, uint32_t ip)
