@@ -48,6 +48,7 @@ static void route_api_servers(HttpConn *conn, int epoll_fd);
 static void route_api_dns(HttpConn *conn, int epoll_fd);
 static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_token);
 static void route_api_geo(HttpConn *conn, int epoll_fd);
+static void route_api_groups(HttpConn *conn, int epoll_fd);
 static void route_api_logs(HttpConn *conn, int epoll_fd);
 
 /* ── Буферы для ответов — статические, не в стеке ────────────────── */
@@ -59,6 +60,33 @@ static char s_api_token[64];
 
 /* ── Конфиг-указатель для toggle управления ──────────────────────── */
 static const EburNetConfig *s_cfg = NULL;
+
+/* ── Менеджер групп для group_select/group_test ───────────────────── */
+static proxy_group_manager_t *s_pgm = NULL;
+
+void http_server_set_pgm(proxy_group_manager_t *pgm) { s_pgm = pgm; }
+
+/* ── Извлечь строковое значение по ключу из JSON (из ipc.c) ──────── */
+static size_t http_json_get_str(const char *json, const char *key,
+                                char *out, size_t out_sz)
+{
+    if (!json || !key || !out || out_sz == 0) return 0;
+    out[0] = '\0';
+    char pat[80];
+    int pn = snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+    if (pn < 0 || (size_t)pn >= sizeof(pat)) return 0;
+    const char *start = strstr(json, pat);
+    if (!start) return 0;
+    start += (size_t)pn;
+    size_t i = 0;
+    for (const char *p = start; *p && i < out_sz - 1; p++) {
+        if (*p == '\\' && *(p + 1)) { p++; out[i++] = *p; }
+        else if (*p == '"') break;
+        else out[i++] = *p;
+    }
+    out[i] = '\0';
+    return i;
+}
 
 /* ── Ожидаемый JA3 хэш (задаётся через /api/control action=ja3_expected) */
 static char g_ja3_expected[33] = {0};
@@ -695,9 +723,9 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
         return;
     }
 
-    /* GET /api/groups → --ipc groups */
+    /* GET /api/groups → кэш /tmp/4eburnet-groups.json */
     if (strcmp(p, "/api/groups") == 0) {
-        route_ipc_passthrough(conn, epoll_fd, "groups");
+        route_api_groups(conn, epoll_fd);
         return;
     }
 
@@ -916,10 +944,73 @@ static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_toke
         }
         http_send(conn, epoll_fd, 200, "application/json",
                   ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "group_select", 12) == 0) {
+        if (!s_pgm || !s_cfg) {
+            http_send(conn, epoll_fd, 503, "application/json",
+                      "{\"ok\":false,\"error\":\"no groups\"}", 31);
+            return;
+        }
+        char grp[64] = {0}, srv[128] = {0};
+        http_json_get_str(body, "group",  grp, sizeof(grp));
+        http_json_get_str(body, "server", srv, sizeof(srv));
+        if (!grp[0] || !srv[0]) {
+            http_send(conn, epoll_fd, 400, "application/json",
+                      "{\"ok\":false,\"error\":\"missing group or server\"}", 46);
+            return;
+        }
+        /* Искать по unified индексу: servers[] + provider_servers[] */
+        int srv_idx = -1;
+        int total = s_cfg->server_count + s_cfg->provider_server_count;
+        for (int si = 0; si < total; si++) {
+            const ServerConfig *sc = config_get_server(s_cfg, si);
+            if (sc && strcmp(sc->name, srv) == 0) {
+                srv_idx = si;
+                break;
+            }
+        }
+        int r = (srv_idx >= 0)
+                ? proxy_group_select_manual(s_pgm, grp, srv_idx)
+                : -1;
+        if (r == 0) {
+            http_send(conn, epoll_fd, 200, "application/json",
+                      ok_resp, strlen(ok_resp));
+        } else {
+            http_send(conn, epoll_fd, 400, "application/json",
+                      "{\"ok\":false,\"error\":\"group or server not found\"}", 48);
+        }
+    } else if (strncmp(val, "group_test", 10) == 0) {
+        /* Форсировать async health-check: fork+pipe, не блокирует */
+        if (s_pgm) proxy_group_tick(s_pgm);
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
     } else {
         http_send(conn, epoll_fd, 400, "application/json",
                   err_resp, strlen(err_resp));
     }
+}
+
+/* ── GET /api/groups — список proxy-групп из кэша ────────────────── */
+static void route_api_groups(HttpConn *conn, int epoll_fd)
+{
+    static char grp_cache[65536];
+    FILE *f = fopen("/tmp/4eburnet-groups.json", "r");
+    if (f) {
+        size_t n = fread(grp_cache, 1, sizeof(grp_cache) - 1, f);
+        fclose(f);
+        if (n > 0) {
+            grp_cache[n] = '\0';
+            char *js = grp_cache;
+            while (*js && *js != '{' && *js != '[') js++;
+            if (*js) {
+                http_send(conn, epoll_fd, 200, "application/json",
+                          js, strlen(js));
+                return;
+            }
+        }
+    }
+    const char empty[] = "{\"groups\":[]}";
+    http_send(conn, epoll_fd, 200, "application/json",
+              empty, sizeof(empty) - 1);
 }
 
 /* ── GET /api/geo — список .gbin файлов с размерами и bloom статусом ── */
