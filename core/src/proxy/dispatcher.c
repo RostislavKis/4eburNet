@@ -1182,7 +1182,7 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
                         log_msg(LOG_DEBUG,
                             "TLS ECH detected (ext=0x%04x): SNI encrypted, IP-based routing",
                             (unsigned)hello->ech_ext_type);
-                        stats_inc_ech();
+                        stats_inc_ech(hello->ech_ext_type);
                     }
                 }
                 free(hello);
