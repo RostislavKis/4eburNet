@@ -542,7 +542,8 @@ var state = {
   section: 'status',
   autoScrollLogs: true,
   token: '',
-  groupsTimer: null
+  groupsTimer: null,
+  groupsAbort: null
 };
 
 var JA3_DB = {
@@ -887,6 +888,7 @@ function showSection(name) {
     fetchGroups();
     if (!state.groupsTimer) state.groupsTimer = setInterval(fetchGroups, 5000);
   } else {
+    if (state.groupsAbort) { state.groupsAbort.abort(); state.groupsAbort = null; }
     clearInterval(state.groupsTimer);
     state.groupsTimer = null;
   }
@@ -953,7 +955,10 @@ function esc(s) {
 /* ── Proxy Groups ──────────────────────────────────────────────── */
 function fetchGroups() {
   if (state.section !== 'groups') return;
-  apiFetch('/api/groups').then(function(d) {
+  if (state.groupsAbort) state.groupsAbort.abort();
+  state.groupsAbort = new AbortController();
+  apiFetch('/api/groups', {signal: state.groupsAbort.signal}).then(function(d) {
+    state.groupsAbort = null;
     if (d && Array.isArray(d.groups)) renderGroups(d.groups);
   });
 }
@@ -991,7 +996,7 @@ function buildGroupCard(g) {
       '<button class="btn-test" onclick="testGroup(\'' + escHtml(g.name) + '\')">▶ Test</button>' +
     '</div>' +
     '<div class="group-selected">⊙ ' + escHtml(selName) + '</div>' +
-    '<div class="server-list" id="slist-' + escHtml(g.name) + '">' + srvItems + '</div>';
+    '<div class="server-list" id="slist-' + normId(g.name) + '">' + srvItems + '</div>';
   return card;
 }
 
@@ -1014,7 +1019,7 @@ function buildServerItem(groupName, s, idx, selIdx) {
 
 function selectServer(group, server) {
   /* Optimistic UI: подсветить сразу */
-  var slist = document.getElementById('slist-' + group);
+  var slist = document.getElementById('slist-' + normId(group));
   if (slist) {
     slist.querySelectorAll('.server-item').forEach(function(el) {
       el.classList.remove('srv-active');
@@ -1044,7 +1049,13 @@ function testGroup(group) {
       fetchGroups();
       if (btn) { btn.disabled = false; btn.textContent = '▶ Test'; }
     }, 3000);
+  }).catch(function() {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Test'; }
   });
+}
+
+function normId(s) {
+  return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '-');
 }
 
 function escHtml(s) {
