@@ -129,6 +129,12 @@ int sniffer_parse_hello(int fd, ClientHelloInfo *out)
                 if (!ja3_is_grease(v) && v > out->supported_version)
                     out->supported_version = v;
             }
+        } else if (ext_type == 0xfe0d || ext_type == 0xffce) {
+            /* ECH (RFC 9180) или ESNI legacy draft.
+             * Payload не парсим — достаточно факта наличия.
+             * При ECH inner ClientHello зашифрован → SNI недоступен. */
+            out->ech_found    = true;
+            out->ech_ext_type = ext_type;
         }
         pos += ext_len;
     }

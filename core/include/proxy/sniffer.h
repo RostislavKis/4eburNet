@@ -50,6 +50,12 @@ typedef struct {
      * JA4 записывает ALPN отдельно, не включает в hash extensions. */
     char     alpn[32];
     bool     alpn_found;
+    /* ECH/ESNI: зашифрованный ClientHello.
+     * При ech_found=true SNI недоступен — ClientHello зашифрован.
+     * 0xfe0d = ECH RFC финальный (Chrome 117+, Firefox 119+)
+     * 0xffce = ESNI legacy draft (Chrome <117, до 2023) */
+    bool     ech_found;
+    uint16_t ech_ext_type; /* 0xfe0d или 0xffce */
 } ClientHelloInfo;
 
 /*
