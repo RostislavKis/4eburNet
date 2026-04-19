@@ -608,14 +608,17 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
     if (r->client_fd >= 0) {
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->client_fd, NULL);
         close(r->client_fd);
+        r->client_fd = -1;
     }
     if (r->upstream_fd >= 0) {
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->upstream_fd, NULL);
         close(r->upstream_fd);
+        r->upstream_fd = -1;
     }
     if (r->download_fd >= 0) {
         epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->download_fd, NULL);
         close(r->download_fd);
+        r->download_fd = -1;
     }
 #if CONFIG_EBURNET_AWG
     if (r->awg) {
@@ -1054,6 +1057,14 @@ int dispatcher_init(dispatcher_state_t *ds, DeviceProfile profile)
     default:            ds->conns_max = NORMAL_MAX_CONNECTIONS; break;
     }
 
+    {
+        long free_kb = sysconf(_SC_AVPHYS_PAGES) * sysconf(_SC_PAGESIZE) / 1024;
+        size_t need_kb = (size_t)ds->conns_max * sizeof(relay_conn_t) / 1024;
+        if (free_kb > 0 && (size_t)free_kb < need_kb * 2)
+            log_msg(LOG_WARN,
+                    "relay: возможна нехватка RAM: need~%zuKB free~%ldKB",
+                    need_kb, free_kb);
+    }
     ds->conns = calloc(ds->conns_max, sizeof(relay_conn_t));
     if (!ds->conns) {
         log_msg(LOG_ERROR, "relay: не удалось выделить %d слотов",

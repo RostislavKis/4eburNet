@@ -73,6 +73,9 @@ size_t rm_buffer_size(DeviceProfile profile)
 }
 
 /* ── device.h API — тонкие обёртки (DEC-013) ───────────────────────────── */
+/* DEC-013: DeviceProfile управление частично в device.h.
+ * Долг: перенести определение profile структуры полностью в device.h.
+ * Milestone: v1.3 */
 
 DeviceProfile device_detect_profile(void)
 {
