@@ -3,6 +3,7 @@
 
 #include <time.h>
 #include <sys/types.h>
+#include "proxy/proxy_group.h"
 
 /* ── Константы ────────────────────────────────────────────────────── */
 #define HTTP_PORT         8080
@@ -45,6 +46,10 @@ typedef struct {
    Вызывать из main.c сразу после http_server_init(). */
 typedef struct EburNetConfig EburNetConfig;  /* forward declaration */
 void http_server_set_config(const EburNetConfig *cfg);
+
+/* Передать указатель на менеджер групп для group_select/group_test.
+   Вызывать из main.c после http_server_init(). */
+void http_server_set_pgm(proxy_group_manager_t *pgm);
 
 /* Создать слушающий сокет на HTTP_PORT.
    Инициализировать пул соединений.

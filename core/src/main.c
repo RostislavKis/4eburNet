@@ -770,6 +770,7 @@ int main(int argc, char *argv[])
     /* HTTP dashboard — не фатально если порт занят */
     if (http_server_init(&g_http) == 0) {
         http_server_set_config(cfg_ptr);
+        http_server_set_pgm(&pgm_state);
         http_server_register_epoll(&g_http, master_epoll);
         log_msg(LOG_INFO, "HTTP dashboard: порт %d", HTTP_PORT);
     } else {
@@ -904,9 +905,19 @@ int main(int argc, char *argv[])
                 FILE *sf = fopen("/tmp/4eburnet-stats.json", "w");
                 if (sf) { fwrite(stats_json, 1, (size_t)sn, sf); fclose(sf); }
             }
-            /* /tmp/4eburnet-groups.json — заполняется через ipc.c
-               при обработке реального --ipc groups запроса извне.
-               Здесь не вызываем popen("4eburnetd --ipc") — дедлок. */
+            /* /tmp/4eburnet-groups.json — proxy_group_to_json() напрямую,
+               без fork/popen (дедлок при вызове демона из себя). */
+            if (pgm_state.count > 0) {
+                static char grp_json_buf[65536]; /* IPC_RESPONSE_MAX */
+                proxy_group_to_json(&pgm_state, grp_json_buf, sizeof(grp_json_buf));
+                FILE *gf = fopen("/tmp/4eburnet-groups.json.tmp", "w");
+                if (gf) {
+                    fputs(grp_json_buf, gf);
+                    fclose(gf);
+                    rename("/tmp/4eburnet-groups.json.tmp",
+                           "/tmp/4eburnet-groups.json");
+                }
+            }
         }
 
         /* DNS pending таймауты — каждый тик (10ms), CLOCK_MONOTONIC дёшев (L-07) */

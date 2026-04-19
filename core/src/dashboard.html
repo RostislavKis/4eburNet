@@ -239,7 +239,35 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 @media(max-width:420px){
   .cards-grid{grid-template-columns:1fr}
   .dns-grid{grid-template-columns:1fr}
+  .groups-grid{grid-template-columns:1fr}
+  .server-list{grid-template-columns:1fr}
 }
+</style>
+<style>
+.groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:4px}
+.group-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.group-card-header{display:flex;justify-content:space-between;align-items:center}
+.group-card-title{display:flex;align-items:center;gap:8px}
+.group-name{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--text)}
+.grp-badge{font-size:10px;padding:2px 6px;border-radius:3px;font-weight:500;letter-spacing:0.3px}
+.badge-select{background:rgba(100,180,255,0.15);color:#64b4ff}
+.badge-urltest{background:rgba(0,212,170,0.15);color:var(--accent)}
+.badge-fallback{background:rgba(250,200,80,0.15);color:#fac850}
+.badge-lb{background:rgba(200,100,255,0.15);color:#c864ff}
+.btn-test{font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--accent);cursor:pointer;transition:all 0.15s;font-family:'JetBrains Mono',monospace}
+.btn-test:hover{background:rgba(0,212,170,0.1)}
+.btn-test:disabled{opacity:0.5;cursor:default}
+.group-selected{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.server-list{display:grid;grid-template-columns:1fr 1fr;gap:3px;max-height:260px;overflow-y:auto;overflow-x:hidden}
+.server-item{padding:5px 8px;border-radius:4px;cursor:pointer;border:1px solid transparent;transition:background 0.1s;display:flex;flex-direction:column;gap:2px}
+.server-item:hover{background:rgba(255,255,255,0.05)}
+.srv-active{background:rgba(0,212,170,0.10)!important;border-color:var(--accent)!important;border-left:3px solid var(--accent)!important}
+.srv-unavail{opacity:0.35}
+.srv-name{font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srv-meta{display:flex;justify-content:space-between;align-items:center}
+.srv-proto{font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace}
+.lat-badge{font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600}
+.lat-good{color:#4ade80}.lat-ok{color:#facc15}.lat-bad{color:#f87171}.lat-none{color:var(--text-muted)}
 </style>
 </head>
 <body>
@@ -261,6 +289,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
       <li><button class="nav-btn active" onclick="showSection('status')" data-section="status"><span class="nav-icon">◉</span>Статус</button></li>
       <li><button class="nav-btn" onclick="showSection('network')" data-section="network"><span class="nav-icon">⟐</span>Сеть</button></li>
       <li><button class="nav-btn" onclick="showSection('dpi')" data-section="dpi"><span class="nav-icon">◈</span>DPI</button></li>
+      <li><button class="nav-btn" onclick="showSection('groups')" data-section="groups"><span class="nav-icon">⊞</span>Группы</button></li>
       <li><button class="nav-btn" onclick="showSection('dns')" data-section="dns"><span class="nav-icon">◎</span>DNS</button></li>
       <li><button class="nav-btn" onclick="showSection('geo')" data-section="geo"><span class="nav-icon">◐</span>GEO</button></li>
       <li><button class="nav-btn" onclick="showSection('logs')" data-section="logs"><span class="nav-icon">☰</span>Логи</button></li>
@@ -396,6 +425,12 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
       </div>
 
+      <!-- Группы -->
+      <div class="section" id="sec-groups">
+        <div class="sec-title">Прокси-группы</div>
+        <div id="groups-grid" class="groups-grid"></div>
+      </div>
+
       <!-- DNS -->
       <div class="section" id="sec-dns">
         <div class="sec-title">DNS</div>
@@ -478,6 +513,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
     <button class="bnav-btn active" onclick="showSection('status')" data-section="status"><span class="nav-icon">◉</span>Статус</button>
     <button class="bnav-btn" onclick="showSection('network')" data-section="network"><span class="nav-icon">⟐</span>Сеть</button>
     <button class="bnav-btn" onclick="showSection('dpi')" data-section="dpi"><span class="nav-icon">◈</span>DPI</button>
+    <button class="bnav-btn" onclick="showSection('groups')" data-section="groups"><span class="nav-icon">⊞</span>Группы</button>
     <button class="bnav-btn" onclick="showSection('dns')" data-section="dns"><span class="nav-icon">◎</span>DNS</button>
     <button class="bnav-btn" onclick="showSection('geo')" data-section="geo"><span class="nav-icon">◐</span>GEO</button>
     <button class="bnav-btn" onclick="showSection('logs')" data-section="logs"><span class="nav-icon">☰</span>Логи</button>
@@ -491,7 +527,8 @@ var state = {
   logs: [],
   section: 'status',
   autoScrollLogs: true,
-  token: ''
+  token: '',
+  groupsTimer: null
 };
 
 var JA3_DB = {
@@ -809,12 +846,20 @@ function showSection(name) {
     btn.classList.toggle('active', btn.dataset.section === name);
   });
   if (name === 'logs') fetchLogs();
+  if (name === 'groups') {
+    fetchGroups();
+    if (!state.groupsTimer) state.groupsTimer = setInterval(fetchGroups, 5000);
+  } else {
+    clearInterval(state.groupsTimer);
+    state.groupsTimer = null;
+  }
 }
 
 function refreshAll() {
   fetchStatus();
   fetchGeo();
   if (state.section === 'logs') fetchLogs();
+  if (state.section === 'groups') fetchGroups();
 }
 
 function copyJa3() {
@@ -866,6 +911,109 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/* ── Proxy Groups ──────────────────────────────────────────────── */
+function fetchGroups() {
+  if (state.section !== 'groups') return;
+  apiFetch('/api/groups').then(function(d) {
+    if (d && Array.isArray(d.groups)) renderGroups(d.groups);
+  });
+}
+
+function renderGroups(groups) {
+  var grid = document.getElementById('groups-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  for (var i = 0; i < groups.length; i++) grid.appendChild(buildGroupCard(groups[i]));
+}
+
+function buildGroupCard(g) {
+  var card = document.createElement('div');
+  card.className = 'group-card';
+  card.dataset.group = g.name;
+
+  var selIdx = g.selected_idx || 0;
+  var selName = g.selected || (g.servers && g.servers[selIdx] && g.servers[selIdx].name) || '—';
+
+  var typeMap = {'select':'badge-select','url_test':'badge-urltest','url-test':'badge-urltest',
+                 'fallback':'badge-fallback','load_balance':'badge-lb','load-balance':'badge-lb'};
+  var typeCls = typeMap[g.type] || 'badge-select';
+  var typeLabel = (g.type || 'select').replace('_', '-');
+
+  var srvItems = '';
+  var srvs = g.servers || [];
+  for (var j = 0; j < srvs.length; j++) srvItems += buildServerItem(g.name, srvs[j], j, selIdx);
+
+  card.innerHTML =
+    '<div class="group-card-header">' +
+      '<div class="group-card-title">' +
+        '<span class="group-name">' + escHtml(g.name) + '</span>' +
+        '<span class="grp-badge ' + typeCls + '">' + typeLabel + '</span>' +
+      '</div>' +
+      '<button class="btn-test" onclick="testGroup(\'' + escHtml(g.name) + '\')">▶ Test</button>' +
+    '</div>' +
+    '<div class="group-selected">⊙ ' + escHtml(selName) + '</div>' +
+    '<div class="server-list" id="slist-' + escHtml(g.name) + '">' + srvItems + '</div>';
+  return card;
+}
+
+function buildServerItem(groupName, s, idx, selIdx) {
+  var isActive  = idx === selIdx;
+  var isAvail   = s.available !== false;
+  var lat       = s.latency_ms;
+  var latCls    = !lat ? 'lat-none' : lat < 200 ? 'lat-good' : lat < 500 ? 'lat-ok' : 'lat-bad';
+  var latLabel  = lat ? lat + 'ms' : '—';
+  var cls       = 'server-item' + (isActive ? ' srv-active' : '') + (!isAvail ? ' srv-unavail' : '');
+  return '<div class="' + cls + '" onclick="selectServer(\'' +
+    escHtml(groupName) + '\',\'' + escHtml(s.name) + '\')">' +
+    '<span class="srv-name">' + escHtml(s.name) + '</span>' +
+    '<span class="srv-meta">' +
+      '<span class="srv-proto">' + escHtml(s.protocol || '') + '</span>' +
+      '<span class="lat-badge ' + latCls + '">' + latLabel + '</span>' +
+    '</span>' +
+  '</div>';
+}
+
+function selectServer(group, server) {
+  /* Optimistic UI: подсветить сразу */
+  var slist = document.getElementById('slist-' + group);
+  if (slist) {
+    slist.querySelectorAll('.server-item').forEach(function(el) {
+      el.classList.remove('srv-active');
+      if (el.querySelector('.srv-name') &&
+          el.querySelector('.srv-name').textContent === server)
+        el.classList.add('srv-active');
+    });
+  }
+  apiFetch('/api/control', {
+    method: 'POST',
+    body: JSON.stringify({action: 'group_select', group: group, server: server})
+  }).then(function(d) {
+    setTimeout(fetchGroups, 500);
+    if (!d) fetchGroups(); /* rollback on error */
+  });
+}
+
+function testGroup(group) {
+  var card = document.querySelector('.group-card[data-group="' + group + '"]');
+  var btn = card && card.querySelector('.btn-test');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  apiFetch('/api/control', {
+    method: 'POST',
+    body: JSON.stringify({action: 'group_test', group: group})
+  }).then(function() {
+    setTimeout(function() {
+      fetchGroups();
+      if (btn) { btn.disabled = false; btn.textContent = '▶ Test'; }
+    }, 3000);
+  });
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                  .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 // Запуск polling
