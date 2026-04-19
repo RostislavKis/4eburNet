@@ -7,7 +7,9 @@
 #include <signal.h>
 #include <time.h>
 
-#define EBURNET_VERSION "1.0.0"
+#ifndef EBURNET_VERSION
+#define EBURNET_VERSION "1.2.0"  /* fallback; Makefile.dev передаёт через -D */
+#endif
 #define EBURNET_NAME    "4eburnetd"
 
 /* Профили устройств — выбираются автоматически по объёму RAM */

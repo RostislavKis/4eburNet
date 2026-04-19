@@ -657,6 +657,14 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
         s_last_req_ms = now_ms;
     }
 
+    /* Явная защита от path traversal */
+    if (strstr(conn->path, "/../") || strstr(conn->path, "\\..\\") ||
+        strncmp(conn->path, "../", 3) == 0) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"error\":\"bad request\"}", 22);
+        return;
+    }
+
     /* Метод не GET → 405 */
     if (!conn->method_ok) {
         const char body[] = "Method Not Allowed";
@@ -1069,6 +1077,10 @@ void http_server_register_epoll(HttpServer *srv, int epoll_fd)
 {
     struct epoll_event ev;
 
+    /* НАМЕРЕННО LT (level-triggered), не ET:
+     * На listen-сокете ET требует цикла accept до EAGAIN в одном событии.
+     * Пропуск соединения с ET — потеря клиента без возможности recover.
+     * LT: событие повторяется пока есть pending connections — безопасно. */
     ev.events  = EPOLLIN;
     ev.data.fd = srv->listen_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, srv->listen_fd, &ev);

@@ -28,6 +28,7 @@ static int hex2bin(const char *hex, uint8_t *out, size_t outlen)
     return (int)(hlen / 2);
 }
 
+static void bin2hex(const uint8_t *bin, size_t len, char *out) __attribute__((unused));
 static void bin2hex(const uint8_t *bin, size_t len, char *out)
 {
     for (size_t i = 0; i < len; i++)

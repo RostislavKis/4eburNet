@@ -25,7 +25,6 @@
 /* ── Netlink: inline структуры (из linux/netlink.h, linux/rtnetlink.h) ── */
 
 #define NETLINK_ROUTE       0
-#define AF_NETLINK_V        16   /* PF_NETLINK из sys/socket.h — здесь псевдоним */
 #define NLMSG_ALIGNTO       4U
 #define NLMSG_ALIGN(len)    (((len) + NLMSG_ALIGNTO - 1) & ~(NLMSG_ALIGNTO - 1))
 #define NLMSG_ERROR         2
