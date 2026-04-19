@@ -338,7 +338,7 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
 
     /* Сформировать JSON */
     int n = snprintf(s_ipc_buf, sizeof(s_ipc_buf),
-        "{\"status\":\"%s\",\"version\":\"1.0.0\","
+        "{\"status\":\"%s\",\"version\":\"" EBURNET_VERSION "\","
         "\"uptime\":%ld,\"mode\":\"%s\",\"profile\":\"%s\","
         "\"last_ja3\":\"%s\",\"ja3_expected\":\"%s\",\"ja3_match\":%s,"
         "\"flow_offload\":%s,\"tc_fast\":%s,"
