@@ -1064,7 +1064,7 @@ static int hy2_http3_auth(hysteria2_conn_t *conn)
         /* Проверить: есть ли ответ в auth_rxbuf */
         if (conn->auth_rxlen >= 3) {
             /* HTTP/3 HEADERS frame: type(varint) + length(varint) + QPACK data */
-            uint64_t ftype, flen_val;
+            uint64_t ftype = 0, flen_val = 0;
             size_t u1 = qv_dec(conn->auth_rxbuf, conn->auth_rxlen, &ftype);
             if (!u1 || ftype != 0x01) { /* не HEADERS */
                 set_error(conn, "hy2: неожиданный HTTP/3 frame type 0x%llx",
