@@ -80,7 +80,7 @@ struct nl_tc_msg {
 #define TCA_SKBEDIT_MARK    5
 #define TCA_SKBEDIT_FLAGS   9
 #define SKBEDIT_F_MARK      4ULL
-#define TC_FAST_MARK        0x10U
+#define TC_FAST_MARK        0x20U  /* LAN bypass mark; 0x10 занят FWMARK_DEVICE_PROXY */
 
 /* NLA_F_NESTED: бит 15 в типе атрибута */
 #define NLA_F_NESTED        (1u << 15)

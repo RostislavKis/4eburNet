@@ -1462,7 +1462,7 @@ int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
         }
 
         char key[64]  = {0};
-        char val[512] = {0};
+        static char val[512]; memset(val, 0, sizeof(val));
         size_t klen = (size_t)(eq - p);
         size_t vlen = (size_t)(seg_end - eq - 1);
         if (klen < sizeof(key)) {
@@ -1470,7 +1470,7 @@ int hy2_parse_uri(const char *uri, hysteria2_config_t *cfg)
             key[klen] = '\0';
         }
         if (vlen > 0) {
-            char raw_val[512] = {0};
+            static char raw_val[512]; memset(raw_val, 0, sizeof(raw_val));
             if (vlen < sizeof(raw_val)) {
                 memcpy(raw_val, eq + 1, vlen);
                 if (percent_decode(raw_val, vlen, val, sizeof(val)) < 0) {
