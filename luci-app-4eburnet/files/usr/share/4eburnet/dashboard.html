@@ -795,8 +795,18 @@ function renderStatus(s) {
 
   var ech = Number(s.ech_connections) || 0;
   var echEl = document.getElementById('echBadge');
-  echEl.textContent = fmt(ech);
+  var echType = s.last_ech_type || '0x0000';
+  var echLabel = ech === 0 ? '0' :
+      (echType === '0xfe0d' ? ech + ' \u00b7 ECH' :
+       echType === '0xffce' ? ech + ' \u00b7 ESNI' :
+       String(ech));
+  echEl.textContent = echLabel;
   echEl.className = 'ech-badge' + (ech > 0 ? ' ech-active' : '');
+  echEl.title = ech > 0
+      ? (echType === '0xfe0d'
+           ? 'RFC 9180 ECH (Chrome 117+, Firefox 119+)'
+           : 'ESNI legacy draft (Chrome <117)')
+      : '\u041d\u0435\u0442 ECH \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0439';
 }
 
 function syncCheck(id, type, val) {
