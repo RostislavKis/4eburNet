@@ -2,6 +2,7 @@
 #include "logo_png.h"
 #include "4eburnet.h"
 #include "config.h"
+#include "net_utils.h"
 #include "stats.h"
 #include "routing/nftables.h"
 #include "routing/tc_fast.h"
@@ -25,6 +26,19 @@
 #include <sys/epoll.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+/* ── Валидация MD5-хэша: ровно 32 hex-символа ────────────────────── */
+static int is_md5_hex(const char *s, size_t n)
+{
+    if (n != 32) return 0;
+    for (size_t i = 0; i < 32; i++) {
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+              (c >= 'A' && c <= 'F')))
+            return 0;
+    }
+    return 1;
+}
 
 /* ── Forward declarations ─────────────────────────────────────────── */
 static void http_dispatch(HttpConn *conn, int epoll_fd);
@@ -52,6 +66,11 @@ static char g_ja3_expected[33] = {0};
 void http_server_set_config(const EburNetConfig *cfg)
 {
     s_cfg = cfg;
+}
+
+const char *http_server_get_ja3_expected(void)
+{
+    return g_ja3_expected;
 }
 
 /* ── Вспомогательная функция закрытия соединения ─────────────────── */
@@ -619,8 +638,25 @@ static void route_api_dns(HttpConn *conn, int epoll_fd)
 }
 
 /* ── http_dispatch — маршрутизация запросов ──────────────────────── */
+/* Глобальный rate limit: не более 1 запроса в 200мс с любого клиента.
+ * Сервер слушает только на loopback — все запросы от LuCI, один клиент. */
+#define HTTP_RATE_MS  200
+
 static void http_dispatch(HttpConn *conn, int epoll_fd)
 {
+    {
+        struct timespec _ts;
+        clock_gettime(CLOCK_MONOTONIC, &_ts);
+        static long s_last_req_ms = 0;
+        long now_ms = (long)(_ts.tv_sec * 1000 + _ts.tv_nsec / 1000000);
+        if (s_last_req_ms && (now_ms - s_last_req_ms) < HTTP_RATE_MS) {
+            http_send(conn, epoll_fd, 429, "application/json",
+                      "{\"error\":\"rate limit\"}", 21);
+            return;
+        }
+        s_last_req_ms = now_ms;
+    }
+
     /* Метод не GET → 405 */
     if (!conn->method_ok) {
         const char body[] = "Method Not Allowed";
@@ -852,9 +888,22 @@ static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_toke
                 size_t hl = 0;
                 while (hp[hl] && hp[hl] != '"' && hp[hl] != '\r' &&
                        hp[hl] != '\n' && hl < 32) hl++;
+                if (!is_md5_hex(hp, hl)) {
+                    http_send(conn, epoll_fd, 400, "application/json",
+                              "{\"error\":\"invalid ja3 hash\"}", 27);
+                    return;
+                }
                 memcpy(g_ja3_expected, hp, hl);
                 g_ja3_expected[hl] = '\0';
-                log_msg(LOG_INFO, "JA3 expected hash: %s", g_ja3_expected);
+                char uci_arg[80];
+                snprintf(uci_arg, sizeof(uci_arg),
+                         "4eburnet.@main[0].ja3_expected=%s",
+                         g_ja3_expected);
+                const char *const argv_set[]    = {"uci", "set", uci_arg, NULL};
+                const char *const argv_commit[] = {"uci", "commit", "4eburnet", NULL};
+                exec_cmd_safe(argv_set,    NULL, 0);
+                exec_cmd_safe(argv_commit, NULL, 0);
+                log_msg(LOG_INFO, "JA3 expected hash: %s (сохранён в UCI)", g_ja3_expected);
             }
         }
         http_send(conn, epoll_fd, 200, "application/json",
@@ -1154,7 +1203,13 @@ int http_server_handle(HttpServer *srv, int fd, int epoll_fd)
             /* Извлечь Content-Length */
             const char *cl = strstr(conn->buf, "Content-Length:");
             if (!cl) cl = strstr(conn->buf, "content-length:");
-            conn->content_length = cl ? atoi(cl + 15) : 0;
+            if (cl) {
+                long cl_val = strtol(cl + 15, NULL, 10);
+                conn->content_length = (cl_val > 0 && cl_val <= HTTP_MAX_BODY)
+                                       ? (int)cl_val : 0;
+            } else {
+                conn->content_length = 0;
+            }
 
         } else {
             conn->method_ok = 0;
