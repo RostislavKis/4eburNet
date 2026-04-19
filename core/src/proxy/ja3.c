@@ -140,9 +140,10 @@ int ja4_compute(const ClientHelloInfo *info, char ja4_out[40])
     }
     ext_str[epos] = '\0';
 
-    /* SHA-256 → первые 12 hex символов */
-    wc_Sha256 sha;
-    byte digest[WC_SHA256_DIGEST_SIZE];
+    /* SHA-256 → первые 12 hex символов
+     * static: wc_InitSha256 реинициализирует перед каждым вызовом */
+    static wc_Sha256 sha;
+    static byte digest[WC_SHA256_DIGEST_SIZE];
     char cipher12[13], ext12[13];
 
     wc_InitSha256(&sha);
