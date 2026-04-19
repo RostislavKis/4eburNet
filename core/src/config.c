@@ -856,7 +856,7 @@ int config_load(const char *path, EburNetConfig *cfg)
                         value, "fake_ip_pool_size", 65536, 1, 262144);
                 else if (strcmp(key, "fake_ip_ttl") == 0)
                     d->fake_ip_ttl = parse_int_uci(
-                        value, "fake_ip_ttl", 60, 1, 3600);
+                        value, "fake_ip_ttl", 10, 1, 60);
                 else if (strcmp(key, "doq_enabled") == 0) {
                     if (strcmp(value, "1") == 0)      d->doq_enabled = true;
                     else if (strcmp(value, "0") == 0) d->doq_enabled = false;

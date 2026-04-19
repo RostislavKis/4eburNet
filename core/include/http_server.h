@@ -10,6 +10,7 @@
 #define HTTP_TIMEOUT_SEC  30
 #define HTTP_BUF_SIZE     4096
 #define HTTP_PATH_MAX     256
+#define HTTP_MAX_BODY     65536
 
 /* ── HTTP коды статусов ───────────────────────────────────────────── */
 #define HTTP_200  200
@@ -64,5 +65,8 @@ void http_server_tick(HttpServer *srv, int epoll_fd);
 
 /* Освободить все ресурсы сервера. */
 void http_server_close(HttpServer *srv);
+
+/* Вернуть текущий ожидаемый JA3 хэш (32 hex + \0). */
+const char *http_server_get_ja3_expected(void);
 
 #endif /* HTTP_SERVER_H */

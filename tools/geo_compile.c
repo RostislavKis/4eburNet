@@ -245,7 +245,7 @@ int geo_compile_file(const char *in_path, const char *out_path,
     geo_bin_header_t hdr;
     memset(&hdr, 0, sizeof(hdr));
     memcpy(hdr.magic, GEO_BIN_MAGIC, 4);
-    hdr.version           = GEO_BIN_VERSION;
+    hdr.version           = bloom_domain ? GEO_BIN_VERSION : 1u;
     hdr.region            = region;
     hdr.cat_type          = cat_type;
     hdr.domain_count      = n_dom;

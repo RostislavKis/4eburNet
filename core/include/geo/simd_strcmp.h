@@ -26,8 +26,11 @@ static inline int fast_strcmp(const char *a, const char *b)
         uint8x16_t diff = veorq_u8(va, vb);
         uint64_t d0 = vgetq_lane_u64(vreinterpretq_u64_u8(diff), 0);
         uint64_t d1 = vgetq_lane_u64(vreinterpretq_u64_u8(diff), 1);
-        if (d0 | d1)
+        if (d0 | d1) {
+            /* a/b указывают на начало расходящегося блока;
+             * += 16 выполняется только при полном совпадении — двойного прохода нет */
             return strcmp(a, b);  /* fallback для точного результата */
+        }
         /* Проверить '\0' в va */
         uint8x16_t zero = vdupq_n_u8(0);
         uint8x16_t znull = vceqq_u8(va, zero);
