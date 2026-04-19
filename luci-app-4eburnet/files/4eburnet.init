@@ -24,8 +24,17 @@ start_service() {
 }
 
 stop_service() {
-	start-stop-daemon --stop --quiet --pidfile "$PIDFILE" \
-		--exec "$PROG" --retry TERM/5/KILL/5 2>/dev/null
+	# USE_PROCD=1: procd вызывает stop_service() перед тем как убить процесс.
+	# start-stop-daemon --stop здесь создаёт race: procd и мы оба шлём сигнал.
+	# Вместо этого — graceful stop через IPC (SIGHUP → демон закрывает соединения),
+	# затем ждём завершения; procd сделает SIGKILL если процесс не завершится.
+	local pid
+	pid=$(cat "$PIDFILE" 2>/dev/null) || true
+	if [ -n "$pid" ] && [ -d "/proc/$pid" ]; then
+		kill -TERM "$pid" 2>/dev/null
+		sleep 1
+		# Если ещё жив после SIGTERM — procd завершит принудительно
+	fi
 	rm -f "$PIDFILE"
 	# Убрать nftables и ip rule — трафик не должен идти в никуда после остановки
 	nft delete table inet 4eburnet 2>/dev/null || true

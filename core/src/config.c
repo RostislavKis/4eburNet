@@ -42,6 +42,13 @@ typedef enum {
 #define MAX_RULE_PROVIDERS  16
 #define MAX_TRAFFIC_RULES   512
 
+/* Убрать \n/\r из строки перед передачей в лог — защита от log injection */
+static void sanitize_log(char *s)
+{
+    for (char *p = s; *p; p++)
+        if (*p == '\n' || *p == '\r') *p = ' ';
+}
+
 /* Удаление окружающих кавычек из строки */
 static void strip_quotes(char *s)
 {
@@ -1374,8 +1381,11 @@ void config_dump(const EburNetConfig *cfg)
 
     for (int i = 0; i < cfg->server_count; i++) {
         const ServerConfig *s = &cfg->servers[i];
+        static char log_name[sizeof(s->name)];
+        memcpy(log_name, s->name, sizeof(log_name));
+        sanitize_log(log_name);
         log_msg(LOG_DEBUG, "  [%d] name=%s enabled=%d proto=%s addr=%s:%u",
-                i, s->name, s->enabled, s->protocol, s->address, s->port);
+                i, log_name, s->enabled, s->protocol, s->address, s->port);
     }
     log_msg(LOG_DEBUG, "====================");
 }
