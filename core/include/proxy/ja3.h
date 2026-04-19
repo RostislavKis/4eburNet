@@ -41,7 +41,7 @@ typedef struct {
 
 /* ja3_get_references — NULL-terminated список встроенных эталонов.
  * Эталоны меняются с версией браузера — только для ориентира.
- * Пользователь задаёт ожидаемый хэш через UCI option ja3_expected. */
+ * Ожидаемый хэш задаётся через /api/control action=ja3_expected (в памяти). */
 const Ja3Reference *ja3_get_references(void);
 
 /* ja3_match_reference — найти браузер по точному совпадению JA3 хэша.

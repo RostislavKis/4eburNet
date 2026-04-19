@@ -46,6 +46,9 @@ static char s_api_token[64];
 /* ── Конфиг-указатель для toggle управления ──────────────────────── */
 static const EburNetConfig *s_cfg = NULL;
 
+/* ── Ожидаемый JA3 хэш (задаётся через /api/control action=ja3_expected) */
+static char g_ja3_expected[33] = {0};
+
 void http_server_set_config(const EburNetConfig *cfg)
 {
     s_cfg = cfg;
@@ -277,11 +280,20 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
     dpi_adapt_stats(&g_dpi_adapt, &dpi_adapt_count, &dpi_adapt_hits);
 #endif
 
+    /* Сравнение last_ja3 с ожидаемым — warn если задан и не совпадает */
+    const char *last_ja3 = dispatcher_get_last_ja3();
+    bool ja3_match = true;
+    if (g_ja3_expected[0] && last_ja3[0])
+        ja3_match = (strcmp(g_ja3_expected, last_ja3) == 0);
+    if (!ja3_match)
+        log_msg(LOG_WARN, "JA3 mismatch: ожидается %s, последний %s",
+                g_ja3_expected, last_ja3);
+
     /* Сформировать JSON */
     int n = snprintf(s_ipc_buf, sizeof(s_ipc_buf),
         "{\"status\":\"%s\",\"version\":\"1.0.0\","
         "\"uptime\":%ld,\"mode\":\"%s\",\"profile\":\"%s\","
-        "\"last_ja3\":\"%s\","
+        "\"last_ja3\":\"%s\",\"ja3_expected\":\"%s\",\"ja3_match\":%s,"
         "\"flow_offload\":%s,\"tc_fast\":%s,"
         "\"dpi_enabled\":%s,"
         "\"dpi_adapt_count\":%u,\"dpi_adapt_hits\":%u,"
@@ -290,7 +302,7 @@ static void route_api_status(HttpConn *conn, int epoll_fd)
         "\"blocked_ads\":%llu,\"blocked_trackers\":%llu,\"blocked_threats\":%llu}",
         running ? "running" : "stopped",
         uptime, mode, profile,
-        dispatcher_get_last_ja3(),
+        last_ja3, g_ja3_expected, ja3_match ? "true" : "false",
         nft_flow_offload_is_active() ? "true" : "false",
         tc_fast_is_active()          ? "true" : "false",
         (s_cfg && s_cfg->dpi_enabled) ? "true" : "false",
@@ -807,9 +819,9 @@ static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_toke
         http_send(conn, epoll_fd, 200, "application/json",
                   ok_resp, strlen(ok_resp));
     } else if (strncmp(val, "dpi_on", 6) == 0) {
+        /* uci commit синхронный — SIGHUP только после завершения */
         system("uci set 4eburnet.main.dpi_enabled=1;"
-               "uci commit 4eburnet >/dev/null 2>&1 &");
-        /* SIGHUP перезагрузит конфиг в основном процессе */
+               "uci commit 4eburnet >/dev/null 2>&1");
         FILE *pf = fopen("/var/run/4eburnet.pid", "r");
         if (pf) {
             int _pid = 0;
@@ -820,12 +832,30 @@ static void route_api_control(HttpConn *conn, int epoll_fd, const char *api_toke
                   ok_resp, strlen(ok_resp));
     } else if (strncmp(val, "dpi_off", 7) == 0) {
         system("uci set 4eburnet.main.dpi_enabled=0;"
-               "uci commit 4eburnet >/dev/null 2>&1 &");
+               "uci commit 4eburnet >/dev/null 2>&1");
         FILE *pf = fopen("/var/run/4eburnet.pid", "r");
         if (pf) {
             int _pid = 0;
             if (fscanf(pf, "%d", &_pid) == 1 && _pid > 0) kill(_pid, SIGHUP);
             fclose(pf);
+        }
+        http_send(conn, epoll_fd, 200, "application/json",
+                  ok_resp, strlen(ok_resp));
+    } else if (strncmp(val, "ja3_expected", 12) == 0) {
+        /* Установить ожидаемый JA3 хэш (32 hex + \0).
+         * Тело: {"action":"ja3_expected","hash":"<32hex>"} */
+        const char *hp = strstr(body, "\"hash\"");
+        if (hp) {
+            hp = strchr(hp + 6, ':');
+            if (hp) {
+                while (*hp == ':' || *hp == ' ' || *hp == '"') hp++;
+                size_t hl = 0;
+                while (hp[hl] && hp[hl] != '"' && hp[hl] != '\r' &&
+                       hp[hl] != '\n' && hl < 32) hl++;
+                memcpy(g_ja3_expected, hp, hl);
+                g_ja3_expected[hl] = '\0';
+                log_msg(LOG_INFO, "JA3 expected hash: %s", g_ja3_expected);
+            }
         }
         http_send(conn, epoll_fd, 200, "application/json",
                   ok_resp, strlen(ok_resp));
@@ -854,20 +884,20 @@ static void route_api_geo(HttpConn *conn, int epoll_fd)
             size_t nlen = strlen(e->d_name);
             if (nlen < 6 || strcmp(e->d_name + nlen - 5, ".gbin") != 0) continue;
 
-            char fullpath[256];
+            static char fullpath[256];
             snprintf(fullpath, sizeof(fullpath), "%s/%s", geo_dir, e->d_name);
-            struct stat st;
+            static struct stat st;
             if (stat(fullpath, &st) != 0) continue;
 
             /* Имя без расширения */
-            char name[64];
+            static char name[64];
             int namelen = (int)nlen - 5;
             if (namelen > (int)sizeof(name) - 1) namelen = (int)sizeof(name) - 1;
             memcpy(name, e->d_name, (size_t)namelen);
             name[namelen] = '\0';
 
             /* Есть ли .bloom файл? */
-            char bloom_path[256];
+            static char bloom_path[256];
             snprintf(bloom_path, sizeof(bloom_path), "%s/%.*s.bloom",
                      geo_dir, namelen, e->d_name);
             bool has_bloom = (access(bloom_path, F_OK) == 0);
@@ -899,7 +929,7 @@ static void route_api_logs(HttpConn *conn, int epoll_fd)
         /* Кольцевой буфер из 200 строк */
         static char lines[200][160];
         int head = 0, count = 0;
-        char ln[160];
+        static char ln[160];
         while (fgets(ln, sizeof(ln), f)) {
             /* Убрать \n */
             size_t ll = strlen(ln);
@@ -917,7 +947,7 @@ static void route_api_logs(HttpConn *conn, int epoll_fd)
         for (int i = 0; i < count && pos < cap - 256; i++) {
             int idx = (start + i) % 200;
             /* JSON-escape: заменить " на \", \ на \\ */
-            char esc[320];
+            static char esc[320];
             int ep = 0;
             for (const char *p = lines[idx]; *p && ep < 315; p++) {
                 if (*p == '"' || *p == '\\') esc[ep++] = '\\';
