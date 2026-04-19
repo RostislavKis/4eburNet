@@ -132,9 +132,16 @@ def fetch_geosite_ads(out_path: str) -> int:
 
 # ── GeoSite Trackers (EasyPrivacy) ─────────────────────────────────────
 
+_TRACKER_RE = re.compile(
+    r'^\|\|([a-zA-Z0-9][a-zA-Z0-9._-]+\.[a-zA-Z]{2,})\^')
+_THREAT_RE = re.compile(
+    r'^0\.0\.0\.0\s+([a-zA-Z0-9][a-zA-Z0-9._-]+\.[a-zA-Z]{2,})')
+
+
 def fetch_geosite_trackers(out_path: str) -> int:
-    """Скачать список трекеров/аналитики из EasyPrivacy (firebog)."""
-    url = 'https://v.firebog.net/hosts/Easyprivacy.txt'
+    """Скачать список трекеров/аналитики из EasyPrivacy (easylist.to).
+    Формат: ||domain.com^ → domain.com (ABP синтаксис)."""
+    url = 'https://easylist.to/easylist/easyprivacy.txt'
     print(f'  Скачиваю geosite-trackers из EasyPrivacy...', end=' ', flush=True)
 
     try:
@@ -145,15 +152,20 @@ def fetch_geosite_trackers(out_path: str) -> int:
         print(f'ОШИБКА: {e}')
         return -1
 
-    domains = []
+    domains = set()
     for line in data.splitlines():
-        line = line.strip()
-        if line and not line.startswith('#') and '.' in line:
-            domains.append(line.lower())
+        m = _TRACKER_RE.match(line.strip())
+        if m:
+            domains.add(m.group(1).lower())
 
-    domains = sorted(set(domains))
-    with open(out_path, 'w') as f:
+    if len(domains) < 1000:
+        print(f'WARN: только {len(domains)} доменов — пропускаю запись')
+        return 0
+    domains = sorted(domains)
+    tmp = out_path + '.tmp'
+    with open(tmp, 'w') as f:
         f.write('\n'.join(domains) + '\n')
+    os.replace(tmp, out_path)
 
     print(f'{len(domains)} доменов')
     return len(domains)
@@ -162,8 +174,9 @@ def fetch_geosite_trackers(out_path: str) -> int:
 # ── GeoSite Threats (URLhaus hostnames) ────────────────────────────────
 
 def fetch_geosite_threats(out_path: str) -> int:
-    """Скачать список malware/phishing хостов из URLhaus."""
-    url = 'https://urlhaus.abuse.ch/downloads/text_online/'
+    """Скачать список malware/phishing хостов из URLhaus hostfile.
+    Формат: 0.0.0.0 domain.com"""
+    url = 'https://urlhaus.abuse.ch/downloads/hostfile/'
     print(f'  Скачиваю geosite-threats из URLhaus...', end=' ', flush=True)
 
     try:
@@ -174,22 +187,22 @@ def fetch_geosite_threats(out_path: str) -> int:
         print(f'ОШИБКА: {e}')
         return -1
 
-    from urllib.parse import urlparse
     domains = set()
     for line in data.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        try:
-            host = urlparse(line).hostname
-            if host and '.' in host:
-                domains.add(host.lower())
-        except Exception:
-            pass
+        m = _THREAT_RE.match(line.strip())
+        if m:
+            h = m.group(1).lower()
+            if h != 'localhost':
+                domains.add(h)
 
+    if len(domains) < 1000:
+        print(f'WARN: только {len(domains)} доменов — пропускаю запись')
+        return 0
     domains = sorted(domains)
-    with open(out_path, 'w') as f:
+    tmp = out_path + '.tmp'
+    with open(tmp, 'w') as f:
         f.write('\n'.join(domains) + '\n')
+    os.replace(tmp, out_path)
 
     print(f'{len(domains)} доменов')
     return len(domains)
