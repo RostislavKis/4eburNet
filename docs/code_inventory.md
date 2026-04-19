@@ -1,5 +1,5 @@
 # Code Inventory — 4eburNet
-## Дата: 2026-04-18
+## Дата: 2026-04-19
 
 ## Реализованные модули
 
@@ -56,8 +56,22 @@
 | **crypto/blake2s.c** | ~160 | blake2s_hash(), blake2s_hmac() |
 | **crypto/blake3.c** | ~200 | blake3_hasher_init_derive_key(), blake3_hasher_finalize() |
 | **crypto/hmac_sha256.c** | ~80 | hmac_sha256(), hmac_sha256_verify() |
+| **routing/tc_fast.c** | ~350 | tc_fast_init(), tc_ingress_setup() — TC fast path (cls_u32, rtnetlink) |
+| **proxy/ja3.c** | ~200 | ja3_compute(), ja4_compute() — JA3/JA4 TLS fingerprint (FoxIO spec) |
+| **dpi/dpi_adapt.c** | ~150 | dpi_adapt_init(), dpi_adapt_get(), dpi_adapt_report() — Adaptive DPI кэш стратегий (v1.2-1, LRU) |
 
-**Итого: 51 .c файл, ~25 387 строк**
+**Итого: 54 .c файл, ~26 000 строк**
+
+### Заголовочные файлы (v1.2, новые)
+
+| Файл | Описание |
+|------|---------- |
+| **routing/tc_fast.h** | API TC ingress fast path |
+| **proxy/ja3.h** | JA3/JA4 fingerprint API |
+| **crypto/tiny_md5.h** | Standalone RFC 1321 MD5 (header-only) |
+| **dpi/dpi_adapt.h** | Adaptive DPI кэш API |
+| **geo/bloom.h** | Bloom filter 3×FNV1a (header-only, v1.1-4) |
+| **geo/simd_strcmp.h** | NEON/SSE2/SWAR strcmp (header-only, v1.1-4) |
 
 ## Статус блоков
 
