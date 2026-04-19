@@ -19,6 +19,7 @@ typedef struct {
     atomic_uint_fast64_t blocked_trackers;  /* трекеры + аналитика */
     atomic_uint_fast64_t blocked_threats;   /* фишинг + malware */
     atomic_uint_fast64_t ech_connections;   /* TLS ECH/ESNI — зашифрованный ClientHello */
+    atomic_uint_fast32_t last_ech_type;     /* 0xfe0d=ECH RFC, 0xffce=ESNI legacy, 0=нет */
 } eburnet_stats_t;
 
 extern eburnet_stats_t g_stats;
@@ -36,6 +37,9 @@ static inline void stats_conn_close(void) {
 static inline void stats_blocked_ads(void)      { atomic_fetch_add(&g_stats.blocked_ads, 1); }
 static inline void stats_blocked_trackers(void)  { atomic_fetch_add(&g_stats.blocked_trackers, 1); }
 static inline void stats_blocked_threats(void)   { atomic_fetch_add(&g_stats.blocked_threats, 1); }
-static inline void stats_inc_ech(void)           { atomic_fetch_add(&g_stats.ech_connections,  1); }
+static inline void stats_inc_ech(uint16_t ext_type) {
+    atomic_fetch_add(&g_stats.ech_connections, 1);
+    atomic_store(&g_stats.last_ech_type, (uint_fast32_t)ext_type);
+}
 
 #endif /* EBURNET_STATS_H */
