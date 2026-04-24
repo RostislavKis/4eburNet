@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.5.2] — 2026-04-25
+
+### T0-01 VLESS Reality params parser fix
+
+- T0-01: VLESS Reality SNI теперь берётся из `servername` поля YAML/UCI
+  (`reality_sni`), а не из адреса сервера — устранена причина сброса
+  Reality handshake при несовпадении SNI
+- T0-01: `client-fingerprint` из YAML/UCI передаётся в wolfSSL динамически
+  через `map_fingerprint()` вместо hardcode TLS_FP_CHROME120
+- T0-01: `reality-opts.public-key` (base64url) декодируется в 32-байтовый
+  ключ x25519 и передаётся в tls_config через `reality_pbk_decode()`
+- T0-01: XHTTP ветка — SNI chain `xhttp_host → reality_sni → address`
+- config.c: UCI parser принимает ключи `reality_sni`, `reality_flow`,
+  `reality_fingerprint`, `reality_pbk` для серверов из основного конфига
+
+### Verified on EC330
+
+- Live test с bg1.xxee.ru: TLS 1.3 Reality handshake успешен,
+  relay активен (youtubei.googleapis.com через fake-IP → VLESS Reality)
+
+### audit_v43 fixes
+
+- B64URL_MAX 64 → 63 (off-by-one: strnlen bound = buffer size − NUL slot)
+- `_Static_assert` синхронизация B64URL_MAX с `sizeof(ServerConfig.reality_pbk)`
+- XHTTP ветка: `reality_pbk` decode → `cfg.reality_key` (Step C.6, симметрия с VLESS)
+
 ## [1.5.1] — 2026-04-22
 
 ### DNS Client Compatibility Pass

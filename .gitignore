@@ -52,3 +52,7 @@ dev/vm.pid
 
 # Исходный архив zapret (не публикуем, assets уже в tools/ и files/)
 zapret-linux.zip
+
+# Dashboard v2 — форк zashboard (Vue 3 + Vite)
+# Уже заблокирован "*" выше, но указываем явно для понимания
+dashboard-src/
