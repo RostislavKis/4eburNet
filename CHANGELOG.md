@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.5.3] — 2026-04-25
+
+### T0-01 Reality pbk decode fix (wolfSSL Base64_Decode bug)
+
+**Корневая причина**: wolfSSL `Base64_Decode` декодировал base64url ключ
+`<reality-pbk>` некорректно —
+вместо `<reality-pbk-hex>...` выдавал `<redacted-hex>...`. Следствие: неверный ECDH →
+неверный auth_key → AEAD tag mismatch → сервер не верифицировал SessionId
+→ всегда возвращал decoy-сертификат.
+
+- `dispatcher.c`: `reality_pbk_decode` переписан с нуля — собственный
+  RFC 4648 §5 base64url декодер (`b64url_val` + inline 43-char → 32 bytes).
+  wolfSSL `Base64_Decode` и `coding.h` не используются.
+- `reality_auth.c`: удалены verbose hex-дампы (eph_pub/srv_pub/shared/
+  auth_key/session_plain/sid_ct/sid_tag) из горячего пути — остался
+  только краткий `init` лог `server_pub[0:8]` для диагностики.
+- Заголовочный комментарий: AES-128-GCM → AES-256-GCM (32-byte key).
+
+### Verified
+
+- Unit test: `reality_pbk_decode("CWYzhoFO6...T0") == <reality-pbk-hex>...` ✓
+- Бинарник собран, задеплоен на EC330 (mipsel, 2.6 MB stripped)
+
 ## [1.5.2] — 2026-04-25
 
 ### T0-01 VLESS Reality params parser fix
