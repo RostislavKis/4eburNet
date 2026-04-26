@@ -19,6 +19,33 @@
 - `vless.h`: `VLESS_HEADER_MAX` увеличен 96 → 300 (поддержка 255-char domain).
 - Все вызывающие стороны обновлены (`vless_xhttp.c`, тесты).
 
+### Исправление errno clobber в VLESS+Reality ответе (MIPS)
+
+**Корневая причина**: `log_msg()` на MIPS musl вызывает `localtime()`/
+`clock_gettime()`, которые затирают `errno=EAGAIN(11)` значением `131`
+(ENOTRECOVERABLE) до проверки условия. EAGAIN трактовался как ошибка →
+relay закрывался сразу вместо ожидания следующего EPOLLIN.
+
+- `vless.c` `vless_read_response_step_reality`: сохраняем `errno` в
+  `saved_errno` перед `log_msg`, проверяем `saved_errno` вместо `errno`.
+
+### Исправление дедлока RELAY_REALITY_VLESS (Vision flow)
+
+**Корневая причина**: xray с `xtls-rprx-vision` не отправляет VLESS response
+пока не получит inner-TLS данные (ClientHello) от клиента. Relay в состоянии
+`RELAY_REALITY_VLESS` слушал только `upstream_fd`, игнорировал client_fd →
+дедлок 60 сек → idle таймаут.
+
+- `dispatcher.c`: новая функция `reality_vless_drain_client` — дренирует
+  client_fd и пробрасывает данные через Vision+Reality к xray.
+  Вызывается при переходе в `RELAY_REALITY_VLESS` (немедленный дренаж,
+  EPOLLET-safe) и при последующих client EPOLLIN в этом состоянии.
+  `relay_handle_reality` обрабатывает `ep->is_client` в RELAY_REALITY_VLESS
+  вместо немедленного return.
+
+- `reality_conn.c`: при получении TLS Alert немедленно возвращаем -1 с
+  `ECONNRESET` (логируем level/desc) вместо бесконечного цикла → EAGAIN.
+
 ## [1.5.3] — 2026-04-25
 
 ### T0-01 Reality pbk decode fix (wolfSSL Base64_Decode bug)
