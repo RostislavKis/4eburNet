@@ -29,6 +29,18 @@ relay закрывался сразу вместо ожидания следую
 - `vless.c` `vless_read_response_step_reality`: сохраняем `errno` в
   `saved_errno` перед `log_msg`, проверяем `saved_errno` вместо `errno`.
 
+### Исправление busy-wait freeze в reality_send (КРИТИЧНО)
+
+**Корневая причина**: `reality_send` при EAGAIN mid-record (частично отправленный
+TLS record) уходил в `continue` — бесконечный busy-wait. Single-threaded epoll
+демон полностью замораживался: DNS переставал отвечать (182 KB в UDP буфере),
+новые соединения не обрабатывались, CPU 20-23%.
+
+- `reality_conn.c` `reality_send`: три исхода вместо `continue`:
+  - `sent == 0 && total == 0`: return -1 EAGAIN (ничего не ушло)
+  - `sent > 0`: return -1 ECONNRESET (TLS framing нарушен → закрыть соединение)
+  - `sent == 0 && total > 0`: return total (граница record → caller решит)
+
 ### Исправление дедлока RELAY_REALITY_VLESS (Vision flow)
 
 **Корневая причина**: xray с `xtls-rprx-vision` не отправляет VLESS response
@@ -141,6 +153,7 @@ relay закрывался сразу вместо ожидания следую
 Первый стабильный релиз. 30000+ строк C, 239 тестов, 7 devil audits.
 
 ### Протоколы
+
 - VLESS + XTLS-Reality (TCP, Vision flow)
 - VLESS + XHTTP транспорт (HTTP chunked + padding)
 - Trojan (SHA224 auth, IPv4/IPv6)
@@ -150,6 +163,7 @@ relay закрывался сразу вместо ожидания следую
 - ShadowTLS v3 (transport wrapper, HMAC SessionID + AppData framing)
 
 ### DNS
+
 - Свой DNS сервер на :53 (dnsmasq → :5353 fallback)
 - Split DNS: bypass/proxy/block per domain
 - DNS over HTTPS (async nonblocking, wolfSSL)
@@ -161,6 +175,7 @@ relay закрывался сразу вместо ожидания следую
 - GeoIP + GeoSite (Patricia trie, region categories)
 
 ### DPI bypass
+
 - TCP fragment (split at configurable position)
 - Fake+TTL (raw socket, TTL-limited fake TLS ClientHello)
 - Chrome 120+ fingerprint (15 extensions, 17 cipher suites)
@@ -169,6 +184,7 @@ relay закрывался сразу вместо ожидания следую
 - LuCI DPI страница (настройки, CDN обновление, статистика)
 
 ### Маршрутизация
+
 - TPROXY + nftables (fw4, verdict maps для 300K+ записей)
 - Per-device routing (MAC → политика: proxy/bypass/block)
 - Hardware Offload bypass (forward chain)
@@ -179,6 +195,7 @@ relay закрывался сразу вместо ожидания следую
 - Health-check failover (30s интервал)
 
 ### Инфраструктура
+
 - C23 + musl static (бинарник ~1.6MB)
 - Compile-time Kconfig (12 флагов, 3 профиля: micro/normal/full)
 - Async epoll event loop (10ms tick, nonblocking I/O)
@@ -189,6 +206,7 @@ relay закрывался сразу вместо ожидания следую
 - posix_spawnp для nft/ip (не shell)
 
 ### LuCI (ucode JS)
+
 - Обзор (статус демона, uptime, профиль)
 - Серверы (все протоколы + ShadowTLS v3)
 - Группы (select/url-test/fallback)
@@ -202,11 +220,13 @@ relay закрывался сразу вместо ожидания следую
 - Импорт подписок (Clash YAML, URI, base64)
 
 ### Совместимость
+
 - EC330 (MIPS MT7621, mipsel_24kc, 128MB RAM)
 - Flint 2 (MT6000, aarch64, 512MB RAM)
 - x86_64 (QEMU VM, разработка)
 - OpenWrt 23.05+ (fw4 / nftables)
 
 ### Тесты
+
 - 239 тестов в 9 суитах (ALL PASS)
 - 7 devil audits (v17-v23), 0 открытых проблем
