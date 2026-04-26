@@ -1,0 +1,35 @@
+name: Build & Test
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl-gcc
+        run: sudo apt-get install -y musl-tools
+
+      - name: Build wolfSSL (требуется для сборки)
+        run: |
+          git clone --depth 1 --branch v5.9.0-stable \
+            https://github.com/wolfSSL/wolfssl.git /tmp/wolfssl
+          cd /tmp/wolfssl
+          ./autogen.sh
+          ./configure \
+            --prefix=/usr/local/musl-wolfssl \
+            CC=musl-gcc \
+            --enable-tls13 \
+            --enable-harden \
+            --disable-shared \
+            --enable-sni \
+            --enable-alpn \
+            --enable-quic
+          make -j$(nproc)
+          sudo make install
+
+      - name: Build dev
+        run: cd core && make -f Makefile.dev
+
+      - name: Run tests
+        run: cd core && make -f Makefile.dev test

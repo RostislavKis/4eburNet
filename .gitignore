@@ -4,6 +4,9 @@
 !4eburNet.png
 !.gitignore
 !CHANGELOG.md
+!.github/
+!.github/workflows/
+!.github/workflows/build.yml
 
 # Артефакты сборки
 build/
