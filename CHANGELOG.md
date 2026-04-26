@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.4] — 2026-04-26
+
+### Исправление VLESS+Reality: fake-IP → VLESS_ADDR_DOMAIN
+
+**Корневая причина**: VLESS request header кодировал адрес назначения как
+`VLESS_ADDR_IPV4 + 198.51.100.x` (fake-IP из пула DNS-intercept). xray-core
+получал запрос на подключение к RFC 5737 TEST-NET-2 адресу, который
+недоступен, и закрывал соединение тремя padding records + close_notify
+без VLESS response.
+
+- `dispatcher.c`: поднял `relay_domain` в область видимости функции;
+  сохраняет домен из fake-ip reverse lookup (или SNI sniffer) в `r->domain`.
+- `dispatcher.h`: добавлено поле `char domain[256]` в `relay_conn_t`.
+- `vless.c`: `vless_build_request` принимает опциональный `const char *domain`;
+  при `domain != NULL` кодирует `VLESS_ADDR_DOMAIN` + 1-byte len + домен
+  вместо IP-адреса. Порт берётся из `dst` (fake-IP порт корректен).
+- `vless.h`: `VLESS_HEADER_MAX` увеличен 96 → 300 (поддержка 255-char domain).
+- Все вызывающие стороны обновлены (`vless_xhttp.c`, тесты).
+
 ## [1.5.3] — 2026-04-25
 
 ### T0-01 Reality pbk decode fix (wolfSSL Base64_Decode bug)
