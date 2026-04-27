@@ -1,5 +1,63 @@
 # Changelog
 
+## [1.5.5] — 2026-04-27
+
+### MIPS / стек
+
+- 11 больших буферов переведены в BSS (`static`): `reality_conn`, `tls13_hs`, `dns_server`, `dns_upstream_doq`, `http_server`, `dpi_payload`, `shadowtls` — устранение потенциального stack overflow на MIPS (лимит 8 KB).
+
+### Reality TLS
+
+- Cipher whitelist сужен до `0x1301 / 0x1302 / 0x1303` (TLS 1.3 only) — сервер не получает TLS 1.2 ciphers в ClientHello.
+- `eph_priv` инициализируется нулями сразу при объявлении (early zero).
+- Vision `#if CONFIG_EBURNET_VLESS` guard — Vision-код не компилируется при отключённом VLESS.
+
+### HTTP / WebSocket
+
+- `http_send` async EPOLLOUT: убран блокирующий `fcntl`, добавлены `conn_queue_write` / `conn_flush` / `conn_feed_file` для неблокирующей отправки.
+- `ws_frame`: UTF-8 DFA валидация RFC 6455 §8.1, Close frame 1007 при невалидном тексте.
+
+### Rate limit
+
+- Per-IP hash table (64 слота, FNV-1a, LRU eviction) — защита от DoS на HTTP/WS интерфейс.
+
+### IPC / Статус
+
+- `group_test` — async fork вместо синхронного блокирующего вызова.
+- Status JSON: поля `ech_connections` и `last_ech_type`.
+
+### DNS
+
+- SOA record в NXDOMAIN ответах (AA flag, RFC 2308).
+- `dns_cookie_verify`: BADCOOKIE / SLIP обработка по RFC 7873 §5.2.3.
+- Cookie secret persistence: secret сохраняется в `/tmp/4eburnet_cookie.secret` при перезапуске.
+
+### Clash API (совместимость с Mihomo)
+
+- `/proxies`: runtime-выбранный сервер через `proxy_group_get_current()` вместо `servers[0]`.
+- `/rules`: реальные данные из `s_cfg->traffic_rules[]` (формат Clash).
+- `/providers/proxies` + `/providers/rules`: реальные данные провайдеров.
+- `system()` → `run_initd()` (fork+execv, без shell) в 4 точках.
+
+### /api/control — новые actions
+
+- `cdn_update` — асинхронное обновление CDN IP списков.
+- `server_add`, `server_delete` — добавление/удаление серверов через UCI.
+- `provider_add`, `provider_delete`, `provider_update` — управление провайдерами.
+- `rule_add`, `rule_delete`, `rule_reorder` — управление traffic rules.
+
+### config.c — валидация
+
+- AWG: `awg_private_key` и `awg_public_key` — проверка base64 длины 44 символа.
+- AWG: `awg_i[]` и `awg_j1` — `strndup` с `AWG_BLOB_MAX 8192` вместо unbounded `strdup`.
+- Proxy groups: лимит `MAX_GROUP_SERVERS 256` перед realloc (оба пути парсинга UCI).
+
+### Инфраструктура
+
+- `deploy.sh`: `check_memory()` — проверка RAM перед scp/opkg (`<5 MB` → exit 2, `<15 MB` → exit 1).
+- `tools/sub_convert.py` → `luci-app-4eburnet/files/usr/share/4eburnet/sub_convert.py` синхронизирован.
+- `Makefile`: target `install-tools` для ручной синхронизации sub_convert.py.
+
 ## [1.5.4] — 2026-04-26
 
 ### Исправление VLESS+Reality: fake-IP → VLESS_ADDR_DOMAIN
