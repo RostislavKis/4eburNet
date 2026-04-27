@@ -4,6 +4,7 @@
 !4eburNet.png
 !.gitignore
 !CHANGELOG.md
+!BUILD.md
 !.github/
 !.github/workflows/
 !.github/workflows/build.yml

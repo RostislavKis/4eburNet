@@ -57,6 +57,9 @@
 - `deploy.sh`: `check_memory()` — проверка RAM перед scp/opkg (`<5 MB` → exit 2, `<15 MB` → exit 1).
 - `tools/sub_convert.py` → `luci-app-4eburnet/files/usr/share/4eburnet/sub_convert.py` синхронизирован.
 - `Makefile`: target `install-tools` для ручной синхронизации sub_convert.py.
+- `BUILD.md`: пошаговая инструкция сборки и деплоя (требования, x86_64 dev, кросс-сборка, тесты, деплой, known limitations).
+- `docs/CONSTRAINTS.md`: обновлён раздел Reality TLS crypto + добавлен раздел Static buffers (BSS).
+- `test_tls13_wire.c` (60 PASS) + `test_reality_pbk_decode.c` (12 PASS).
 
 ## [1.5.4] — 2026-04-26
 
