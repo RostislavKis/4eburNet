@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.5.6] — 2026-04-27
+
+### Безопасность
+- Constant-time сравнение api_token (заменён strncmp на volatile diff loop)
+- api_token fresh-install: localhost bypass вместо 403 для всех
+
+### MIPS / стек
+- conn_feed_file: char chunk[4096] → static BSS
+- dns_server: malloc(4096) в hot-path → static BSS
+- tls13_keys: uint8_t lbl[320] → static BSS
+
+### Reality TLS
+- Б4 T0-03: deferred Curve25519 keygen в dispatcher_tick с throttle
+- ET stall fix: throttled RELAY_REALITY_HS временно LT для re-fire
+- RELAY_REALITY_VLESS: убран избыточный throttle (нет Curve25519)
+- wc_HmacInit добавлен перед wc_HmacSetKey в tls13_hs.c и reality_auth.c
+- AES-128/AES-256 ограничение задокументировано (0x1302 принят, не работает)
+
+### DNS
+- opencck_updater: kill(SIGHUP) после rename → geo reload активируется
+- child fork: close_range(3, ~0U) перед net_http_fetch
+
+### Безопасность JSON
+- json_escape_str для mode в http_server.c + ipc.c (3 места)
+- json_escape_str для gc->name в ipc.c
+
+### HTTP / WebSocket
+- CORS: динамический Origin header (localhost любой порт)
+- ws_send_*: убран blocking ws_write_all, async через conn_queue_write/conn_flush
+- WebSocket API: HttpConn* вместо fd в сигнатурах
+
+### Сборка / CI
+- .github/workflows/build.yml: wolfSSL --enable-all --enable-static-ephemeral
+- Makefile.dev: 12 test-таргетов в .PHONY, help 37 суитов, $(error) вместо exit 1
+
+### Документация
+- CONSTRAINTS.md: Reality per-connection RAM ~33KB + http_server BSS ~440KB
+- docs/WS_ARCHITECTURE.md + docs/DASHBOARD_PLAN.md Phase 2 актуализированы
+- README.md badge: < 2 МБ → < 3 МБ (реальный 2.7MB mipsel stripped)
+- net_utils.c: htons(53) → DNS_PORT, добавлены DNS_PORT/DNSMASQ_PORT в constants.h
+- dashboard.html: 192.168.2.1 hardcode → location.hostname
+
 ## [1.5.5] — 2026-04-27
 
 ### MIPS / стек
