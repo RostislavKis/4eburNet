@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/версия-v1.5.5-brightgreen?style=flat-square" alt="version">
     <img src="https://img.shields.io/badge/OpenWrt-24.10%20%2F%2025.12-blue?style=flat-square" alt="OpenWrt">
     <img src="https://img.shields.io/badge/arch-mipsel%20%7C%20aarch64%20%7C%20x86__64-green?style=flat-square" alt="arch">
-    <img src="https://img.shields.io/badge/бинарник-< 2 МБ-orange?style=flat-square" alt="size">
+    <img src="https://img.shields.io/badge/бинарник-< 3 МБ-orange?style=flat-square" alt="size">
     <img src="https://img.shields.io/badge/зависимости-ноль-brightgreen?style=flat-square" alt="deps">
     <img src="https://img.shields.io/badge/TLS-wolfSSL%205.9-blue?style=flat-square" alt="wolfssl">
     <img src="https://img.shields.io/badge/license-GPLv2-lightgrey?style=flat-square" alt="license">

@@ -19,12 +19,10 @@ jobs:
           ./configure \
             --prefix=/usr/local/musl-wolfssl \
             CC=musl-gcc \
-            --enable-tls13 \
-            --enable-harden \
+            --enable-all \
+            --enable-static-ephemeral \
             --disable-shared \
-            --enable-sni \
-            --enable-alpn \
-            --enable-quic
+            --enable-static
           make -j$(nproc)
           sudo make install
 
