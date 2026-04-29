@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.13] — 2026-04-29
+
+### Dashboard / API
+
+- `route_clash_proxies`: `"all"[]` теперь строится из runtime state (`gs->servers[].server_idx` unified индекс) вместо `grp->servers[]` (только UCI-статические серверы) — proxy-группы видят серверы из proxy-providers (PrivateVPN: 64, ARZA: 8)
+- `route_clash_proxies`: буфер увеличен с 32KB до 64KB — покрывает конфиги с 64+ provider серверами
+
 ## [1.5.12] — 2026-04-29
 
 ### nftables / Routing
