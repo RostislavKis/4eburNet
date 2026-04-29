@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.17] — 2026-04-29
+
+### Health-check через реальный VLESS/Reality туннель
+
+- `core/src/proxy/hc_vless.c` (новый): `hc_vless_spawn()` — fork+pipe health-check
+  через реальный VLESS или VLESS+Reality туннель вместо прямого TCP connect;
+  child: DNS resolve → TCP connect → Reality TLS handshake (`reality_conn_new` +
+  poll loop) → VLESS header → HTTP GET cp.cloudflare.com → проверка `"HTTP/"` в
+  ответе → `"OK <ms>\n"` или `"ERR\n"` в pipe; для серверов без Reality — wolfSSL
+  fallback path; read-end pipe возвращается для регистрации в epoll
+- `proxy_group.c`: для `url-test` групп с протоколом `vless`/`trojan` заменён
+  `net_spawn_tcp_ping` на `hc_vless_spawn`; хост/порт берётся из `gs->test_url`
+  через `net_parse_url_host`, дефолт `cp.cloudflare.com:80`
+- `test_hc_vless.c` (новый): 8/8 PASS — T1 NULL guard, T2 ECONNREFUSED→ERR,
+  T3 timeout 400ms→ERR за 422ms (RFC 5737 TEST-NET 192.0.2.1)
+- Верификация на EC330: серверы PrivateVPN реально отвечают через Reality
+  туннель (`reality_recv Alert`, `VLESS response`) вместо `"недоступен"`
+  при прямом TCP (ТСПУ блокировка)
+
 ## [1.5.16] — 2026-04-29
 
 ### Proxy Groups — url-test autoselect
