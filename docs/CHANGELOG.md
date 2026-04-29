@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.11] — 2026-04-29
+
+### Proxy Providers
+
+- `base64_decode`: null byte (0x00) трактуется как whitespace (skip) — устраняет ARZA parse failure (null byte в позиции 3063 в ответе сервера)
+- ARZA: загружено 8 серверов (было 0 из-за провала base64 decode)
+- `child_do_fetch_h`: добавлен `stat(tmp_path)` после `uclient-fetch` exit 0 — если файл не создан, сразу переходим в wolfSSL fallback вместо ENOENT rename loop
+- `child_do_fetch`: аналогичный stat-check для провайдеров без кастомных заголовков
+
 ## [1.5.10] — 2026-04-29
 
 ### DNS
