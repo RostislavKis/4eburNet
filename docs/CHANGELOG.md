@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.14] — 2026-04-29
+
+### Dashboard / Clash API
+
+- `route_clash_proxy_delay`: новый endpoint `GET|PUT /proxies/{name}/delay?timeout=N` — TCP ping для любого сервера (UCI + proxy-providers); fork+pipe, блокирующий `poll(timeout+1000ms)`; percent-decode имён с эмодзи/кириллицей; ответ `{"delay":N}` 200 или `{"message":"..."}` 408
+- `route_clash_connections`: новый endpoint `GET /connections` — возвращает `{"downloadTotal":N,"uploadTotal":N,"connections":[],"memory":N}` из `g_stats` + RSS `/proc/self/status`
+- `url_pct_decode`: вспомогательная функция декодирования URL-encoded компонент пути (UTF-8 имена серверов PrivateVPN)
+- `HttpConn.is_put`: новое поле; PUT-запросы парсируются и маршрутизируются; инициализация слота `is_put = 0` добавлена
+
 ## [1.5.13] — 2026-04-29
 
 ### Dashboard / API
