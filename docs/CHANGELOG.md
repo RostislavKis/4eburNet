@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.10] — 2026-04-29
+
+### DNS
+
+- `dns_server_init`: дефолт `listen_port = 53` когда UCI не задаёт `option listen_port` — без этого демон завершался сразу после старта (возврат -1 из init)
+
+### Proxy Providers / HTTP
+
+- `http_do_tls_get`: добавлены параметры `redirect_buf/redirect_size`; при HTTP 3xx парсится заголовок `Location`, результат пишется в буфер, функция возвращает -2
+- `net_http_fetch_ip_h`: реализован redirect-loop до 3 переходов — re-resolve нового хоста через 1.1.1.1/8.8.8.8, повтор TLS-соединения
+- `accessbyme.com`: HTTP 301 → `sub.accessbyme.com` теперь следуется автоматически
+
 ## [1.5.9] — 2026-04-28
 
 ### HTTP / Dashboard
