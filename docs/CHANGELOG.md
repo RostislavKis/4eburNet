@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.15] — 2026-04-29
+
+### Dashboard / WebSocket
+
+- WS `/logs` endpoint: `ws://host/logs` принимает подписчиков; при подключении отдаёт историю (ring buffer 100×256B); новые строки пушатся реалтайм через `http_ws_log_hook` — хук из `log_msg`; формат Clash: `{"type":"info|warning|error|debug","payload":"..."}`
+- WS `/connections` endpoint: `ws://host/connections` — snapshot `{"downloadTotal":N,"uploadTotal":N,"connections":[],"memory":N}` каждую секунду через `broadcast_tick`
+- `log_set_hook()`: новый API в log.c — регистрирует callback для каждой записанной строки лога; `log_msg` переформатирован в единый буфер 512B (устранено двойное `va_list`)
+- `ws_route` enum: добавлены `WS_ROUTE_LOGS=4`, `WS_ROUTE_CONNECTIONS=5`
+- Ping concurrency guard: `atomic_int s_ping_active`, `PING_MAX_CONCURRENT=4` — не более 4 одновременных `fork()` для TCP ping на MIPS; при перегрузке → HTTP 408
+
 ## [1.5.14] — 2026-04-29
 
 ### Dashboard / Clash API
