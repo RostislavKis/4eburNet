@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.18] — 2026-04-29
+
+### latency в /proxies, hc_vless для /delay, /storage endpoint
+
+- `http_server.c`: `pgm_server_latency()` — поиск latency_ms сервера по unified
+  index во всех группах pgm; секция серверов `/proxies` теперь возвращает
+  `"history":[{"time":"...","delay":N}]` если latency_ms > 0 после health-check
+- `http_server.c`: `/proxies/{name}/delay` для VLESS/Trojan серверов вызывает
+  `hc_vless_spawn()` вместо прямого TCP ping (ТСПУ блокирует прямые соединения);
+  `url=` из query string парсится через `net_parse_url_host()`
+- `http_server.c`: HTTP-парсер теперь читает `Content-Length` для PUT запросов
+  (ранее только POST); без этого `/storage` PUT возвращал 413
+- `http_server.c`: `route_storage()` + `/storage/{key}` routing — in-memory
+  key-value хранилище (8 слотов × 4KB) для zashboard настроек;
+  GET → `{"key":"...","data":"..."}` или 404, PUT → сохранение + echo
+
 ## [1.5.17] — 2026-04-29
 
 ### Health-check через реальный VLESS/Reality туннель
