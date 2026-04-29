@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.16] — 2026-04-29
+
+### Proxy Groups — url-test autoselect
+
+- `proxy_group_handle_hc_event`: принимает `const EburNetConfig *cfg` (для логирования имени лучшего сервера); после завершения полного цикла проверки всех серверов для групп типа `url-test` выбирается сервер с минимальной задержкой → `selected_idx` обновляется атомарно; лог INFO: `"url-test: %s → %s TCP (%ums)"`
+- `config.c`: парсер типов групп принимает `"url_test"` (underscore, OpenWrt uci формат) наравне с `"url-test"` (dash, Clash YAML формат); аналогично `"load_balance"` / `"load-balance"`
+- До этого фикса: `type=url_test` в `/etc/config/4eburnet` → группа считалась `select` → autoselect не работал, всегда `servers[0]`
+
 ## [1.5.15] — 2026-04-29
 
 ### Dashboard / WebSocket
