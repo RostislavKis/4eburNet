@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.12] — 2026-04-29
+
+### nftables / Routing
+
+- `nft_init`: добавлена цепочка `output_allow` (`type filter hook output priority -1; policy accept`) — разрешает исходящий WAN-трафик самого роутера до fw4 filter chain (priority 0), которая ошибочно блокировала все OUTPUT соединения роутера через `reject_to_wan`
+- `nft_ensure_output_allow`: новая idempotent функция — вызывается если таблица уже существует (обновление с предыдущей версии), атомарно добавляет chain через `add chain`
+
+### DNS
+
+- `dns_server.c`: `resolve_upstream_addr` fail (action PROXY, `upstream_proxy` не настроен) → больше не дропает запрос молча, использует `upstream_fallback` (8.8.8.8) — устраняет timeout для роутерских DNS-запросов к proxy-доменам
+
+### Proxy Providers / DNS
+
+- `child_do_fetch` и `child_do_fetch_h`: прямой DNS-резолвинг (`net_resolve_host_direct` → 1.1.1.1/8.8.8.8) вынесен ПЕРЕД uclient-fetch — устраняет circular dependency (провайдер→4eburnetd DNS→прокси→провайдер) без 15с ожидания uclient-fetch timeout
+- Если прямой DNS разрезолвил IP → wolfSSL fetch напрямую, uclient-fetch используется только как fallback (системный DNS + CA cert bundle)
+
 ## [1.5.11] — 2026-04-29
 
 ### Proxy Providers
