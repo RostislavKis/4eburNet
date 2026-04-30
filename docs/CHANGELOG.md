@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.5.21] — 2026-04-30
+
+### proxy-server nameserver via upstream_bypass
+
+- `config.h` / `config.c`: поле `DnsConfig.upstream_bypass` было уже реализовано;
+  `dispatcher_resolve_server()` использует его как primary DNS для резолвинга адресов
+  прокси-серверов (bg1.xxee.ru и т.п.), обходя fake-IP DNS и избегая рекурсии
+- `4eburnet.init`: добавлена функция `detect_wan_dns()` — при старте автоматически
+  определяет WAN DNS из `/tmp/resolv.conf.d/resolv.conf.auto` (netifd) и записывает
+  в `4eburnet.dns.upstream_bypass` если поле пустое; EC330: автодетект → 192.168.1.1
+- `http_server.c`: три новых REST эндпоинта —
+  - `GET /api/dns/upstream` → `{"ip":"..."}` текущий upstream_bypass из памяти
+  - `PATCH /api/dns/upstream` → `{"ip":"..."}` обновляет UCI + в памяти без перезапуска;
+    добавлен парсинг PATCH метода (`is_patch` в HttpConn)
+  - `POST /api/dns/upstream/test` → `{"ok":true,"latency_ms":N}` fork + `net_resolve_host_direct`
+    + poll(5000ms); блокирующий, но endpoint не критический (admin tool)
+- `dashboard.html`: новая карточка "Proxy-server nameserver" на вкладке DNS —
+  поле IP с кнопками «Проверить» и «Сохранить»; заполняется при открытии вкладки
+- WHY: `dispatcher_resolve` не мог резолвить bg1.xxee.ru — upstream_bypass был пуст,
+  `upstream_default=8.8.8.8` недоступен с EC330 (вероятно, firewall Flint2);
+  с `upstream_bypass=192.168.1.1` relay ошибок нет, latency test 6ms
+
 ## [1.5.20] — 2026-04-30
 
 ### Vision HC + VLESS+WS fix
