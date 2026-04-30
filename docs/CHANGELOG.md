@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.25] — 2026-04-30
+
+### debug: relay connect IP logging
+
+- `dispatcher.c`: добавлен `LOG_INFO` лог перед `connect()` в `upstream_connect()`;
+  формат: `relay connect: <name> → <addr>:<port> (resolved: <ip>)`
+  позволяет определить реальный IP соединения (fake-IP петля vs реальный)
+
 ## [1.5.24] — 2026-04-30
 
 ### dispatcher_resolve LOG_DEBUG→LOG_INFO + dashboard CSS fix
