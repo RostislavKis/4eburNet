@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.24] — 2026-04-30
+
+### dispatcher_resolve LOG_DEBUG→LOG_INFO + dashboard CSS fix
+
+- `dispatcher.c`: `dispatcher_resolve_server` success лог переведён с `LOG_DEBUG` на
+  `LOG_INFO` — теперь видим в `logread` и WS /logs при реальном relay трафике;
+  формат: `dispatcher_resolve: bg1.xxee.ru -> <IP> (via 192.168.1.1, cached=yes/no)`
+- Dashboard: задеплоен `index-BfjAd6uo.css` (был пропущен при деплое v1.5.23);
+  теперь index.html ссылается на корректные хэши JS+CSS
+
 ## [1.5.23] — 2026-04-30
 
 ### log ring 500, /zashboard-settings.json, /group/delay, network field
