@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.22] — 2026-04-30
+
+### gRPC/WS transport penalty + /api/dns/upstream/test fix + dashboard DnsUpstream
+
+- `proxy_provider.c`: парсер VLESS URI и Clash YAML теперь распознают transport=grpc и
+  transport=ws; YAML: добавлен ключ `network:` (grpc/ws/xhttp/httpupgrade); `flow:` не
+  перезаписывает transport если `network` уже выставил grpc/ws
+- `proxy_group.c`: penalty для серверов с transport=grpc/ws — `latency_ms=60000,
+  available=false` без запуска HC; url-test не выбирает их до реализации T0-03/T0-04;
+  cursor и таймер продвигаются inline (без pipe)
+- `http_server.c`: `POST /api/dns/upstream/test` — если тело запроса пустое (нет поля
+  `"ip"`), тестирует текущий `s_cfg->dns.upstream_bypass` из конфига; ранее возвращал 400
+- `dashboard-src/DnsUpstream.vue`: новый компонент "Proxy-server nameserver" в
+  BackendSettings — поле IP, кнопка «Проверить» (latency зелёный/красный),
+  кнопка «Сохранить» (PATCH без перезапуска); заполняется при монтировании через GET
+- `api/index.ts`: три API-функции — `getDnsUpstreamAPI`, `patchDnsUpstreamAPI`,
+  `testDnsUpstreamAPI`; деплой dashboard на EC330 (index-B0buw7U1.js)
+
 ## [1.5.21] — 2026-04-30
 
 ### proxy-server nameserver via upstream_bypass
