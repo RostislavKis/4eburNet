@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.5.20] — 2026-04-30
+
+### Vision HC + VLESS+WS fix
+
+- `hc_vless.c`: Vision flow detection — если `srv->reality_flow` содержит "vision",
+  строим addons через `vision_build_addons()` и передаём в `vless_handshake_start_reality`;
+  для Vision серверов `ok=1` сразу после Reality HS + VLESS request (без ожидания
+  VLESS response — xray с Vision не отвечает пока не придёт inner-TLS ClientHello)
+- `hc_vless.c`: убран wolfSSL fallback для VLESS без Reality — теперь TCP connect = ping;
+  WHY: VLESS+WS/XHTTP/gRPC требуют HTTP Upgrade или специфичный framing, без которого
+  сервер отвечает HTTP 400 (0x48), ломая VLESS response parse; TCP ping достаточен
+  для проверки доступности non-Reality VLESS серверов
+- Верификация на EC330: Bulgaria/Canada/Switzerland VLESS+Reality+Vision → `delay>0`
+  через `/proxies/{name}/delay`; нулевые WARN от нового daemon (v1.5.20)
+
+## [1.5.19] — 2026-04-30
+
+### hc_vless для не-VLESS (Trojan без UUID)
+
+- `hc_vless.c`: для протоколов, отличных от VLESS, делать только TCP connect (не VLESS HS)
+- WHY: Trojan и другие протоколы без UUID вызывали "VLESS: невалидный UUID" при HC
+
 ## [1.5.18] — 2026-04-29
 
 ### latency в /proxies, hc_vless для /delay, /storage endpoint
