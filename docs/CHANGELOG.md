@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.23] — 2026-04-30
+
+### log ring 500, /zashboard-settings.json, /group/delay, network field
+
+- `http_server.c`: `LOG_RING_SIZE` 100→500 (BSS 25KB→128KB); WS /logs хранит больше
+  истории при подключении нового клиента
+- `http_server.c`: `GET /zashboard-settings.json` → `{}` (ранее 404 в консоли браузера)
+- `http_server.c`: `GET /group/{name}/delay?url=...&timeout=...` — zashboard compat;
+  берёт текущий выбранный сервер группы через `proxy_group_get_current`, делегирует
+  в `route_clash_proxy_delay`; возвращает 404 если группа не найдена или пуста
+- `http_server.c`: `transport_to_clash_network()` — преобразует внутренний transport
+  (raw/reality→tcp, grpc, ws, xhttp) в Clash `"network"` поле; добавлено в
+  `/proxies` JSON для каждого сервера рядом с `"type"`
+- `dashboard-src/types/index.d.ts`: добавлено поле `network?: string` в тип `Proxy`
+- `dashboard-src/ProxyNodeCard.vue`: `typeDescription` показывает реальный транспорт
+  из `network` поля вместо статического "udp": "trojan/grpc" вместо "trojan/udp"
+
 ## [1.5.22] — 2026-04-30
 
 ### gRPC/WS transport penalty + /api/dns/upstream/test fix + dashboard DnsUpstream
