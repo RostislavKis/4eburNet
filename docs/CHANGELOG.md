@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.26] — 2026-04-30
+
+### gRPC penalty UINT32_MAX + PUT /proxies/{group} + Trojan transport fix
+
+- `proxy_group.c`: gRPC/WS penalty 60000→`UINT32_MAX`, `return`→`continue`
+  (применять penalty без прерывания tick-цикла по другим группам)
+- `http_server.c`: `PUT /proxies/{group}` — стандартный Clash API endpoint;
+  тело `{"name":"server-name"}`, ответ 204; доступен с любого IP (нет localhost restriction)
+- `sub_convert.py`: Trojan YAML parser теперь ставит `transport: proxy.get('network','raw')`;
+  после re-import UCI Trojan gRPC серверы получат transport=grpc → penalty сработает
+- `main.c`: reload path — добавлены `http_server_set_config(cfg_ptr)` и
+  `http_server_set_pgm(&pgm_state)` после перестройки конфига;
+  без этого `s_cfg` в http_server указывал на освобождённую память после WAN-reload
+
 ## [1.5.25] — 2026-04-30
 
 ### debug: relay connect IP logging
