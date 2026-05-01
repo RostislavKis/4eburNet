@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.31] — 2026-05-01
+
+### failover Selector при EPOLLRDHUP + transport_is_implemented
+
+- `proxy_group.c`: добавлен `proxy_group_mark_server_fail` — при EPOLLRDHUP во время
+  Reality HS dispatcher уведомляет proxy_group о сбое сервера; после 3 сбоев подряд
+  SELECT-группа автоматически переключает `selected_idx` на следующий рабочий сервер
+- `proxy_group.c`: добавлен `pg_select_rotate` — выбирает сервер с наименьшим
+  `fail_count` среди реализованных транспортов; пропускает grpc/ws/xhttp/udp
+- `proxy_group.c`: добавлен `transport_is_implemented` — централизованный helper;
+  используется в трёх местах: начальный выбор при старте, `pg_select_rotate`,
+  url-test HC пропуск; заменил разрозненные inline сравнения transport полей
+- `proxy_group.c`: SELECT-группы теперь участвуют в `proxy_group_tick`;
+  через 120 секунд тишины fail_count сбрасывается, сервер восстанавливается
+- `dispatcher.c`, `dispatcher.h`, `proxy_group.h`, `main.c`: добавлен
+  `dispatcher_set_pgm` — связывает dispatcher и proxy_group_manager для failover;
+  вызов добавлен в init-путь и reload-путь main.c
+- `dispatcher.c`: убраны debug логи `relay→client: n=...` и `vless_connect: domain=...`
+
 ## [1.5.30] — 2026-05-01
 
 ### fix: MIPS errno clobber в drain:D + убраны debug логи
