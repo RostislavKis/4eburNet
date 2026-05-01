@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.30] — 2026-05-01
+
+### fix: MIPS errno clobber в drain:D + убраны debug логи
+
+- `dispatcher.c`: фикс errno clobber на MIPS в петле upstream→client drain;
+  `log_msg` вызывает `localtime()` внутри, что затирает errno через glibc TZ lookup;
+  добавлен `saved_errno_d = errno` до вызова `log_msg` — без этого `errno != EAGAIN`
+  срабатывал ложно → `RELAY_CLOSING` → `relay_free` после первого же drain EAGAIN;
+  симптом: YouTube открывал соединение, доставлял TLS ServerHello (out≈4600 байт),
+  затем relay умирал не дождавшись ClientHello → сессия обрывалась
+- `dispatcher.c`: убраны временные диагностические логи сессии отладки:
+  `drain:A/B/C/D/E/F`, `vdc:`, `relay closed: in=...`, `relay half-close: ...`
+- `vision.c`: убран диагностический лог `unpad: in=... out=... cmd=...`
+- `vision.c`: `vision_unpad: invalid cmd=...` и `TLS passthrough detected`
+  переведены с `LOG_INFO` на `LOG_WARN`
+
 ## [1.5.26] — 2026-04-30
 
 ### gRPC penalty UINT32_MAX + PUT /proxies/{group} + Trojan transport fix
