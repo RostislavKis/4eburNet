@@ -1,5 +1,118 @@
 # Changelog
 
+## [1.5.59] — 2026-05-02
+
+### fix: gRPC recv — удалён LOG_INFO из hot path (MIPS errno clobber → YouTube)
+
+- `grpc.c` `grpc_recv`: удалён `log_msg(LOG_INFO, "gRPC frame: ...")` из inner loop.
+  На MIPS `log_msg` вызывает `localtime()` → затирает `errno` после `recv_fn()`.
+  Вызывался на каждый H2 frame → ложный ECONNRESET/EAGAIN → relay закрывался
+  раньше времени → YouTube нестабильно (lifetime 1-2s вместо 43-79s).
+- Подтверждено на EC330: Trojan/gRPC lifetimes 18-79s, `out` до 334KB за сессию.
+
+## [1.5.49] — 2026-05-02
+
+### fix: gRPC Trojan — откат path-fix + forced drain + GOAWAY диагностика
+
+- `grpc.c` `grpc_build_hpack`: **откат v1.5.48 path-fix** — оказалась регрессией.
+  С путём `"/56169/jYYkwHZR"` (без `/Tun`) xray не отвечал вообще (lifetime=61s).
+  Сервер xray ожидает `"/56169/jYYkwHZR/Tun"` — subscr. хранит имя с ведущим `/`
+  для совместимости с mihomo, который его стрипает перед добавлением `/Tun`.
+  Восстановлено: `strip('/')` + `/{name}/Tun` для всех service-name.
+- `dispatcher.c` RELAY_GRPC_HS Trojan branch: добавлен forced drain после
+  `RELAY_ACTIVE` перехода (upstream + client side), как у VLESS+Reality.
+  Причина: с `EPOLLET` кадры (`WINDOW_UPDATE`, `SETTINGS`) из HS-burst остаются
+  в wolfSSL buffer — `EPOLLIN` не придёт до новых TCP байт → flow control окна
+  не обновляются, iPhone ClientHello не доходит до xray.
+- `grpc.c` `grpc_recv`: `GOAWAY`/`RST_STREAM` log поднят с `LOG_DEBUG` → `LOG_INFO`
+  для диагностики `out=0` кейса.
+
+## [1.5.48] — 2026-05-02 [ОТКАТ в v1.5.49]
+
+### fix: gRPC — неверный HTTP/2 path для кастомных service-name (оказалась регрессией)
+
+- `grpc.c` `grpc_build_hpack`: реализована логика mihomo `ServiceNameToPath`.
+  Если `grpc-service-name` начинается с `/` — путь используется как есть, без `/Tun`.
+  Оказалось: сервер xray зарегистрирован на `/{name}/Tun`, leading `/` в подписке
+  только для совместимости → v1.5.49 откатил.
+
+## [1.5.46] — 2026-05-02
+
+### fix: gRPC — отсутствовала protobuf Hunk{data=1} обёртка (root cause out=0)
+
+- `grpc.c`: `grpc_send` теперь оборачивает payload в protobuf `Hunk{bytes data=1}`:
+  LPM message = `\x0a` + `varint(len)` + `data`. xray-core GunService.Tun ожидает
+  именно protobuf stream<Hunk>. Без обёртки `proto.Unmarshal` возвращал пустой
+  Hunk.Data → xray форвардил nil → keepalive timeout 15s → GOAWAY → `out=0`.
+- `grpc.c`: `grpc_recv` теперь стрипает protobuf prefix перед форвардингом в TLS:
+  читает `\x0a` (field tag) + varint (длина данных), затем возвращает только чистые
+  байты. Состояние парсера (`pb_hdr_len`, `pb_done`, `pb_data_len`) хранится в
+  `grpc_conn_t` — корректно переживает EAGAIN/re-entry.
+- `GRPC_SEND_CHUNK` уменьшен с 498 до 495 байт: 3 байта protobuf prefix вписываются
+  в стековый лимит 512 байт (`GRPC_PB_HDR_MAX = 3`).
+- `grpc.h`: добавлены поля `pb_hdr_len`, `pb_done`, `pb_data_len` в `grpc_conn_t`.
+
+## [1.5.45] — 2026-05-02
+
+### fix: gRPC content-type application/grpc+proto → application/grpc
+
+- `grpc.c`: заголовок `content-type` изменён с `application/grpc+proto` на
+  `application/grpc`. Ряд серверных реализаций grpc-go (включая xray-core) используют
+  `strings.HasPrefix(ct, "application/grpc")` для проверки типа, однако
+  `mime.ParseMediaType("application/grpc+proto").type != "application/grpc"` в
+  некоторых версиях приводит к `415 Unsupported Media Type` → `out=0`.
+  Mihomo, sing-box и официальный grpc-go клиент используют `application/grpc` без суффикса.
+
+## [1.5.44] — 2026-05-02
+
+### fix: gRPC out=0 — два корневых дефекта устранены
+
+**Дефект 1 — обрезка данных в grpc_send (relay_transfer):**
+- `dispatcher.c`: `relay_transfer` читала `n` байт из `client_fd`, но `grpc_send`
+  отправляла только первые 498 байт (`GRPC_SEND_CHUNK`), остаток терялся при
+  следующем `read()`. TLS ClientHello iPhone обычно 500-600 байт → сервер получал
+  обрезанный ClientHello → не мог распарсить TLS record → `out=0`.
+- Исправлено: вызов `grpc_send` заменён на цикл до отправки всех `n` байт.
+
+**Дефект 2 — отсутствие SETTINGS ACK в active фазе (grpc_recv):**
+- `grpc.c`: в `grpc_recv` все не-DATA фреймы дрейнились без обработки; при
+  получении `H2_SETTINGS` от сервера в active фазе (после handshake) ACK не
+  отправлялся. По RFC 7540 §6.5 сервер (xray/v2ray) ждёт ACK, при timeout (~15s)
+  шлёт GOAWAY → relay закрывается с `out=0 lifetime=15s`.
+- Исправлено: `H2_SETTINGS` в `grpc_recv` явно обрабатывается: drain payload +
+  отправить `SETTINGS_ACK` если флаг ACK не выставлен.
+
+*Оба дефекта одновременно объясняли картину `in=498 out=0 lifetime=15s`.*
+
+## [1.5.43] — 2026-05-02
+
+### fix: gRPC Trojan client_sent_first + cascade failover reduction
+
+- `dispatcher.c`: при переходе `GRPC_HS→ACTIVE` для Trojan устанавливается
+  `r->client_sent_first = true`, чтобы upstream→client forwarding не блокировался
+  guard'ом при первом EPOLLIN от сервера
+- `proxy_group.c`: `PROXY_GROUP_FAIL_THRESHOLD` поднят с 3 до 6 — burst из 5
+  EPOLLRDHUP при старте не вызывает мгновенный failover
+- `proxy_group.c`: добавлен `proxy_group_mark_server_ok` — сбрасывает `fail_count`
+  при успешном Reality/VLESS HS, предотвращая накопление счётчика от смешанных
+  burst
+- `dispatcher.c`: убраны два debug лога в gRPC upstream path
+
+## [1.5.32] — 2026-05-02
+
+### fix: начальный выбор SELECT-группы + url-test failover + убраны диагностические логи
+
+- `proxy_group.c`: начальный выбор SELECT-группы при старте теперь корректно
+  вызывается для каждой группы; ранее блок `selected_idx = 0` пропускал итерацию
+  по серверам из-за отсутствующего `i++` или неверного условия — GEMINI выбирал
+  `[1] VLESS Reality` вместо `[0] Trojan gRPC`, потому что transport_is_implemented
+  для "grpc" вернул false (до v1.5.31 grpc отсутствовал в списке реализованных)
+- `proxy_group.c`: добавлен url-test failover в `proxy_group_mark_server_fail`:
+  при 3+ ошибках HS сервер выставляется `available=false` в URL_TEST группах
+- `proxy_group.c`: убраны временные диагностические WARN логи `SELECT_INIT`,
+  `начальный_проверка`, `начальный_транспорт`, `mark_fail`
+- `dispatcher.c`: упрощён лог EPOLLRDHUP в Reality HS (убраны `srv=%d pgm=%p`)
+
 ## [1.5.31] — 2026-05-01
 
 ### failover Selector при EPOLLRDHUP + transport_is_implemented
