@@ -2,13 +2,47 @@
 
 ## [1.5.59] — 2026-05-02
 
-### fix: gRPC recv — удалён LOG_INFO из hot path (MIPS errno clobber → YouTube)
+### Fixed
+- `grpc_recv`: удалён `LOG_INFO` из hot path — `log_msg→localtime()` на MIPS затирал
+  `errno` после `recv_fn()` на каждый H2 frame → ложный ECONNRESET/EAGAIN → relay
+  закрывался с lifetime 1-2s. После фикса Trojan/gRPC lifetimes 18-79s, out до 334KB.
+- `grpc_recv`: cross-frame gRPC message boundary — `msg_content_rem` ограничен
+  остатком текущего DATA frame; при его исчерпании переход к следующему frame header.
+- `grpc_drain`: передаётся по указателю `uint32_t *n` для корректного resume
+  при EAGAIN — остаток сохраняется в `g->drain_rem` без overdrain в следующий фрейм.
 
-- `grpc.c` `grpc_recv`: удалён `log_msg(LOG_INFO, "gRPC frame: ...")` из inner loop.
-  На MIPS `log_msg` вызывает `localtime()` → затирает `errno` после `recv_fn()`.
-  Вызывался на каждый H2 frame → ложный ECONNRESET/EAGAIN → relay закрывался
-  раньше времени → YouTube нестабильно (lifetime 1-2s вместо 43-79s).
-- Подтверждено на EC330: Trojan/gRPC lifetimes 18-79s, `out` до 334KB за сессию.
+## [1.5.58] — 2026-05-02
+
+### Added
+- `grpc_conn_t`: `recv_consumed_conn` / `recv_consumed_stream` — счётчики потреблённых
+  байт для периодической отправки WINDOW_UPDATE серверу каждые 32KB.
+- gRPC transport: `grpc_send_initial_window` — расширение recv window до 1MB при
+  первом 200 OK; `GRPC_INITIAL_WINDOW_EXPAND=983040` (1MB − 65535 начального окна).
+
+### Fixed
+- Trojan/gRPC дедлок: `grpc_handle_hs_frame` возвращает `2` после отправки HEADERS;
+  dispatcher для Trojan немедленно шлёт proto header — xray присылает 200 OK только
+  после получения первого DATA frame, ожидать 200 OK до отправки = взаимный deadlock.
+- `grpc_handle_hs_frame` WINDOW_UPDATE/PING: `while`-цикл вместо одиночного `recv_fn`
+  (wolfSSL может вернуть < 4/8 байт без EAGAIN — частичное чтение из TLS record).
+
+## [1.5.35..1.5.57] — 2026-05-02
+
+### Added/Fixed
+- gRPC transport полная реализация (~780 LoC): H2 connection preface, SETTINGS ACK,
+  HPACK minimal encoder, HEADERS frame (POST /{svc}/Tun), DATA frame с LPM+protobuf,
+  PING PONG, WINDOW_UPDATE flow control, GOAWAY/RST_STREAM handling, drain resume.
+- `grpc_recv` for(;;) loop: обработка wolfSSL pre-fetched TLS records без повторного
+  EPOLLIN — WINDOW_UPDATE / PING / SETTINGS обрабатываются inline, не прерывая recv.
+- `grpc-service-name` парсинг из YAML proxy-provider; URL-escape service name
+  для xray-core compat (path `/56169%2FjYYkwHZR/Tun`).
+- ALPN `h2` для TLS при gRPC транспорте (wolfSSL `SSL_CTX_set_alpn_protos`).
+- `grpc_path_escape`: URL-encode service name по RFC 3986 pchar rules.
+- `grpc_conn_init` / `grpc_conn_t` полная структура состояния с MIPS stack-safe
+  буферами (локальные ≤512 байт).
+- `transport_is_implemented()`: grpc добавлен в список реализованных транспортов.
+- `proxy_group` MAIN-PROXY/GEMINI: начальный выбор реализованных транспортов при
+  старте (пропуск ws/xhttp/httpupgrade).
 
 ## [1.5.49] — 2026-05-02
 
