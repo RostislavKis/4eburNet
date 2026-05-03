@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.67] — 2026-05-03
+
+### Fixed
+
+- `main.c`: SIGHUP теперь всегда регистрируется как reload (было: `if (!daemon_mode) → shutdown`)
+  Root cause: procd запускает без `-d` → `daemon_mode=false` → SIGHUP убивал процесс
+  Фикс: безусловная регистрация `sigaction(SIGHUP, &sa_reload, NULL)`
+
+### Notes
+
+- T0-01/T0-02 Reality params и Vision — реализованы в v1.5.2–v1.5.3 (не баги)
+- Fake-ip рассинхрон P0.1 — устарел, UCI корректен (`198.18.0.0/16`)
+- RULE-SET engine — реализован, `ruleset_match_domain`/`ruleset_match_ip` работают
+
 ## [1.5.66] — 2026-05-03
 
 ### Added
