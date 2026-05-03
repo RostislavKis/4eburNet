@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.60] — 2026-05-03
+
+### Added
+
+- `hc_vless.c` `child_do_hc_trojan_grpc`: полный HC для Trojan/gRPC вместо TCP-only RTT.
+  Измеряет TCP+TLS(ALPN=h2)+HTTP/2 handshake+Trojan header — как mihomo url-test.
+  Причина: TCP-only RTT = 1-5ms → url-test всегда выбирал Bulgaria (1ms) вместо
+  реально лучшего сервера. После фикса: Switzerland/Germany/Sweden (180-430ms).
+
+### Fixed
+
+- `proxy_group.c` `proxy_group_init`: `next_check = time(NULL)` вместо `time(NULL) + 3s`.
+  При старте `selected_idx=0` (первый по алфавиту провайдера) — без немедленного HC
+  демон 60-120с роутил трафик через него. Теперь HC стартует на первом же тике.
+
 ## [1.5.59] — 2026-05-02
 
 ### Fixed
