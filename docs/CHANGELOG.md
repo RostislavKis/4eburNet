@@ -4,36 +4,44 @@
 
 ### Changed
 
-- `grpc_recv`: переписан как явный switch/case state machine (`grpc_recv_state_t`)
-  без goto. Пять состояний: `GRPC_RECV_FRAME_HDR`, `GRPC_RECV_CTRL_DATA`,
-  `GRPC_RECV_LPM_HDR`, `GRPC_RECV_PB_HDR`, `GRPC_RECV_DATA`. Re-entry при EAGAIN
-  детерминирован — state сохранён в `grpc_conn_t`.
-- `grpc_conn_t`: новые поля взамен разрозненных: `recv_state`, `ctrl_buf[8]`,
-  `ctrl_buf_len`, `lpm_hdr/lpm_hdr_len/lpm_content_rem`, `pb_varint_done`, `data_rem`.
+- `grpc.c`: `grpc_recv` переписан как явный switch/case state machine
+  (5 состояний: `FRAME_HDR`/`CTRL_DATA`/`LPM_HDR`/`PB_HDR`/`DATA`) без единого goto.
+- `grpc.h`: `grpc_recv_state_t` enum + поля `ctrl_buf[8]`, `lpm_hdr[5]`,
+  `pb_varint_done`, `data_rem`, `recv_state` в `grpc_conn_t`.
   Убраны `msg_hdr`, `msg_hdr_len`, `msg_content_rem`, `pb_done` (флаг-хак `0xFF`).
 
 ### Fixed
 
-- `proxy_group.c`: глобальный лимит HC child процессов `PROXY_GROUP_GLOBAL_HC_LIMIT=8`
-  по всем группам одновременно. Счётчик `hc_total_active` в `proxy_group_manager_t`.
-  До фикса: 4 url_test группы × 8 слотов = 32 fork одновременно → OOM на EC330
-  (116MB RAM, wolfSSL ~3-4MB каждый) → watchdog reboot.
-  После: uptime 8+ минут, url-test результаты стабильно появляются.
+- `proxy_group`: `PROXY_GROUP_GLOBAL_HC_LIMIT=8` — глобальный лимит HC child
+  процессов по всем группам одновременно (счётчик `hc_total_active` в
+  `proxy_group_manager_t`).
+- OOM на EC330 (116MB) при старте: GEMINI+MAIN-PROXY×8 слотов = 32 fork
+  одновременно → watchdog reboot. После фикса: uptime 8+ минут, url-test
+  результаты стабильно появляются.
+- `grpc_recv` re-entry при EAGAIN: детерминированный по state (не goto).
 
 ## [1.5.60] — 2026-05-03
 
 ### Added
 
-- `hc_vless.c` `child_do_hc_trojan_grpc`: полный HC для Trojan/gRPC вместо TCP-only RTT.
+- `proxy_group`: параллельный HC (`hc_slot_t × 8`, spawn_time expiry 25с).
+- `proxy_group`: `PROXY_GROUP_HC_SLOTS=8`, глобальный cursor.
+- `hc_vless.c`: полный TLS+gRPC HC для Trojan/gRPC (вместо TCP-only RTT=1ms).
   Измеряет TCP+TLS(ALPN=h2)+HTTP/2 handshake+Trojan header — как mihomo url-test.
-  Причина: TCP-only RTT = 1-5ms → url-test всегда выбирал Bulgaria (1ms) вместо
-  реально лучшего сервера. После фикса: Switzerland/Germany/Sweden (180-430ms).
+- `proxy_group_init`: `next_check=now` — немедленный HC при старте
+  (вместо `time(NULL) + 3s`, иначе 60-120с трафик шёл через `selected_idx=0` вслепую).
+- `proxy_group`: tolerance=150ms при выборе `best_i` (гистерезис как в mihomo).
 
 ### Fixed
 
-- `proxy_group.c` `proxy_group_init`: `next_check = time(NULL)` вместо `time(NULL) + 3s`.
-  При старте `selected_idx=0` (первый по алфавиту провайдера) — без немедленного HC
-  демон 60-120с роутил трафик через него. Теперь HC стартует на первом же тике.
+- `return→continue` баг (proxy_group.c строка 465): группы `1..N` не обслуживались
+  при active HC в группе 0.
+- Bulgaria Trojan gRPC `latency_ms=1ms` → честные 182-432ms после полного TLS HC.
+
+### Changed
+
+- UCI: GEMINI и MAIN-PROXY → `url_test`, PROXY группа удалена.
+- TELEGRAM/DISCORD/AWG Group → только AWG серверы.
 
 ## [1.5.59] — 2026-05-02
 
