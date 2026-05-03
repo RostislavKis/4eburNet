@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.64] — 2026-05-03
+
+### Added
+
+- `http_upgrade.h` + `http_upgrade.c`: HTTPUpgrade transport T0-06 (~110 LoC)
+  - HTTP GET без `Sec-WebSocket-Key` (IsV2rayHttpUpdate по xray-core/mihomo)
+  - После 101 Switching Protocols: raw TCP (нет WS frame framing, нет маскировки)
+  - `hc_vless.c`: `child_do_hc_http_upgrade` — полный TLS+HTTP Upgrade HC
+- `dispatcher.c`: `RELAY_HTTP_UG_HS=20`, после 101 → `RELAY_VLESS_SHAKE` (raw TCP path)
+- `proxy_group.c`: `transport_is_implemented("httpupgrade")` → true
+
+### Fixed
+
+- `proxy_provider.c`: `httpupgrade` транспорт больше не маппится в `xhttp` (2 места: URI parser + YAML network field). HTTPUpgrade и XHTTP — разные протоколы.
+
+### Notes
+
+- E2E верификация требует сервера с `network: httpupgrade` в конфиге провайдера
+
 ## [1.5.63] — 2026-05-03
 
 ### Added
