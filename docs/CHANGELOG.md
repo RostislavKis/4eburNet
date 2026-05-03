@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.62] — 2026-05-03
+
+### Added
+
+- `proxy_provider.c`: парсинг `ws-opts` sub-block из Clash YAML.
+  Флаг `in_ws_opts`, обработка `path:` и `headers.Host:` при indent≥6.
+  Фиксы: `in_ws_opts` не сбрасывался при новом прокси (Баг #2);
+  условие базовых полей не учитывало `in_ws_opts` (Баг #1).
+- `hc_vless.c`: `child_do_hc_vless_ws` — полный TLS+HTTP Upgrade HC для
+  VLESS/Trojan+WS серверов. Использует реальный `ws_path` из провайдера.
+
+### Fixed
+
+- `child_do_hc_vless_ws`: убран цикл повтора на `EAGAIN`. На blocking сокете
+  с `SO_RCVTIMEO` `EAGAIN` означает таймаут — один вызов `ws_client_handshake_step`
+  достаточен. Было: 512×2с=17мин зависание HC child.
+
 ## [1.5.61] — 2026-05-03
 
 ### Changed
