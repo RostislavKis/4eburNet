@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.5.63] — 2026-05-03
+
+### Added
+
+- `vless_xhttp.c` + `vless_xhttp.h`: VLESS XHTTP/SplitHTTP транспорт T0-05 — полная переработка.
+  - Протокол: HTTP/2 (ALPN=h2) поверх TLS, Content-Type: application/grpc.
+  - Session ID в URL path (`/path/{sessionID}/`) — PlacementPath, default по reference impl.
+  - **stream-one** режим: один двунаправленный H2 POST (upload = тело запроса, download = тело ответа).
+    Используется при Reality (reality_pbk ≠ ""), fd_dn=-1.
+  - **stream-up** режим: два отдельных H2 stream с общим sessionID (GET download + POST upload).
+  - H2 CLIENT_PREFACE (24 байт magic + пустой SETTINGS frame).
+  - HPACK minimal encoding — literal header never-indexed (0x10 prefix), heap-allocated (MIPS stack ≤512B).
+  - Flow control: send_window + stream_send_window, DATA frame max 16384 байт.
+  - Re-entrant recv state machine: XHTTP_RECV_H2_HDR → CTRL → DATA.
+    Обрабатывает SETTINGS/WINDOW_UPDATE/PING/GOAWAY без блокировки epoll loop.
+  - WINDOW_UPDATE 26 байт (connection + stream) после каждого DATA блока.
+- `dispatcher.c`: stream-one интеграция — при `download_fd < 0` skip ep_download,
+  send_upload_request + send_download_request в одном шаге RELAY_XHTTP_UP_TLS.
+
+### Fixed
+
+- vless_xhttp: убран HTTP/1.1 chunked TE — HTTP/2 использует DATA frames.
+- vless_xhttp: Content-Type исправлен на `application/grpc` (требование xray/sing-box серверов).
+- vless_xhttp: session ID перенесён из query string в URL path.
+
 ## [1.5.62] — 2026-05-03
 
 ### Added
