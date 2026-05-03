@@ -4,26 +4,23 @@
 
 ### Added
 
-- `vless_xhttp.c` + `vless_xhttp.h`: VLESS XHTTP/SplitHTTP транспорт T0-05 — полная переработка.
-  - Протокол: HTTP/2 (ALPN=h2) поверх TLS, Content-Type: application/grpc.
-  - Session ID в URL path (`/path/{sessionID}/`) — PlacementPath, default по reference impl.
-  - **stream-one** режим: один двунаправленный H2 POST (upload = тело запроса, download = тело ответа).
-    Используется при Reality (reality_pbk ≠ ""), fd_dn=-1.
-  - **stream-up** режим: два отдельных H2 stream с общим sessionID (GET download + POST upload).
-  - H2 CLIENT_PREFACE (24 байт magic + пустой SETTINGS frame).
-  - HPACK minimal encoding — literal header never-indexed (0x10 prefix), heap-allocated (MIPS stack ≤512B).
-  - Flow control: send_window + stream_send_window, DATA frame max 16384 байт.
-  - Re-entrant recv state machine: XHTTP_RECV_H2_HDR → CTRL → DATA.
-    Обрабатывает SETTINGS/WINDOW_UPDATE/PING/GOAWAY без блокировки epoll loop.
-  - WINDOW_UPDATE 26 байт (connection + stream) после каждого DATA блока.
-- `dispatcher.c`: stream-one интеграция — при `download_fd < 0` skip ep_download,
-  send_upload_request + send_download_request в одном шаге RELAY_XHTTP_UP_TLS.
+- `vless_xhttp.c`: полная переработка XHTTP transport (T0-05)
+  - HTTP/2 (ALPN=h2) вместо HTTP/1.1+chunked
+  - Content-Type: application/grpc (как xray-core)
+  - Session ID в URL path (/path/{sessionID}/) вместо заголовка
+  - stream-one режим: один H2 bidirectional stream (для Reality)
+  - stream-up режим: GET(download) + POST(upload) на двух соединениях
+  - switch/case recv state machine без goto (XHTTP_RECV_H2_HDR/CTRL/DATA)
+  - WINDOW_UPDATE, PING ACK, SETTINGS ACK
+- `dispatcher.c`: stream-one интеграция (dl_fd=-1 при Reality)
 
-### Fixed
+### Changed
 
-- vless_xhttp: убран HTTP/1.1 chunked TE — HTTP/2 использует DATA frames.
-- vless_xhttp: Content-Type исправлен на `application/grpc` (требование xray/sing-box серверов).
-- vless_xhttp: session ID перенесён из query string в URL path.
+- `vless_xhttp.h`: новый API совместимый с dispatcher, xhttp_state_t переработан
+
+### Notes
+
+- Верификация end-to-end требует XHTTP сервера в конфиге провайдера
 
 ## [1.5.62] — 2026-05-03
 
