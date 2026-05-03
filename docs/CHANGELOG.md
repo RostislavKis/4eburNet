@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.65] — 2026-05-03
+
+### Added
+
+- hysteria2.c: `hysteria2_connect_step` — неблокирующий шаг QUIC handshake
+- hysteria2.c: `hysteria2_wait_response_step` — неблокирующий шаг TCPResponse
+- dispatcher: `RELAY_HY2_CONNECT` — полноценный async state (2 фазы: QUIC HS + TCP stream)
+- dispatcher: `hysteria2_protocol_start` — инициализация без блокировки event loop
+- dispatcher: регистрация UDP fd в epoll для `RELAY_HY2_CONNECT`
+
+### Changed
+
+- Hysteria2 интеграция переработана: синхронный connect заменён на async state machine
+  (аналог `RELAY_GRPC_HS` / `RELAY_REALITY_HS`)
+
 ## [1.5.64] — 2026-05-03
 
 ### Added
