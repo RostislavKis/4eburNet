@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.5.66] — 2026-05-03
+
+### Added
+
+- `dns_cache.h`: `dns_cache_result_t` enum (HIT / MISS / STALE / STALE_REVALIDATING)
+- `dns_cache.h`: поля `stale_until` + `revalidating` в `dns_cache_entry_t` (RFC 8767)
+- `dns_cache.c`: stale-while-revalidate — при истёкшем TTL отдаём stale с TTL=30, триггерим async refresh
+- `dns_cache.c`: `dns_patch_answer_ttl()` — wire-format патч TTL всех answer RR (без heap alloc)
+- `dns_resolver.h`: поля `query_key` + `is_leader` + `is_cache_refresh` в `dns_pending_t`
+- `dns_resolver.c`: `dns_pending_add_follower()` — follower ожидает ответа leader без upstream запроса
+- `dns_server.c`: singleflight dedup — одна upstream query на N одинаковых запросов (leader/follower)
+- `dns_server.c`: форс-дрейн `handle_udp_query(ds)` сразу после `epoll_ctl ADD udp_fd` (ФИКС 2)
+- `dns_server.c`: rate table linear probing `RATE_PROBE_LIMIT=4` вместо collision miss
+- `hc_vless.c`: `child_do_hc_vless_xhttp` — полный TLS(ALPN=h2)+HTTP/2 HC для VLESS/XHTTP
+- `proxy_group.h`: `PROXY_GROUP_GLOBAL_HC_LIMIT=16` (было 8)
+- `proxy_group.c`: `transport_is_implemented("xhttp")` → true (T0-05 разблокирован в url-test)
+
+### Fixed
+
+- `dns_server.c`: удалён мёртвый `tcp_buf` (объявление + free)
+- `dns_server.c`: исправлен ложный комментарий EPOLLET в `accept_tcp_client` (режим LT, не ET)
+- `dns_server.c`: убран const-cast в `dns_server_is_pending_fd`
+- XHTTP серверы: `latency_ms=UINT32_MAX` → реальный TLS+H2 HC 843–1259ms (bg1/ca1/ch1/de2 ✅)
+- `proxy_group.c`: стале комментарий `transport_is_implemented` обновлён
+
 ## [1.5.65] — 2026-05-03
 
 ### Added
