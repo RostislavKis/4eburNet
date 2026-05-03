@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.5.61] — 2026-05-03
+
+### Changed
+
+- `grpc_recv`: переписан как явный switch/case state machine (`grpc_recv_state_t`)
+  без goto. Пять состояний: `GRPC_RECV_FRAME_HDR`, `GRPC_RECV_CTRL_DATA`,
+  `GRPC_RECV_LPM_HDR`, `GRPC_RECV_PB_HDR`, `GRPC_RECV_DATA`. Re-entry при EAGAIN
+  детерминирован — state сохранён в `grpc_conn_t`.
+- `grpc_conn_t`: новые поля взамен разрозненных: `recv_state`, `ctrl_buf[8]`,
+  `ctrl_buf_len`, `lpm_hdr/lpm_hdr_len/lpm_content_rem`, `pb_varint_done`, `data_rem`.
+  Убраны `msg_hdr`, `msg_hdr_len`, `msg_content_rem`, `pb_done` (флаг-хак `0xFF`).
+
+### Fixed
+
+- `proxy_group.c`: глобальный лимит HC child процессов `PROXY_GROUP_GLOBAL_HC_LIMIT=8`
+  по всем группам одновременно. Счётчик `hc_total_active` в `proxy_group_manager_t`.
+  До фикса: 4 url_test группы × 8 слотов = 32 fork одновременно → OOM на EC330
+  (116MB RAM, wolfSSL ~3-4MB каждый) → watchdog reboot.
+  После: uptime 8+ минут, url-test результаты стабильно появляются.
+
 ## [1.5.60] — 2026-05-03
 
 ### Added
