@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.5.68] — 2026-05-03
+
+### Added
+
+- `tools/geo_dat_parser.c` + `geo_dat_parser.h`: потоковый parser v2fly GeoIP/GeoSite .dat
+  - Читает только нужную страну/категорию без загрузки всего файла в RAM
+  - RAM ≤ max_entry_size (~320KB для RU), не 23MB
+  - Тест: RU GeoIP = 21448 CIDR, CATEGORY-RU GeoSite = 803 доменов
+- `tools/geo_mmdb_parser.c` + `geo_mmdb_parser.h`: MaxMind .mmdb reader
+  - mmap + DFS traverse B-tree, экспорт одной страны в .lst
+  - Без libmaxminddb (нет внешних зависимостей)
+  - Тест: RU = 13117 CIDR из GeoLite2-Country.mmdb
+- `tools/update_geo.py`: `extract_from_dat` + `extract_from_mmdb` + Python fallback
+  - `--refs-geo` параметр для использования локальных .dat/.mmdb файлов
+
+### Notes
+
+- `geo_loader.c` и `.gbin` формат не изменены — существующий пайплайн совместим
+- Пайплайн: `.dat`/`.mmdb` → `geo_dat_parser`/`geo_mmdb_parser` → `.lst` → `geo_compile` → `.gbin`
+- geosite.dat коды uppercase: RU домены = `CATEGORY-RU` (803 записи)
+
 ## [1.5.67] — 2026-05-03
 
 ### Fixed
