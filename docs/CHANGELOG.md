@@ -4,18 +4,16 @@
 
 ### Added
 
-- `proxy_provider.c`: парсинг `ws-opts` sub-block из Clash YAML.
-  Флаг `in_ws_opts`, обработка `path:` и `headers.Host:` при indent≥6.
-  Фиксы: `in_ws_opts` не сбрасывался при новом прокси (Баг #2);
-  условие базовых полей не учитывало `in_ws_opts` (Баг #1).
-- `hc_vless.c`: `child_do_hc_vless_ws` — полный TLS+HTTP Upgrade HC для
-  VLESS/Trojan+WS серверов. Использует реальный `ws_path` из провайдера.
+- `ws_client.h` + `ws_client.c`: WebSocket client transport T0-04 (HTTP Upgrade, MASK=1, switch/case recv)
+- `hc_vless.c`: `child_do_hc_vless_ws` — полный TLS+HTTP Upgrade HC для VLESS/WS
+- `proxy_provider.c`: парсинг `ws-opts.path` и `ws-opts.headers.Host` из Clash YAML
+- `config.h`: поля `ws_path[256]`, `ws_host[256]` в `ServerConfig`
+- `transport_is_implemented`: `"ws"` → разблокированы ~20 Vless/ws серверов в url-test
 
 ### Fixed
 
-- `child_do_hc_vless_ws`: убран цикл повтора на `EAGAIN`. На blocking сокете
-  с `SO_RCVTIMEO` `EAGAIN` означает таймаут — один вызов `ws_client_handshake_step`
-  достаточен. Было: 512×2с=17мин зависание HC child.
+- WS url-test latency: TCP-only RTT 2ms → реальный TLS+HTTP Upgrade 170ms
+- `hc_vless_ws`: устранено 17-минутное зависание (blocking socket + SO_RCVTIMEO)
 
 ## [1.5.61] — 2026-05-03
 
