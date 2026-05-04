@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.5.70] — 2026-05-04
+
+### Fixed
+
+- `main.c` + `nftables.c` + `nftables.h`: ip_cidr правила нацеленные на прокси теперь
+  автоматически добавляются в `proxy_addrs` set и DNAT redirect при старте демона
+- `nft_dnat_add_cidr4()`: новая функция для добавления одного IPv4 CIDR в `ip eburnet_nat`
+  prerouting — redirect to :7893 без пересоздания всей таблицы
+- Telegram (149.154.160.0/20, 91.108.x.x) и любые будущие ip_cidr правила теперь
+  перехватываются TPROXY автоматически без ручного `nft add rule` после каждого перезапуска
+
+## [1.5.69] — 2026-05-04
+
+### Added
+
+- `core/src/geo/geo_dat_parser.c` + `core/include/geo/geo_dat_parser.h`: потоковый парсер
+  v2fly GeoIPList/GeoSiteList .dat встроен в демон напрямую (не только tools/)
+- `core/src/geo/geo_mmdb_parser.c` + `core/include/geo/geo_mmdb_parser.h`: MaxMind .mmdb
+  парсер встроен в демон напрямую
+- `geo_loader.c`: 4 новые функции — `geo_load_category_text`, `dat_extract_code`,
+  `geo_load_category_dat`, `geo_load_category_mmdb`; dispatch по расширению файла
+  (.dat → streaming protobuf, .mmdb → DFS mmap, .gbin → binary mmap, .lst → text)
+- `main.c`: `geo_find_path()` — авто-детект формата (приоритет: .gbin → .dat → .mmdb → .lst)
+  для категорий `geoip-{region}` и `geosite-{region}`
+
+### Notes
+
+- Промежуточный .lst пишется в /tmp (tmpfs) и сразу удаляется после загрузки
+- EC330 тест: `geoip-ru.dat` → `загружено из .dat [RU]: 12662 IPv4, 8786 IPv6` (21448 итого) ✅
+- geosite-ru, ads, trackers, threats — не скопированы на EC330 (не в scope этой задачи)
+
 ## [1.5.68] — 2026-05-03
 
 ### Added
