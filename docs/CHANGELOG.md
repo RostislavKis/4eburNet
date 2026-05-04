@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.5.74] — 2026-05-04
+
+### Added
+
+- `hc_vless.c` / `child_do_hc_vless_tcp`: TLS handshake HC для VLESS/TCP plain (без Reality).
+  Аналог `child_do_hc_vless_ws` — только без HTTP Upgrade. Измеряет реальную latency туннеля
+  (50-400ms) вместо TCP RTT (1-2ms через fake-ip redirect)
+
+### Fixed
+
+- `proxy_group.c`: убран guard `!srv->source_provider[0]` перед вызовом `hc_vless_spawn`.
+  Guard блокировал честный HC для всех провайдерных серверов (PrivateVPN, ARZA) — они шли
+  через `net_spawn_tcp_ping` → fake-ip DNS → 2ms для любого сервера в мире
+- `hc_vless.c` / VLESS/TCP условие: добавлен `transport="raw"` в фильтр TLS HC.
+  URI парсер при `type=tcp` ставит `transport="raw"` (else-ветка), не `"tcp"` / `""`
+- `hc_vless.c` / TCP RTT path: восстановлено условие `if (!vless || !reality_pbk)`
+  перед `_exit(0)` — новый безусловный блок `{}` обрывал Reality HC для VLESS/Reality серверов
+
+### Result
+
+- Finland Helsinki² VLESS/TCP: **164ms** (TLS HC) — выбирается справедливо
+- Canada Toronto VLESS/TCP: **400ms** (TLS HC)
+- VLESS/TCP plain больше не побеждает url-test с нечестными 2ms
+
 ## [1.5.72] — 2026-05-04
 
 ### Fixed
