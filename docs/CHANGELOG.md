@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.5.72] — 2026-05-04
+
+### Fixed
+
+- `dispatcher.c` / `relay_free`: добавлена проверка `r->tls != NULL` перед
+  `tls_close()` — XHTTP протокол устанавливает `use_tls=true` но не заполняет
+  `relay->tls` (TLS внутри `xhttp_state`), что вызывало SIGSEGV при освобождении
+  реле (`do_page_fault: invalid read access from 00000000` в `tls_close`)
+- `dispatcher.c` / XHTTP state machine: добавлены NULL-guard проверки `r->xhttp`
+  в обработчиках `RELAY_XHTTP_UP_TLS`, `RELAY_XHTTP_DN_TLS`, `RELAY_XHTTP_DN_REQ`,
+  `RELAY_XHTTP_ACTIVE` (защита от гонки при досрочном освобождении xhttp_state)
+- `dispatcher.c` / RELAY_WS_HS + RELAY_HTTP_UG_HS: убрана немедленная блокирующая
+  отправка после TLS handshake; вместо этого добавлен `EPOLLOUT` в `epoll_ctl MOD`
+  — решает deadlock при EPOLLET когда граница TLS Finished уже потреблена
+
+### Result
+
+- Устранён систематический SIGSEGV в `4eburnetd` на EC330 при XHTTP соединениях
+  (крэш каждые 5-30 минут, epc=0x411914/0x411e28 в зависимости от сборки)
+- WS и HTTPUpgrade транспорты теперь инициируют handshake корректно через EPOLL
+
+## [1.5.71] — 2026-05-04
+
+### Fixed
+
+- `net_utils.c` / `child_do_tcp_ping`: добавлен `getaddrinfo()` fallback — TCP ping
+  теперь работает с именами хостов (ранее `inet_pton` возвращал ERR для всех
+  провайдерских серверов с доменными адресами → url-test никогда не завершался)
+- `proxy_group.c` / `proxy_group_tick` + `proxy_group_handle_hc_event`: tolerance
+  снижен с 150ms до 30ms во всех трёх точках выбора; при 150ms разрыв Finland(43ms)
+  vs Canada(184ms)=141ms не превышал порог → группа навсегда оставалась на Canada
+- `proxy_group.c` / spawn loop: добавлен `break` при пересечении границы раунда
+  (`cursor % server_count == 0`) — без этого cursor уходил в следующий раунд и
+  round-complete (`hc_active==0 && cursor%N==0`) никогда не срабатывал
+- `proxy_group_tick`: параллельный HC по всем серверам раунда за один вызов (аналог
+  mihomo errgroup), ограниченный `hc_global_limit` (динамически по MemAvailable)
+
+### Result
+
+- GEMINI url-test: переключился с Canada,Toronto(184ms) на Finland,Helsinki²(44ms)
+- PrvtVPN url-test: переключился на Estonia(30ms)
+- Все провайдерские серверы теперь получают реальные латентности через TCP ping
+
 ## [1.5.70] — 2026-05-04
 
 ### Fixed
