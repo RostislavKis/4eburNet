@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.5.76] — 2026-05-04
+
+### Fixed
+
+- `hc_vless.c`: HC URL изменён на `https://www.gstatic.com/generate_204` (HTTPS:443)
+  как в mihomo — серверы не блокируют :443, в отличие от :80 (Finland Helsinki, Switzerland Geneva)
+- `hc_vless.c`: `child_do_hc_vless_tcp` заменён на `child_do_hc_vless_tcp_tunnel` —
+  VLESS/TCP plain теперь идёт через полный туннельный HC (outer TLS + VLESS header +
+  VLESS response check) аналогично mihomo URLTest; HTTP round-trip не нужен — сервер
+  отвечает на VLESS header немедленно (до установки inner-соединения)
+- `hc_vless.c`: добавлен `transport="raw"` в условие туннельного HC (URI парсер при
+  `type=tcp` выставляет `transport="raw"` в else-ветке, а не `""` / `"tcp"`)
+- `proxy_group.c`: убран guard `!srv->source_provider[0]` перед `hc_vless_spawn` —
+  провайдерные серверы (PrivateVPN, ARZA) теперь попадают в честный туннельный HC
+
+### Result
+
+- Finland Helsinki VLESS/TCP: **171ms** (туннельный HC) — стабильно выбирается лучшим
+- YouTube через VLESS/TCP работает стабильно
+
+## [1.5.75] — 2026-05-04
+
+### Added
+
+- `hc_vless.c`: `child_do_hc_vless_tcp` — TLS HC для VLESS/TCP plain как промежуточный шаг
+
+### Notes
+
+- Заменён в v1.5.76 на `child_do_hc_vless_tcp_tunnel` (полный туннельный HC)
+
 ## [1.5.74] — 2026-05-04
 
 ### Added
@@ -23,6 +53,16 @@
 - Finland Helsinki² VLESS/TCP: **164ms** (TLS HC) — выбирается справедливо
 - Canada Toronto VLESS/TCP: **400ms** (TLS HC)
 - VLESS/TCP plain больше не побеждает url-test с нечестными 2ms
+
+## [1.5.73] — 2026-05-04
+
+### Fixed
+
+- `proxy_group.c`: немедленный пересчёт `selected_idx` при `available=false` для URL_TEST —
+  при `proxy_group_mark_server_fail` group сразу переключается на лучший доступный сервер
+  без ожидания следующего HC цикла
+- `proxy_group.c`: `proxy_group_get_server` проверяет `available` перед возвратом сервера —
+  SELECT-группа не отдаёт недоступный сервер даже если `selected_idx` ещё не пересчитан
 
 ## [1.5.72] — 2026-05-04
 
