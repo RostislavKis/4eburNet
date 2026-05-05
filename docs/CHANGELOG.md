@@ -16,6 +16,19 @@
   `now`, `history[0].delay`, runtime `s_pgm->groups[]` уже использовались
   в /proxies handler — дополнения не требовалось.
 
+- **[PERF/KB-3]** `proxy_group.c`: HC stagger при первом старте для url-test групп.
+  4 url-test группы теперь стартуют HC с offset = `idx * 45 / total` сек
+  (4 группы → slots 0/11/22/33 сек) вместо одновременного next_check=now.
+  Предотвращает конкуренцию за `PROXY_GROUP_GLOBAL_HC_LIMIT=16`: при
+  4 группах × 8 серверов = 32 fork → раньше 16 встают в очередь, первый
+  HC цикл удваивался по latency, selected_idx не выставлялся ~120с.
+  Сигнатура `proxy_group_init(pgm, cfg, bool first_start)`: `true` при
+  старте демона, `false` при SIGHUP reload — на reload stagger не
+  применяется (краткосрочная гонка приемлема, зашборду нужны свежие
+  данные сразу после reload). Non-url-test группы (Selector / Fallback /
+  LoadBalance) всегда `next_check=now` — stagger релевантен только для
+  периодических HC. `HC_STAGGER_WINDOW_SEC=45` именованная константа.
+
 ### Verified (no-op)
 
 - **[KB-2]** `rules_engine.c`: `RULE_TYPE_RULE_SET` матчинг **уже реализован**
