@@ -1,5 +1,87 @@
 # Changelog
 
+## [1.5.79] — 2026-05-05
+
+### Added
+
+- **[PERF/G15-1]** `crypto/tls.c`: облегчённый WOLFSSL_CTX `s_hc_ctx`
+  для health-check fork процессов. Session cache OFF, `WOLFSSL_OP_NO_TICKET`,
+  `WOLFSSL_VERIFY_NONE`. WHY: основной кэш CTX держит ~1.5MB session cache
+  для долгоживущих relay-соединений, в HC fork процессах между разными
+  PID она не разделяется — выделенная память бесполезна. На EC330 (128MB)
+  при 6 параллельных HC fork это ~9MB пустой памяти. На 512MB+ устройствах
+  поведение идентично. Cold latency точнее (как mihomo url-test без
+  фоновой prewarming). API: `tls_hc_ctx_init/free`, `tls_hc_connect`.
+  Lazy init guard `tls_hc_connect`: если `s_hc_ctx == NULL` — создаётся
+  на лету с LOG_WARN (defensive для тестов; production main.c init
+  делает явно).
+
+- **[PERF/G15-2]** `mem_tier.c/.h`: runtime адаптация лимитов по
+  `MemAvailable` при старте. Tier'ы: LOW (<64MB), MID (64-256MB),
+  HIGH (>256MB). Один бинарник оптимален для EC330 128MB и Flint2 512MB+.
+  Используется в:
+  - `dispatcher.c`: `g_dispatcher_max_events` (LOW=8, MID=32, HIGH=64) —
+    заменяет MIPS-only хардкод 8 на универсальный механизм.
+  - `dispatcher.c`: `g_relay_drain_per_call` (LOW=4, MID=16, HIGH=32) —
+    заменяет 3 дублирующих `#ifdef __mips__` блока.
+  - `dns_server.c`: `dns_cache_size` fallback с 256 → tier-зависимый
+    (LOW=512, MID=2048, HIGH=8192).
+  - `geo_loader.c`: `MAP_POPULATE` flag для mmap только на HIGH —
+    preload page tables, нет page faults при первом lookup.
+
+- **[FEATURE/G15-3]** `dpi/cdn_updater.c`: `cdn_geo_update()` скачивает
+  pre-built `.gbin` базы с GitHub Releases (`geo-latest` tag), валидирует
+  magic header (`GEO_BIN_MAGIC` + version), atomic rename через tmp,
+  отправляет SIGHUP демону для горячей перезагрузки без рестарта.
+  6 файлов: geoip-ru, geosite-ru/ads/trackers/threats, opencck-domains.
+
+- **[FEATURE/G15-3]** Корневой `Makefile`: пакет `4eburnet-geo`
+  (PKGARCH:=all). `.gbin` — данные, не код, один пакет на mipsel/aarch64/
+  x86_64. Обновляется независимо от 4eburnet через cdn_updater или
+  переустановку пакета.
+
+- **[FEATURE/G15-3]** `core/Makefile.dev`: target `geo-compile-host` —
+  host x86_64 компилятор `geo_compile` для CI/Releases pipeline.
+  Роутер никогда не компилирует `.gbin` — только mmap готовых.
+
+### Fixed
+
+- **[FIX/G15-4]** `tools/sub_convert.py`: `nameserver-policy` Clash YAML
+  теперь генерирует `config dns_policy` секции
+  (pattern, upstream, type, sni) вместо старых `config dns_rule`
+  (domain, upstream). Демон
+  парсит `SECTION_DNS_RULE` только как (type, pattern) — поле upstream
+  игнорировалось, маршрутизация домен→upstream через `dns_rule` НЕ
+  работала. Правильная семантика — `SECTION_DNS_POLICY` с поддержкой
+  DoH/DoT/UDP. Helper `_classify_dns_upstream` определяет тип по схеме URL:
+  `https://...` → type=doh + полный URL + sni из hostname; `tls://`/`dot://`
+  → type=dot; иначе → type=udp.
+
+- **[FIX/G15-4]** EC330 UCI миграция: 6 `dns_rule` (старый игнорируемый
+  формат, 2 битые `https:` записи от обрезки `_extract_ip`) → 6
+  `dns_policy` (правильный). Маршрутизация `+.ru/+.su/+.yandex.ru/+.рф`
+  → 1.1.1.1 UDP теперь работает; `+.google.com/+.generativelanguage`
+  → DoH `https://dns.google/dns-query`.
+
+- **[FIX/G15-5]** EC330 UCI миграция: 7 `traffic_rule` записей с IPv6
+  значениями (4 Telegram `2001:b28:*`, 3 Yandex `2a02:6b8:*`) переключены
+  с `type=ip_cidr` на `type=ip_cidr6`. Раньше main.c вызывал
+  `nft_dnat_add_cidr4()` для IPv6 CIDR → 8 `nft: Could not resolve hostname`
+  ERROR + 4 `DNAT ip_cidr ... ошибка применения правила` WARN при каждом
+  старте. После миграции — 0 nft ошибок.
+
+### Notes
+
+- **EC330 deploy** 2026-05-05: mipsel 2.8MB, mem_tier=LOW
+  (MemAvailable=37MB при старте), TLS HC CTX готов, 6 dns_policy +
+  7 ip_cidr6 в UCI, 0 nft ошибок, DNS работает (ya.ru direct,
+  google.com fake-IP).
+
+- **Known gap**: `_extract_ip` всё ещё обрезает top-level
+  `dns.nameserver` URL'ы (если задан DoH в Clash YAML на главный
+  nameserver, не nameserver-policy). На EC330 не затронуто (выставлен
+  `upstream_default='8.8.8.8'` руками). Фикс отложен до v1.5.80.
+
 ## [1.5.78] — 2026-05-05
 
 ### Fixed
