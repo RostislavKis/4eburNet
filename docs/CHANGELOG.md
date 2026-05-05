@@ -77,10 +77,12 @@
   7 ip_cidr6 в UCI, 0 nft ошибок, DNS работает (ya.ru direct,
   google.com fake-IP).
 
-- **Known gap**: `_extract_ip` всё ещё обрезает top-level
-  `dns.nameserver` URL'ы (если задан DoH в Clash YAML на главный
-  nameserver, не nameserver-policy). На EC330 не затронуто (выставлен
-  `upstream_default='8.8.8.8'` руками). Фикс отложен до v1.5.80.
+### Known limitation
+
+- `_extract_ip` обрезает top-level DoH nameserver URL до `'https:'`
+  (только для `dns.nameserver`/`dns.fallback`, не для `nameserver-policy`).
+  На EC330 не затронуто (`upstream_default='8.8.8.8'` выставлен руками).
+  Fix: v1.5.80.
 
 ## [1.5.78] — 2026-05-05
 
