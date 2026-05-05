@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.77] — 2026-05-05
+
+### Fixed
+
+- **[DATA_CORRUPTION/P2]** `dispatcher.c`: OOM при partial write в `relay_transfer`
+  больше не теряет данные TCP stream — relay закрывается немедленно с LOG_WARN.
+  Предотвращает HTTP/2 framing corruption при нехватке памяти. `errno=EAGAIN`
+  устанавливается после `relay_free` чтобы call sites не вызывали повторный `relay_free`.
+- **[HANG/P2]** `dispatcher.c`: `RELAY_CONNECTING` теперь обрабатывает
+  `EPOLLRDHUP` без `EPOLLOUT` — relay закрывается немедленно вместо 60s таймаута.
+  Покрывает FIN-only path (SYN-ACK + FIN без RST); EPOLLERR/EPOLLHUP закрыты выше.
+
 ## [1.5.76] — 2026-05-04
 
 ### Fixed
