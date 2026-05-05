@@ -915,7 +915,7 @@ TLS record) уходил в `continue` — бесконечный busy-wait. Sin
 
 ### Verified
 
-- Unit test: `reality_pbk_decode("CWYzhoFO6...T0") == <reality-pbk-hex>...` ✓
+- Unit test: `reality_pbk_decode("<reality-pbk>") == <reality-pbk-hex>...` ✓
 - Бинарник собран, задеплоен на EC330 (mipsel, 2.6 MB stripped)
 
 ## [1.5.2] — 2026-04-25

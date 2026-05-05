@@ -11,6 +11,19 @@ docs/*
 !.github/workflows/
 !.github/workflows/build.yml
 
+# Исходники закрыты — явно, чтобы случайный git add не протащил
+core/
+luci-app-4eburnet/
+tools/
+scripts/
+prebuilt/
+build/
+dashboard-src/
+*.secret
+config.yaml
+user_context.md
+CLAUDE.md
+
 # Артефакты сборки
 build/
 *.o
