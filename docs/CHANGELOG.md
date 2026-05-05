@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **[FEATURE/T0-02]** `vision.c`: Vision (XTLS) FSM — закрыт T0-02.
+  `vision_unpad`: при cmd=Direct/End в UUID-prefix record (первый record сервера)
+  `read_direct` и `splice_read` не устанавливались. Причина: после обработки
+  UUID-заголовка сбрасывалось `read_hdr_len=0`, а record-complete check требовал
+  `read_hdr_len==hdr_need(5)` → условие не выполнялось. Фикс: `hdr_need=0`
+  после UUID-сброса — `0==0` гарантирует срабатывание transition.
+  `test_vision_state`: все 18 тестов PASS, включая `splice_read_on_direct`
+  и `no_splice_on_end`. `test_vision_addons`: 5/5 PASS.
 - **[DATA_CORRUPTION/P2]** `dispatcher.c`: OOM при partial write в `relay_transfer`
   больше не теряет данные TCP stream — relay закрывается немедленно с LOG_WARN.
   Предотвращает HTTP/2 framing corruption при нехватке памяти. `errno=EAGAIN`
@@ -18,6 +26,69 @@
   Исправлено в: `sub_convert.py`, `config.c`, `main.c`, `nftables.c`.
 - **[DOCS]** `dashboard.html`: tooltip fake-IP пула обновлён
   (убран хардкод `198.51.100.0/24`, заменён на ссылку на UCI `fake_ip_range`).
+
+### Geo Quality (fix-geo-quality — audit_v45)
+
+- **[CRASH/P3]** `geo_loader.c`: overflow-safe умножение при валидации .gbin на
+  MIPS 32-bit. `domain_count * sizeof(uint32_t)` теперь проверяется через
+  `count > SIZE_MAX / sizeof(T)` ДО умножения — предотвращает wrap → bsearch
+  за пределами mmap при повреждённом/вредоносном .gbin файле.
+  Добавлен `GEO_ERR_OVERFLOW` (-6) в geo_loader.h.
+- **[FUNCTIONAL/P3]** `geo_loader.c`: domain и suffix bloom фильтры используют
+  корректные независимые nbits (`suffix_bloom_nbits` в `geo_category_t`).
+  Ранее оба вызова `bloom_check` использовали `bloom_nbits` domain-фильтра, тогда
+  как domain и suffix bloom могут иметь разный размер (разные пулы записей).
+- **[FEATURE]** `cdn_updater.c`: `cdn_updater_tick()` — автоматическое
+  обновление CDN IP каждые 6 часов (`CDN_UPDATE_INTERVAL_SEC=21600`),
+  первый запуск через 5 мин после старта (`CDN_UPDATE_DELAY_SEC=300`).
+  Вызывается из main event loop, не блокирует (внутри time(NULL) + cdn_is_stale).
+  State хранится в `EburNetState.cdn_next_check` (не static local).
+- **[CLEANUP]** `geo_loader.c`: `device_detect_region()` читает timezone через
+  `uci get system.@system[0].zonename` (popen) вместо fopen /etc/config/system.
+  UCI — стабильный API OpenWrt в отличие от raw UCI file format.
+
+### DNS Quality (fix-dns-quality — audit_v45)
+
+- **[FUNCTIONAL/P2]** `dns_cache.c`: hard evict и LRU evict теперь используют tombstone
+  (`DNS_CACHE_SLOT_DELETED`) вместо `used=false`. Исправляет разрыв probe chain при
+  linear probing: запись B с хэшем h на слоте h+1 была недостижима если слот h
+  освобождался → false cache miss под нагрузкой. `dns_cache_put` запоминает первый
+  DELETED слот для вставки, продолжая поиск USED-дубликата.
+- **[PERF/P3]** `dns_server.c`: per-callback `malloc(DNS_MAX_PACKET)` в `async_doh_dot_cb`
+  заменён на `static uint8_t s_doh_reply_buf[DNS_MAX_PACKET]` (single-threaded epoll,
+  re-entrancy невозможна).
+- **[SECURITY/P3]** `dns_cookie.c:585`: `memcmp` при HMAC verify заменён на
+  constant-time compare (`volatile uint8_t diff |= a^b`) — предотвращает timing oracle.
+- **[CLEANUP]** `dns_upstream.c:285,298,299`: хардкод `2048` → `DNS_DOH_REQ_SIZE` (3 места).
+- **[CLEANUP]** `dns_resolver.c:197`: `upstream_fd` close — добавлен `epoll_ctl DEL`
+  для единообразия с fallback_fd/parallel_fd.
+- **[CLEANUP]** `dns_server.c:471`: WHY-комментарий drain loop исправлен
+  (LT mode, не EPOLLET).
+- **[CLEANUP]** Литерал `53` → `DNS_PORT` в `dns_server.c` (8 мест) и `main.c` (1 место).
+- **[CLEANUP]** `constants.h`: добавлены `FAKE_IP_RANGE_DEFAULT "198.18.0.0/16"` и
+  `FAKE_IP6_RANGE_DEFAULT "fd00::/120"`; `fake_ip.c` fallback заменён на константу.
+
+### Config API (fix-config-api — audit_v45)
+
+- **[FUNCTIONAL/P4]** `config.c`: `reality_pbk` валидируется при загрузке —
+  длина 43, алфавит base64url RFC 4648 §5 (A-Za-z0-9-_). `LOG_WARN` при
+  невалидном значении: ошибка обнаруживается при загрузке конфига, а не
+  молча при первом соединении с wolfSSL error без контекста.
+- **[FUNCTIONAL/P4]** `config.c`: `reality_fingerprint` проверяется по
+  whitelist (`"chrome"`, `"chrome120"`). `LOG_WARN` при неизвестном значении
+  вместо silent Chrome120 fallback.
+- **[VERSION]** `Makefile`: postinst echo `v1.5.5` → `v$(PKG_VERSION)` — теперь
+  версия в сообщении установки всегда совпадает с реальной.
+- **[UI/P4]** `http_server.c`: поле `"geo_loaded"` добавлено в `/api/status` →
+  Dashboard корректно отображает статус гео-баз.
+- **[CLEANUP]** `http_server.c`: `api_token` обновляется при SIGHUP reload
+  через `http_server_reload_token()` — смена токена в UCI без рестарта демона.
+- **[CLEANUP]** `dns_cookie.c`: путь к cookie secret передаётся через UCI
+  `dns_cookie_secret_path` в `dns_cookie_init(s, path)` вместо хардкода.
+  Дефолт `/var/lib/4eburnet/cookie.secret` если UCI-поле не задано.
+- **[CLEANUP]** `nftables.c`: flowtable devices использует `lan_interface` из
+  конфига вместо хардкода `"br-lan"`. Дефолт `"br-lan"` если UCI-поле пустое.
+- **[DOCS]** `README.md`: badge обновлён до v1.5.77.
 
 ## [1.5.76] — 2026-05-04
 
