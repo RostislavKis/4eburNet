@@ -11,6 +11,13 @@
 - **[HANG/P2]** `dispatcher.c`: `RELAY_CONNECTING` теперь обрабатывает
   `EPOLLRDHUP` без `EPOLLOUT` — relay закрывается немедленно вместо 60s таймаута.
   Покрывает FIN-only path (SYN-ACK + FIN без RST); EPOLLERR/EPOLLHUP закрыты выше.
+- **[FUNCTIONAL/P2]** IPv6 CIDR маршрутизация: `IP-CIDR6` правила из
+  Clash-подписок теперь корректно добавляются в `ip6 eburnet_nat6`
+  через `nft_dnat_add_cidr6`. Ранее попадали в `ip eburnet_nat` (IPv4)
+  → nft ERROR при старте → Telegram/WhatsApp по IPv6 не перехватывались.
+  Исправлено в: `sub_convert.py`, `config.c`, `main.c`, `nftables.c`.
+- **[DOCS]** `dashboard.html`: tooltip fake-IP пула обновлён
+  (убран хардкод `198.51.100.0/24`, заменён на ссылку на UCI `fake_ip_range`).
 
 ## [1.5.76] — 2026-05-04
 
