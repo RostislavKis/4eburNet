@@ -48,6 +48,18 @@
   LoadBalance) всегда `next_check=now` — stagger релевантен только для
   периодических HC. `HC_STAGGER_WINDOW_SEC=45` именованная константа.
 
+### Known gap
+
+- **[KB-6/deferred]** GeoSite `.gbin` файлы на EC330 — отложено до G15
+  (HC CTX + dynamic limits + geo IPK). Текущее состояние EC330:
+  `/etc/4eburnet/geo/geoip-ru.dat` (22.5MB Xray .dat) присутствует —
+  GEOIP правила работают. `geo_compile` бинарник не установлен на
+  роутере, прямой http fetch с EC330 заблокирован TPROXY (`uclient-fetch
+  → Operation not permitted`). Workflow .lst → .gbin требует host-side
+  сборки (Windows/WSL `make geo-compile-mipsel` → scp на роутер) либо
+  IPK с pre-built .gbin — оба варианта в G15. До закрытия GEOSITE
+  правила (домены ads/trackers) деградированы, GEOIP полностью работает.
+
 ### Verified (no-op)
 
 - **[KB-2]** `rules_engine.c`: `RULE_TYPE_RULE_SET` матчинг **уже реализован**
