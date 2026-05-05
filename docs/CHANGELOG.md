@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.5.78] — 2026-05-05
+
+### Fixed
+
+- **[FUNCTIONAL/KB-1]** `http_server.c`: `/proxies` JSON теперь содержит
+  поле `"alive": true|false` для каждого сервера и группы — стандарт
+  Clash API. Источник: runtime `proxy_group_manager_t.groups[].servers[].available`
+  (выставляется async health-check). Без `alive` zashboard скрывал
+  серверы как "недоступные" даже когда HC отрабатывал успешно.
+  Helper `pgm_server_alive()`: до первого HC сервер считается живым
+  (mihomo behaviour) — иначе zashboard скрывал бы все серверы при старте.
+  Helper `pgm_group_alive()`: группа alive если хотя бы один сервер
+  available. DIRECT/REJECT/GLOBAL — `"alive":true` хардкод (Clash convention).
+  `now`, `history[0].delay`, runtime `s_pgm->groups[]` уже использовались
+  в /proxies handler — дополнения не требовалось.
+
+### Verified (no-op)
+
+- **[KB-2]** `rules_engine.c`: `RULE_TYPE_RULE_SET` матчинг **уже реализован**
+  (строки 397–402): `ruleset_match_domain` (bsearch + suffix fallback)
+  и `ruleset_match_ip` (CIDR linear). `cache_load` вызывается в
+  `rules_engine_init` для каждого RULE_SET правила. Порядок init в
+  `main.c`: `rule_provider_init` → `rule_provider_load_all` →
+  `rules_engine_init` — корректен. Отдельных правок не требуется;
+  29226 правил активны при наличии cache-файлов в `/etc/4eburnet/rules/`.
+
 ## [1.5.77] — 2026-05-05
 
 ### Fixed
