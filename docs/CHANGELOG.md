@@ -68,6 +68,22 @@
 - **[CLEANUP]** `constants.h`: добавлены `FAKE_IP_RANGE_DEFAULT "198.18.0.0/16"` и
   `FAKE_IP6_RANGE_DEFAULT "fd00::/120"`; `fake_ip.c` fallback заменён на константу.
 
+### Crypto Quality (fix-crypto-quality — audit_v45)
+
+- **[SECURITY/P3]** `tls13_hs.c`: Finished MAC verify — `memcmp` заменён на
+  constant-time compare (`volatile uint8_t diff |= a^b`). Устраняет timing oracle
+  в MITM сценарии; консистентно с паттерном в `hmac_sha256.c`.
+- **[MEMORY/P3]** `tls13_hs.c`: `wc_Sha256Free(&snap)` вызывается на ВСЕХ путях
+  после успешного `wc_Sha256Copy` — 3 места (~431, ~584, ~713). При WOLFSSL_SMALL_STACK
+  SHA256 state аллоцируется динамически — предотвращает heap leak на error path.
+- **[CORRECTNESS/P3]** `tls13_hs.c`: cipher 0x1302/0x1303 → явный `LOG_WARN` и
+  `return -1` вместо silent wrong keys. Key schedule деривирует только SHA256/AES-128 —
+  принятие другого cipher → corruption. xray всегда выбирает 0x1301 → behaviour
+  на практике не изменится.
+- **[CORRECTNESS/P4]** `reality_conn.h`: `recv_acc[16404]` → `recv_acc[REALITY_RECV_ACC_SIZE]`
+  (= 5+16384+16 = 16405). Off-by-one fix: граничный 16385-байтный TLS record
+  ошибочно отклонялся как "too large" через `sizeof(c->recv_acc)` проверку.
+
 ### Config API (fix-config-api — audit_v45)
 
 - **[FUNCTIONAL/P4]** `config.c`: `reality_pbk` валидируется при загрузке —
@@ -89,6 +105,65 @@
 - **[CLEANUP]** `nftables.c`: flowtable devices использует `lan_interface` из
   конфига вместо хардкода `"br-lan"`. Дефолт `"br-lan"` если UCI-поле пустое.
 - **[DOCS]** `README.md`: badge обновлён до v1.5.77.
+
+### Code Quality (fix-code-quality — audit_v45)
+
+- **[CLEANUP]** `dpi_filter.c`: dead code `addr > ip` в backward scan удалён —
+  после lower_bound binary search все `g_ipv4[0..hi].addr <= ip`, условие логически
+  невозможно (sorted array, invariant нарушен быть не может).
+- **[CORRECTNESS]** `dpi_strategy.c`: EAGAIN в `dpi_send_fragment` → `return -1`
+  вместо `break` (ложный успех). Предотвращает тихую потерю байт TCP stream
+  при переполнении send-буфера в DPI фрагментации.
+- **[CORRECTNESS]** `ws_handshake.c`: `ws_send_101()` обрабатывает EAGAIN через
+  `poll(POLLOUT, 100ms)` × 3 retry вместо прямого `return -1`.
+- **[SECURITY]** `dashboard.html`: `p.updated` теперь через `escHtml()` —
+  defensive coding: все поля из API-ответов экранируются единообразно.
+- **[FEATURE]** `dns_server.c`: `g_dns_recv_q_max` реализован — CAS high-watermark
+  обновляется в DNS drain loop после каждого `handle_udp_query` вызова.
+  Доступен в `/api/status` как `"dns_recv_q_max"` — метрика для диагностики DNS flood.
+- **[CLEANUP]** `hc_vless.c`: `socket()` с `SOCK_CLOEXEC` — HC дочерние процессы
+  не наследуют epoll/IPC/upstream fd родителя.
+- **[CLEANUP]** `ja3.c`: `static char str[640]` → `str[768]` — margin для
+  adversarial ClientHello (guard в `append_u16_list` уже корректен).
+- **[SECURITY]** `http_server.c`: IP из `/proc/net/arp` теперь через `json_escape_str()`
+  в `/api/devices` — defensive coding: все внешние данные экранируются.
+- **[DOCS]** `proxy_group.c`: hysteria2/hy2 исключение из `transport_is_implemented`
+  задокументировано — явный `return false` с WHY T0-08 (QUIC HC не реализован).
+
+### Build & Tests (fix-build-tests — audit_v45 §12 + §16)
+
+- **[BUILD]** `scripts/wolfssl_build_aarch64.sh`: новый параметризованный
+  скрипт сборки wolfSSL 5.9.0 для aarch64_cortex-a53. Без hardcoded путей
+  разработчика — обязательные переменные окружения `WOLFSSL_SRC`,
+  `TC_AARCH64`, `WOLFSSL_AARCH64`. По образцу `wolfssl_build_mipsel.sh`,
+  но переносимый между машинами. Ранее aarch64 сборка велась вручную или
+  по приватным заметкам — отсутствовала в репозитории.
+- **[BUILD]** `Makefile.dev` `TEST_FLAGS`: добавлены `-Wsign-compare`,
+  `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2`. Тесты теперь
+  компилируются с теми же security guards что и production-код.
+  Усиление сразу нашло реальный баг: `-Wformat-truncation` в
+  `hc_vless.c:312` (`host[130]` мал для `address[256]`) — расширено до
+  `host[260]`.
+- **[TESTS]** `test-hc-vless` добавлен в `test:` composite target. Target
+  расширен зависимостями: `trojan.c`, `grpc.c`, `ws_client.c`,
+  `http_upgrade.c`, `vision.c` — раньше hc_vless.c имел только VLESS
+  зависимости, после T0-04…T0-06 + Trojan/gRPC оброс multi-transport
+  вызовами. Тест не требует сети (`127.0.0.2:59999` ECONNREFUSED +
+  `192.0.2.1:443` TEST-NET timeout) — годен для composite. 8 PASS, 0 FAIL.
+- **[TESTS]** Orphaned тесты подключены к `make`:
+  `test-ws-handshake` (RFC 6455 vector), `test-ecdh-wolfssl`
+  (X25519 KAT vector), `test-reality-roundtrip` (полная Reality crypto
+  цепочка). Все три — unit tests без сети, добавлены в composite.
+- **[TESTS]** `test_dns_cookie.c`: создан, закрыт §21 known gap.
+  6 тестов покрывают `dns_cookie_compute_server` + `dns_cookie_verify`:
+  формат RFC 9018 §4.2 (version=1, reserved=0, timestamp BE, HMAC-SHA256-8),
+  generate→verify→OK, испорченный HMAC→BAD, устаревший timestamp→SLIP,
+  constant-time structural (модификация любого байта hash возвращает BAD),
+  ротация secret (cross-verify→BAD). 6 PASS, 0 FAIL.
+- **[TESTS]** `make test` composite расширен с 37 до 42 суит
+  (`+test-hc-vless +test-ws-handshake +test-ecdh-wolfssl
+  +test-reality-roundtrip +test-dns-cookie`). Все 42 проходят на musl-gcc
+  x86_64 с обновлённым `TEST_FLAGS`.
 
 ## [1.5.76] — 2026-05-04
 
