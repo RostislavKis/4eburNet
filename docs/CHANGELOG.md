@@ -16,6 +16,25 @@
   `now`, `history[0].delay`, runtime `s_pgm->groups[]` уже использовались
   в /proxies handler — дополнения не требовалось.
 
+- **[FEATURE/KB-5]** `tools/sub_convert.py`: rule-providers Clash YAML
+  конвертируются в UCI секции `config rule_provider` — name, type
+  (http/file), url, path, format (Clash behavior: domain/ipcidr/classical),
+  interval, enabled. Раньше игнорировались молча, RULE-SET правила
+  указывали на несуществующие провайдеры → cache_load() возвращал NULL,
+  matching MISS → весь трафик падал в MATCH catch-all (DIRECT).
+  Валидация: type ∉ {http,file} → пропуск с WARNING; type=http без url
+  или type=file без path → пропуск; неизвестный behavior → fallback
+  classical с WARNING.
+- **[FEATURE/KB-5]** `tools/sub_convert.py`: секции `sniffer`, `tun`, `mode`
+  больше не игнорируются молча — выводят `[WARNING]` или `[INFO]` на stderr.
+  `sniffer.enable=true` → WARNING (4eburnet использует адаптивный DPI
+  через UCI `dpi_enabled`, маппинг 1-в-1 невозможен).
+  `tun.enable=true` → WARNING (4eburnet использует nftables TPROXY,
+  виртуальный TUN не нужен).
+  `mode != 'rule'` → WARNING (4eburnet поддерживает только rule-based
+  маршрутизацию). Fallback парсер без PyYAML предупреждает если эти
+  секции присутствуют, но не парсятся (нужен `pip3 install pyyaml`).
+
 - **[PERF/KB-3]** `proxy_group.c`: HC stagger при первом старте для url-test групп.
   4 url-test группы теперь стартуют HC с offset = `idx * 45 / total` сек
   (4 группы → slots 0/11/22/33 сек) вместо одновременного next_check=now.
