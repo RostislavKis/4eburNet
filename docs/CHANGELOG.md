@@ -1,5 +1,79 @@
 # Changelog
 
+## [1.5.80] — 2026-05-05
+
+### Security
+
+- **[SECURITY/G1]** `http_server.c`: `/ws/*` WebSocket и `GET /api/*`
+  защищены api_token когда настроен в UCI. Backward compat: пустой
+  api_token = открытый режим (no-auth). Endpoint'ы `/version`, `/proxies`,
+  `/rules` и dashboard HTML по-прежнему публичны.
+
+- **[SECURITY/G3]** `reality_auth.c`: `memcmp` → constant-time volatile XOR
+  для сравнения HMAC тегов (устранён timing oracle). `tls13_keys.c`:
+  `early_secret` и `derived_early` обнуляются через `explicit_bzero`
+  сразу после вывода ключей.
+
+- **[SECURITY/G3]** `reality_auth.c`: `auth_key` исключён из
+  `LOG_DEBUG` при мисматче HMAC — предотвращает утечку ключа в лог.
+  Cipher `0x1302`/`0x1303` принимаются с `LOG_WARN` (не hard reject) —
+  совместимость с non-standard TLS 1.3 handshake.
+
+### Fixed
+
+- **[FIX/G2]** `dns_server.c`: `SO_REUSEPORT` на TCP DNS fd —
+  устраняет crash loop `bind(TCP :53): Address in use` при перезапуске
+  через procd. TTL fake_ip A-ответа: 60s → 10s (mihomo-совместимо).
+  `mem_tier_dns_drain_batch()`: DNS drain batch cap через mem_tier
+  (LOW=32, MID=128) вместо хардкода.
+
+- **[FIX/G2]** `dns_upstream_async.c`: async DoH/DoT callback добавляет
+  DNS Cookie через `dns_reply_send()` — RFC 7873 совместимость для всех
+  upstream ответов.
+
+- **[FIX/G4]** `tc_fast.c`: nft mark строка хардкодом `"0x10"` вместо
+  `TC_FAST_MARK=0x20`. LAN TC Ingress Fast Path не работал с момента
+  введения `TC_FAST_MARK=0x20` в v1.5.x. Исправлено подстановкой
+  `snprintf(mark_hex, ...)` из константы.
+
+- **[FIX/G5]** `geo_loader.c`: Bloom фильтр суффиксов использовал
+  `bloom_nbits` вместо `suffix_bloom_nbits` (copy-paste баг) — суффиксные
+  lookup давали ложные negative. `opencck_updater.c`: `kill(getpid(), SIGHUP)`
+  заменён на `g_reload_flag = 1` — устранён crash при CDN обновлении.
+
+- **[FIX/G6]** `http_server.c`: `api_token` читается из `cfg` struct
+  (не через `popen("uci get ...")`) — нет subprocess overhead на каждый
+  запрос. `ja3_expected` валидирует длину == 32, HTTP 400 при нарушении.
+  `http_send_file` отдаёт управление epoll после 8 chunks (32KB) —
+  устранён starvation relay loop при больших файлах.
+
+### Tests
+
+- **[TESTS/G7]** 7 новых файлов unit-тестов для Reality TLS crypto:
+  `test_reality_auth.c`, `test_reality_aes_seal.c`, `test_reality_ecdh.c`,
+  `test_reality_hkdf.c`, `test_reality_hmac.c`, `test_reality_roundtrip.c`,
+  `test_tls13_wire.c`. Все PASS на host compile с musl-gcc.
+
+### Build / Docs
+
+- **[BUILD/G8]** `scripts/build.sh`: mipsel SDK путь синхронизирован
+  с `Makefile.dev` (`mipsel/sdk-mipsel`), параметризован через `$MIPSEL_SDK`.
+- **[DOCS/G8]** `CONSTRAINTS.md`: `reality_conn_t` RAM ~68KB (было ~33KB) —
+  детальная таблица полей `hs.rbuf/ptbuf/sbuf + outer rbuf + recv_acc`.
+- **[DOCS/G8]** `IPC_SCHEMA.md`: `dpi-get` (cmd 40) и `dpi-set` (cmd 41)
+  задокументированы с реальными полями из `ipc.c`.
+- **[DOCS/G8]** `dashboard_api_contract.md`: Clash API секция добавлена
+  (`/proxies`, `/rules`, `/providers/*`, WS `/logs`/`/traffic`/`/memory`);
+  нативный `/api/*` помечен `[Deprecated as of v1.5.x]`.
+- **[FIX/G8]** `4eburnet.h:51`: исправлен двойной `/*/* ...` → `/* ...`
+  (-Wcomment предупреждение устранено).
+
+### Notes
+
+- **EC330 deploy** 2026-05-05: mipsel 2.8MB stripped, mem_tier=LOW
+  (MemAvailable=27MB при старте), 0 nft ошибок, 0 bind(TCP :53) ошибок,
+  DNS работает (ya.ru → 77.88.55.242 direct, google.com → fake-IP).
+
 ## [1.5.79] — 2026-05-05
 
 ### Added
