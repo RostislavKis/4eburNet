@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.5.83] — 2026-05-06
+
+### Fixed
+
+- **[FIX]** `tls13_hs.h`: `rbuf` и `ptbuf` увеличены с 16400 до 32768 байт.
+  Certificate chain 25958B вмещается; `record слишком большой` исчез из лога.
+  `relay REALITY_VLESS→ACTIVE` появляется стабильно — Reality серверы участвуют в url-test.
+
+## [1.5.82] — 2026-05-06
+
+### Fixed
+
+- **[FIX]** `http_server.c`: PUT `/proxies/{group}` — поиск сервера по имени
+  в `g->servers[]` вместо глобального `s_cfg` индекса. Provider-серверы
+  теперь находятся корректно.
+- **[FIX]** `proxy_group.c`: `proxy_group_select_manual` принимает URL_TEST
+  группы (убрана проверка `g->type != PROXY_GROUP_SELECT`).
+- **[FIX]** `http_server.c`: `/api/action group_select` — аналогичный фикс
+  поиска по `g->servers[]`.
+
+## [1.5.81] — 2026-05-06
+
+### Fixed
+
+- **[FIX]** `http_server.c`: `json_get_str` — поддержка `\uXXXX` surrogate
+  pairs (эмодзи флаги страны → UTF-8) и пробелов вокруг `:` в JSON.
+  PUT `/proxies/{group}` с именем сервера `🇫🇮 Finland, Helsinki · VLESS, TCP`
+  теперь парсируется корректно.
+
+
 ## [1.5.80] — 2026-05-05
 
 ### Security
