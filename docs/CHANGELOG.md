@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.5.85] — 2026-05-06
+
+### Fixed
+
+- **[FIX]** `dispatcher.c`: `RELAY_GRPC_HS` — добавлен лимит 64 итерации
+  в `do {} while (ret == 0)`. При аномальном H2 frame burst (OOM, нестандартный
+  сервер) цикл без лимита монополизировал `dispatcher_tick` на 3.94s (наблюдалось
+  2026-05-06). При достижении лимита `errno=EAGAIN; break` — остаёмся в
+  `RELAY_GRPC_HS`, следующий epoll event продолжит handshake.
+- **[FIX]** `grpc.c`: `grpc_drain` — лимит 256 итераций (16KB/tick). При
+  `drain_rem > 16KB` возвращаем `-1+EAGAIN` — state machine продолжит со следующего
+  epoll события через `g->drain_rem` (сохраняется между вызовами). Предотвращает
+  монополизацию при большом GOAWAY payload.
+- **[FIX]** `hc_vless.c`: `child_do_hc_vless_ws` — честный туннельный HC.
+  После WS 101 отправляем VLESS header (`www.gstatic.com:443`) через
+  `ws_client_send`, ждём VLESS response (`ws_client_recv`, ≥2 байта). Серверы
+  принимающие WS upgrade но режущие VLESS трафик (fig.xxee.ru — "Connection
+  reset by peer") получают HC fail → `fail_count++` × 3 → `available=false` →
+  url-test больше не выбирает сломанный сервер.
+
+## [1.5.84] — 2026-05-06
+
+### Fixed
+
+- **[FIX]** `proxy_group.c`: `compute_hc_limit` — лимит `avail/8`, cap 12
+  (было `avail/4`, cap 32). Burst mode при первом раунде убран. Предотвращает
+  OOM при одновременном запуске HC для всех групп (18 форков наблюдалось).
+- **[FIX]** `proxy_group.c`: gradual recovery — `fail_count--` при OK вместо
+  `fail_count=0`. Нестабильные серверы не реабилитируются мгновенно.
+
 ## [1.5.83] — 2026-05-06
 
 ### Fixed
