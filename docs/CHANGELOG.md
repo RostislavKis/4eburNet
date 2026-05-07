@@ -1,5 +1,66 @@
 # Changelog
 
+## [1.5.97] — 2026-05-07
+
+### Added
+
+- **[FEAT]** `dispatcher.c` + `grpc.h` + `grpc.c`: persistent gRPC pool watcher.
+  `grpc_conn_ep_t` — отдельный epoll-tag для разделяемого `conn->tcp_fd`,
+  устанавливается в RELAY_GRPC_HS → ACTIVE через `EPOLL_CTL_MOD`. Снимает
+  documented limitation "secondary streams stall after primary relay closed".
+  `int ep_type` первое поле `relay_ep_t`/`grpc_conn_ep_t` для полиморфного
+  диспатча в epoll loop через `*(int*)data.ptr`. `wake_fd` (eventfd) теперь
+  у всех streams включая primary. Watcher cleanup в `grpc_pool_tick` (idle
+  conn timeout) + `grpc_pool_free`. Архитектурное улучшение T2-09.
+
+## [1.5.96] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `noise.c::x25519_shared`: `wc_curve25519_shared_secret_ex`
+  возвращал BAD_FUNC_ARG (-173) при импортированных через `import_private_ex`
+  ключах — функция требует `curve25519_key.dp` поле, которое import не
+  настраивает (только `make_key` настраивает полностью). Замена на
+  `wc_curve25519_generic` — прямой scalar mult на raw bytes без struct.
+
+## [1.5.94] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `noise.c::x25519_generate`: `wc_curve25519_make_key` +
+  `export_public` — та же endianness/dp проблема что в `x25519_shared`.
+  Замена на `random_bytes` + `clamp_curve25519_key` + `wc_curve25519_make_pub`
+  (низкоуровневая scalar mult без struct).
+
+## [1.5.93] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `noise.c::noise_init`: `wc_curve25519_export_public` после
+  `wc_curve25519_import_private` возвращал BAD_FUNC_ARG (-173) — wolfSSL
+  5.9.0 не настраивает `pubSet` при импорте только private. AWG handshake
+  silently failил на `awg_init` для всех серверов (`alive: false` у всех
+  AWG в /proxies). Замена на `wc_curve25519_make_pub(pub, priv)` — прямой
+  scalarmult с basepoint без struct/import цикла.
+
+## [1.5.89] — 2026-05-07
+
+### Fixed
+
+- **[CONFIG]** EC330 UCI: удалены 3 мусорных traffic_rule с low-priority
+  (priority=5/315/316), которые перебивали легитимные TELEGRAM правила:
+  - `IP-CIDR 149.154.160.0/20 → MAIN-PROXY priority=5` (дубликат TELEGRAM
+    CIDR с другим target и приоритетом 5 — выигрывал в ASC-sort)
+  - `DOMAIN-SUFFIX apple-dns.net → ✈️ TELEGRAM priority=316` (Apple Private
+    Relay ошибочно классифицировался как Telegram)
+  - `DOMAIN-SUFFIX facetime.apple.com → ✈️ TELEGRAM priority=315`
+  Источник правил неясен (не sub_convert.py, который генерирует priority
+  с 200 ASC). Возможно ручная UCI-правка или старая версия конвертера.
+- **[FEAT]** `dispatcher.c`: новый INFO log `relay route TCP: dst=X domain=D
+  rule=TYPE payload='V' group=G idx=I` — диагностика какое правило выбрало
+  какую группу. Расширен `rule_match_result_t` диагностическими полями
+  `matched_rule_type`/`matched_payload`.
+
 ## [1.5.85] — 2026-05-06
 
 ### Fixed
