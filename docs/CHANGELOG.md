@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.100] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `dispatcher.c`: TCP relay с `packet-encoding: xudp` ошибочно
+  направлялся через Mux.Cool (CMD=Mux). Серверы PrivateVPN (~176 серверов с
+  `packet-encoding: xudp`) не поддерживают CMD=Mux → TLS close_notify alert,
+  `errno=131` (ECONNRESET). `REALITY_HS→MUXCOOL_HS` срабатывал для всех
+  xudp-серверов включая YouTube/youtubei.googleapis.com.
+  Фикс: `if (false && server->packet_encoding...)` — полное отключение TCP
+  через Mux.Cool. `packet-encoding: xudp` в mihomo = UDP-инкапсуляция только,
+  не TCP-мультиплексирование. TCP→Mux.Cool зарезервирован под отдельный
+  config-флаг (`mux: true`) в будущем.
+
 ## [1.5.99] — 2026-05-07
 
 ### Added
