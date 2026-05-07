@@ -3,10 +3,10 @@
   <h1>4eburNet</h1>
   <p>Прокси-маршрутизатор для OpenWrt — один бинарник вместо mihomo + xray + podkop</p>
   <p>
-    <img src="https://img.shields.io/badge/версия-v1.5.79-brightgreen?style=flat-square">
+    <img src="https://img.shields.io/badge/версия-v1.5.97-brightgreen?style=flat-square">
     <img src="https://img.shields.io/badge/OpenWrt-23.05%20%2F%2024.10%20%2F%2025.12-blue?style=flat-square">
     <img src="https://img.shields.io/badge/arch-mipsel%20%7C%20aarch64%20%7C%20x86__64-green?style=flat-square">
-    <img src="https://img.shields.io/badge/бинарник-2.8%20МБ-orange?style=flat-square">
+    <img src="https://img.shields.io/badge/бинарник-3.0%20МБ-orange?style=flat-square">
     <img src="https://img.shields.io/badge/wolfSSL-5.9.0-blue?style=flat-square">
     <img src="https://img.shields.io/badge/license-GPLv2-lightgrey?style=flat-square">
   </p>
