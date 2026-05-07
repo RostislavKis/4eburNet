@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.5.99] — 2026-05-07
+
+### Added
+
+- **[FEAT]** Mux.Cool transport-agnostic I/O abstraction. `muxcool_conn_t`
+  заменяет `void *tls` (WOLFSSL*) на триаду `transport_ctx / transport_send /
+  transport_recv / transport_free`. Статический inline accessor
+  `muxcool_conn_set_transport()` в muxcool.h. `MUXCOOL_POOL_CONNS_MAX`: 4 → 8.
+
+- **[FEAT]** `dispatcher.c`: 5 семейств transport callbacks для Mux.Cool:
+  `cb_tls_*` (plain WOLFSSL*), `cb_reality_*` (reality_conn_t*),
+  `cb_ws_*` + `muxcool_ws_ctx_t{ws, tls}` (WS+TLS composite),
+  `cb_xhttp_*` (xhttp_state_t*), `cb_grpc_*` + `muxcool_grpc_ctx_t{stream, ssl}`.
+  Forward-декларации перед relay_handle_tls для разрешения forward-reference.
+
+- **[FEAT]** Wiring Mux.Cool на 4 транспорта:
+  TLS: `TLS_SHAKE` → `muxcool_conn_set_transport(mc, ssl, cb_tls_*)`, ssl nulled.
+  Reality: `REALITY_HS` rc==1 → перехват до Vision/VLESS, `r->reality` передаётся
+  во владение muxcool через `cb_reality_*`, free = `reality_conn_free`.
+  WS: `WS_HS` ret==1 → создаётся `muxcool_ws_ctx_t`, `r->ws/tls` nulled,
+  `cb_ws_*` управляет lifetime. XHTTP: `XHTTP_DN_REQ` prc==0 →
+  `mc->tcp_fd = r->xhttp->upload.fd`, `cb_xhttp_*`, `r->xhttp = NULL`.
+  gRPC (MULTIPLEX): `GRPC_HS` H2 done → `muxcool_grpc_ctx_t` до
+  `grpc_stream_send_proto_header`, ssl pool-owned.
+
+- **[FEAT]** `RELAY_MUXCOOL_HS`: wolfSSL_write/read заменены на
+  `mc->transport_send/recv(mc->transport_ctx, ...)`. Guard `conn->tls` →
+  `conn->transport_ctx`. RELAY_MUXCOOL_ACTIVE: аналогично.
+
+- **[FEAT]** Epoll watcher dispatch: `mconn->tls` → `mconn->transport_ctx`,
+  `muxcool_tls_send_cb/recv_cb` → `mconn->transport_send/recv`.
+
+### Changed
+
+- **[BREAK]** `muxcool.c`: удалены `#include <wolfssl/…>`. `muxcool_conn_destroy`:
+  вместо `wolfSSL_free(conn->tls)` — `transport_free(transport_ctx)`.
+  `muxcool_pool_tick` keepalive + `muxcool_stream_release` END frame:
+  `transport_send` вместо `wolfSSL_write`.
+
 ## [1.5.97] — 2026-05-07
 
 ### Added
