@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.129] — 2026-05-08
+
+### Fixed
+
+- **[BUG/url-test]** `proxy_group.c`: исправлен баг "нулевая latency захватывает
+  url-test навсегда". При инициализации сервера `latency_ms` устанавливался в `0`.
+  Во всех трёх точках выбора best в url-test (`% server_count == 0` в tick,
+  `handle_hc_event`, `_all_unimplemented` path) условие `latency_ms < UINT32_MAX`
+  выбирало сервер с `latency_ms = 0` как "лучший" (0 < UINT32_MAX), а в cur_ok
+  `latency_ms != UINT32_MAX` давало `cur_ok = true` при `latency_ms = 0` → `cur_lat
+  = 0` → `best + tolerance < 0` никогда не выполнялось → сервер с latency=0
+  (Bulgaria Sofia · Trojan, gRPC) оставался selected навсегда, Finland 103ms
+  игнорировался. Фикс: `latency_ms = UINT32_MAX` при инициализации (строки 290/393)
+  и `latency_ms > 0` в поиске best и cur_ok во всех 4 точках (url-test ×3,
+  immediate failover).
+
 ## [1.5.114] — 2026-05-07
 
 ### Fixed
