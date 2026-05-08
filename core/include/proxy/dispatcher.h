@@ -187,6 +187,8 @@ struct relay_conn {
     void                   *hy2_stream;  /* hysteria2_stream_t*, NULL если нет активного stream */
 #endif
     char                    domain[256];    /* домен назначения из fake-ip/SNI; "" если IP */
+    char                    group_name[64]; /* имя группы для retry; "" если DIRECT/нет группы */
+    uint8_t                 retries;        /* счётчик попыток retry (0..3) */
     /* Reality TLS 1.3 (custom stack, заменяет wolfSSL для Reality VLESS).
      * Активен когда server->reality_pbk[0] != '\0'. Тогда use_tls = false. */
     struct reality_conn_s  *reality;        /* NULL если не Reality */

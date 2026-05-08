@@ -92,6 +92,15 @@ static uint32_t s_reality_hs_active = 0;
 /* Частота проверки таймаутов (раз в N тиков) */
 #define RELAY_TIMEOUT_CHECK     100
 
+/* При провале HS пытаемся переключиться на следующий сервер в группе (до 3 раз).
+ * Если retry невозможен или exhausted — освобождаем relay полностью. */
+#define RELAY_FAIL_OR_RETRY(ds, r) \
+    do { \
+        if (relay_try_retry((ds), (r)) == 0) return; \
+        relay_free((ds), (r)); \
+        return; \
+    } while (0)
+
 /* Размер static resolve cache для gs=NULL call sites */
 #define GLOBAL_RESOLVE_CACHE    4
 
@@ -1464,6 +1473,177 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 }
 
 /* ------------------------------------------------------------------ */
+/*  relay_release_upstream — освобождает upstream, НЕ трогает client  */
+/* ------------------------------------------------------------------ */
+
+static void relay_release_upstream(dispatcher_state_t *ds, relay_conn_t *r)
+{
+#if CONFIG_EBURNET_VLESS
+    if (r->state == RELAY_REALITY_HS && !r->reality_pending_init
+            && s_reality_hs_active > 0)
+        s_reality_hs_active--;
+#endif
+
+    if (r->use_tls && r->tls) {
+        tls_close(r->tls);
+        free(r->tls); r->tls = NULL;
+        r->use_tls = false;
+    }
+
+#if CONFIG_EBURNET_GRPC_MULTIPLEX
+    if (r->grpc_stream && r->upstream_fd >= 0) {
+        epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->upstream_fd, NULL);
+        r->upstream_fd = -1;
+    }
+#endif
+#if CONFIG_EBURNET_XUDP
+    if (r->muxcool_stream && r->upstream_fd >= 0 &&
+        r->upstream_fd == r->muxcool_stream->wake_fd) {
+        epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->upstream_fd, NULL);
+        r->upstream_fd = -1;
+    }
+#endif
+    if (r->upstream_fd >= 0) {
+        epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->upstream_fd, NULL);
+        close(r->upstream_fd);
+        r->upstream_fd = -1;
+#if CONFIG_EBURNET_AWG
+        if (r->awg) r->awg->udp_fd = -1;
+#endif
+#if CONFIG_EBURNET_QUIC
+        if (r->hy2_conn) hysteria2_invalidate_fd((hysteria2_conn_t *)r->hy2_conn);
+#endif
+    }
+    if (r->download_fd >= 0) {
+        epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->download_fd, NULL);
+        close(r->download_fd);
+        r->download_fd = -1;
+    }
+#if CONFIG_EBURNET_AWG
+    if (r->awg) {
+        if (r->awg->udp_fd >= 0)
+            epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->awg->udp_fd, NULL);
+        awg_close(r->awg);
+        free(r->awg); r->awg = NULL;
+    }
+#endif
+#if CONFIG_EBURNET_VLESS
+    if (r->xhttp) {
+        xhttp_close(r->xhttp);
+        free(r->xhttp); r->xhttp = NULL;
+    }
+#endif
+#if CONFIG_EBURNET_SS
+    if (r->ss) {
+        ss_cleanup(r->ss);
+        free(r->ss); r->ss = NULL;
+    }
+#endif
+#if CONFIG_EBURNET_STLS
+    if (r->stls_io) { free(r->stls_io); r->stls_io = NULL; }
+    if (r->stls)    { free(r->stls);    r->stls = NULL; }
+#endif
+    if (r->vision) { free(r->vision); r->vision = NULL; }
+    if (r->grpc)   { free(r->grpc);   r->grpc = NULL; }
+#if CONFIG_EBURNET_GRPC_MULTIPLEX
+    if (r->grpc_stream) { grpc_stream_release(r->grpc_stream); r->grpc_stream = NULL; }
+#endif
+#if CONFIG_EBURNET_XUDP
+    if (r->muxcool_stream) {
+        muxcool_stream_release(r->muxcool_stream);
+        r->muxcool_stream = NULL;
+    }
+#endif
+    if (r->ws)      { free(r->ws);      r->ws = NULL; }
+    if (r->http_ug) { free(r->http_ug); r->http_ug = NULL; }
+#if CONFIG_EBURNET_QUIC
+    if (r->hy2_stream) {
+        hysteria2_stream_close((hysteria2_conn_t *)r->hy2_conn,
+                               (hysteria2_stream_t *)r->hy2_stream);
+        free(r->hy2_stream); r->hy2_stream = NULL;
+    }
+    if (r->hy2_conn) {
+        hysteria2_conn_free((hysteria2_conn_t *)r->hy2_conn);
+        r->hy2_conn = NULL;
+    }
+#endif
+    if (r->to_client_buf) { free(r->to_client_buf); r->to_client_buf = NULL; }
+    r->to_client_len   = 0;
+    r->to_client_pos   = 0;
+    r->epollout_client = false;
+#if CONFIG_EBURNET_VLESS
+    if (r->reality) {
+        reality_conn_free((reality_conn_t *)r->reality);
+        r->reality = NULL;
+    }
+    if (r->reality_auth) {
+        if (!r->reality_pending_init)
+            reality_auth_free((reality_auth_t *)r->reality_auth);
+        free(r->reality_auth);
+        r->reality_auth = NULL;
+    }
+#endif
+    r->upstream_eof        = false;
+    r->client_eof          = false;
+    r->client_sent_first   = false;
+    r->vless_resp_len      = 0;
+    r->reality_pending_init = false;
+#if CONFIG_EBURNET_DPI
+    r->dpi_first_done = false;
+    r->dpi_success    = false;
+#endif
+#ifdef __mips__
+    r->upstream_lt_mode   = false;
+    r->upstream_fd_paused = false;
+#endif
+    r->state = RELAY_CONNECTING;
+}
+
+/* ------------------------------------------------------------------ */
+/*  relay_try_retry — выбрать следующий сервер, не закрывая клиента   */
+/* ------------------------------------------------------------------ */
+
+/* forward declaration — upstream_connect определён ниже */
+static int upstream_connect(dispatcher_state_t *ds,
+                            relay_conn_t *r,
+                            const ServerConfig *server);
+
+static int relay_try_retry(dispatcher_state_t *ds, relay_conn_t *r)
+{
+    /* Пометить текущий сервер как failed в любом случае */
+    if (r->server_idx >= 0)
+        proxy_group_mark_server_fail(g_pgm, r->server_idx);
+
+    if (r->retries >= 3) return -1;
+    if (!g_pgm || r->group_name[0] == '\0') return -1;
+    if (r->client_fd < 0) return -1;
+
+    int new_idx = proxy_group_select_server(g_pgm, r->group_name);
+    if (new_idx < 0 || new_idx == r->server_idx) return -1;
+
+    const ServerConfig *srv = g_config
+        ? config_get_server(g_config, new_idx) : NULL;
+    if (!srv) return -1;
+    /* AWG и Hysteria2 — UDP, другая логика; пропускаем */
+    if (strcmp(srv->protocol, "awg") == 0 ||
+        strcmp(srv->protocol, "hysteria2") == 0)
+        return -1;
+
+    relay_release_upstream(ds, r);
+
+    r->retries++;
+    r->server_idx = new_idx;
+    r->bytes_in   = 0;
+    r->bytes_out  = 0;
+
+    log_msg(LOG_INFO, "relay retry %u/3: → %s (domain=%s)",
+            r->retries, srv->name,
+            r->domain[0] ? r->domain : "(null)");
+
+    return upstream_connect(ds, r, srv);
+}
+
+/* ------------------------------------------------------------------ */
 /*  relay_do_half_close — TCP half-close (DEC-016)                     */
 /* ------------------------------------------------------------------ */
 
@@ -2226,6 +2406,7 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
 #endif
     /* Домен назначения — сохраняется из fake-ip/SNI для VLESS ADDR_DOMAIN */
     const char *relay_domain = NULL;
+    char pending_group_name[64] = "";
     int idx;
     if (g_rules_engine && g_rules_engine->rule_count > 0) {
         /* 3.6: SNI sniffer — извлечь домен из TLS ClientHello */
@@ -2326,6 +2507,9 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
         const char *_rt_log =
             (_mr_log.type == RULE_TARGET_GROUP)  ? _mr_log.group_name :
             (_mr_log.type == RULE_TARGET_DIRECT) ? "DIRECT" : "REJECT";
+        if (_mr_log.type == RULE_TARGET_GROUP && _mr_log.group_name[0])
+            strncpy(pending_group_name, _mr_log.group_name,
+                    sizeof(pending_group_name) - 1);
         const char *_rule_kind;
         switch (_mr_log.matched_rule_type) {
         case RULE_TYPE_DOMAIN:         _rule_kind = "DOMAIN";         break;
@@ -2450,6 +2634,7 @@ void dispatcher_handle_conn(tproxy_conn_t *conn)
     r->server_idx = idx;
     if (relay_domain && relay_domain[0])
         strncpy(r->domain, relay_domain, sizeof(r->domain) - 1);
+    strncpy(r->group_name, pending_group_name, sizeof(r->group_name) - 1);
     /* MAC клиента для traffic stats */
     if (conn->src.ss_family == AF_INET) {
         uint32_t cip = ntohl(
@@ -3286,9 +3471,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 if (!r->grpc_stream) {
                     log_msg(LOG_ERROR, "relay: gRPC MULTIPLEX без grpc_stream");
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 r->grpc_stream->conn->tcp_fd = r->upstream_fd;
                 r->grpc_stream->conn->tls    = ((tls_conn_t *)r->tls)->ssl;
@@ -3301,9 +3484,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->grpc = calloc(1, sizeof(grpc_conn_t));
                 if (!r->grpc) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 char authority[288];
                 /* WHY: gRPC-go (xray) опускает port из :authority для дефолтных
@@ -3335,9 +3516,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 if (!r->muxcool_stream->conn) {
                     log_msg(LOG_ERROR, "muxcool: conn==NULL после TLS HS");
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 muxcool_conn_t *mc = r->muxcool_stream->conn;
                 mc->tcp_fd = r->upstream_fd;
@@ -3358,9 +3537,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->ws = calloc(1, sizeof(ws_client_conn_t));
                 if (!r->ws) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 const char *ws_path = server->ws_path[0] ? server->ws_path : "/";
                 const char *ws_host = server->ws_host[0] ? server->ws_host : server->address;
@@ -3374,9 +3551,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->http_ug = calloc(1, sizeof(http_upgrade_conn_t));
                 if (!r->http_ug) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 const char *hu_path = server->ws_path[0] ? server->ws_path : "/";
                 const char *hu_host = server->ws_host[0] ? server->ws_host : server->address;
@@ -3389,9 +3564,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                                             server->password,
                                             r->domain[0] ? r->domain : NULL) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 dispatcher_server_result(ds, r->server_idx, true);
                 r->state = RELAY_ACTIVE;
@@ -3415,16 +3588,12 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                         log_msg(LOG_WARN,
                                 "VLESS: невалидный UUID для Vision init");
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        return;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     r->vision = malloc(sizeof(vision_state_t));
                     if (!r->vision) {
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        return;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     vision_state_init(r->vision, 0, vuuid.bytes);
                     vision_addons_len = (uint8_t)vision_build_addons(
@@ -3441,9 +3610,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                                           vision_addons_len ? vision_addons : NULL,
                                           vision_addons_len) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 log_msg(LOG_INFO, "relay [%s] TLS_SHAKE→VLESS_SHAKE", server->name);
                 r->state = RELAY_VLESS_SHAKE;
@@ -3464,8 +3631,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                       r->upstream_fd, &mod);
         } else if (tls_rc == TLS_ERR) {
             dispatcher_server_result(ds, r->server_idx, false);
-            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-            relay_free(ds, r);
+            RELAY_FAIL_OR_RETRY(ds, r);
         }
     } else {
         /* RELAY_VLESS_SHAKE */
@@ -3481,8 +3647,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
             log_msg(LOG_DEBUG, "relay: VLESS установлен, relay активен");
         } else if (vrc < 0) {
             dispatcher_server_result(ds, r->server_idx, false);
-            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-            relay_free(ds, r);
+            RELAY_FAIL_OR_RETRY(ds, r);
         }
     }
 }
@@ -3713,16 +3878,13 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                         xhttp_send_upload_request(r->xhttp, &r->dst, srv->uuid) < 0 ||
                         xhttp_send_download_request(r->xhttp) < 0) {
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        return;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     r->state = RELAY_XHTTP_DN_REQ;
                 }
             } else if (tr == TLS_ERR) {
                 dispatcher_server_result(ds, r->server_idx, false);
-                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                relay_free(ds, r);
+                RELAY_FAIL_OR_RETRY(ds, r);
             }
         }
         return;
@@ -3750,8 +3912,7 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                 r->state = RELAY_XHTTP_DN_REQ;
             } else if (tr == TLS_ERR) {
                 dispatcher_server_result(ds, r->server_idx, false);
-                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                relay_free(ds, r);
+                RELAY_FAIL_OR_RETRY(ds, r);
             }
         }
         return;
@@ -3792,8 +3953,7 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                 log_msg(LOG_DEBUG, "XHTTP: relay активен");
             } else if (prc < 0) {
                 dispatcher_server_result(ds, r->server_idx, false);
-                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                relay_free(ds, r);
+                RELAY_FAIL_OR_RETRY(ds, r);
             }
         }
         return;
@@ -4073,16 +4233,12 @@ static void relay_handle_reality(dispatcher_state_t *ds,
                         log_msg(LOG_WARN,
                                 "VLESS Reality: невалидный UUID для Vision");
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        return;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     r->vision = malloc(sizeof(vision_state_t));
                     if (!r->vision) {
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        return;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     vision_state_init(r->vision, 0, vuuid.bytes);
                     vision_addons_len = (uint8_t)vision_build_addons(
@@ -4100,9 +4256,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
                                                       ? vision_addons : NULL,
                                                     vision_addons_len) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    return;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 /* WHY: xray-core с Vision flow не отвечает до получения первого
                  * Vision-framed пакета от клиента. Отправляем пустой probe
@@ -4131,9 +4285,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
             } else if (rc == -1) {
                 log_msg(LOG_WARN, "Reality: handshake провалился");
                 dispatcher_server_result(ds, r->server_idx, false);
-                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                relay_free(ds, r);
-                return;
+                RELAY_FAIL_OR_RETRY(ds, r);
             }
             /* rc == 0: шаг выполнен, данные ещё есть в буфере → следующая итерация
              * rc == -2: WANT_READ (EAGAIN) → выходим, ждём epoll */
@@ -4185,8 +4337,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
         }
     } else if (vrc < 0) {
         dispatcher_server_result(ds, r->server_idx, false);
-        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-        relay_free(ds, r);
+        RELAY_FAIL_OR_RETRY(ds, r);
     }
 }
 #endif /* CONFIG_EBURNET_VLESS */
@@ -4555,7 +4706,6 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
                 if (pconn->state != GRPC_CONN_ACTIVE) {
                     int  pret = 0;
-                    bool pfatal = false;
                     int  piters = 0;
                     do {
                         pret = grpc_connection_hs_step(pconn,
@@ -4569,15 +4719,12 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                         "gRPC pool HS провалился [%s]: %s",
                                         srv_grpc->name, strerror(saved));
                                 dispatcher_server_result(ds, r->server_idx, false);
-                                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                                relay_free(ds, r);
-                                pfatal = true;
+                                RELAY_FAIL_OR_RETRY(ds, r);
                             }
                             break;
                         }
                         if (++piters >= 64) { pret = -1; errno = EAGAIN; break; }
                     } while (pret == 0);
-                    if (pfatal) break;
                     if (pconn->state != GRPC_CONN_ACTIVE) break; /* EAGAIN */
 
                     /* H2 HS завершён */
@@ -4586,10 +4733,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         muxcool_grpc_ctx_t *gctx = malloc(sizeof(*gctx));
                         if (!gctx) {
                             dispatcher_server_result(ds, r->server_idx, false);
-                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                            relay_free(ds, r);
-                            pfatal = true;
-                            break;
+                            RELAY_FAIL_OR_RETRY(ds, r);
                         }
                         gctx->stream   = r->grpc_stream;
                         gctx->ssl      = pconn->tls;
@@ -4608,9 +4752,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
 #endif /* CONFIG_EBURNET_XUDP */
                     if (grpc_stream_send_proto_header(r, srv_grpc) < 0) {
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        break;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
 
                     if (strcmp(srv_grpc->protocol, "trojan") == 0) {
@@ -4658,8 +4800,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                     "gRPC pool VLESS response провалился [%s]: %s",
                                     srv_grpc->name, strerror(saved));
                             dispatcher_server_result(ds, r->server_idx, false);
-                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                            relay_free(ds, r);
+                            RELAY_FAIL_OR_RETRY(ds, r);
                         }
                         break;
                     }
@@ -4678,8 +4819,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             int saved = errno;
                             if (saved != EAGAIN && saved != EWOULDBLOCK) {
                                 dispatcher_server_result(ds, r->server_idx, false);
-                                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                                relay_free(ds, r);
+                                RELAY_FAIL_OR_RETRY(ds, r);
                             }
                             break;
                         }
@@ -4716,7 +4856,6 @@ void dispatcher_tick(dispatcher_state_t *ds)
                  * dispatcher_tick на 3.94s (наблюдалось 2026-05-06). 64 итерации =
                  * ~32ms MIPS (0.5ms/AES-GCM × 64) — достаточно для нормального HS. */
                 int ret = 0;
-                bool grpc_fatal = false;
                 int _hs_iters = 0;
                 do {
                     ret = grpc_handshake_step(r->grpc,
@@ -4729,9 +4868,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                     "gRPC HS провалился [%s]: %s",
                                     srv_grpc->name, strerror(saved));
                             dispatcher_server_result(ds, r->server_idx, false);
-                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                            relay_free(ds, r);
-                            grpc_fatal = true;
+                            RELAY_FAIL_OR_RETRY(ds, r);
                         }
                         break; /* EAGAIN или fatal — выходим из цикла */
                     }
@@ -4745,9 +4882,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     if (ret == 2 && strcmp(srv_grpc->protocol, "trojan") == 0) {
                         if (grpc_send_proto_header(r, srv_grpc) < 0) {
                             dispatcher_server_result(ds, r->server_idx, false);
-                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                            relay_free(ds, r);
-                            grpc_fatal = true;
+                            RELAY_FAIL_OR_RETRY(ds, r);
                         }
                         break; /* state = GRPC_HS_PROTO_SENT; переход в ACTIVE ниже */
                     }
@@ -4756,7 +4891,6 @@ void dispatcher_tick(dispatcher_state_t *ds)
                      * Остаёмся в RELAY_GRPC_HS — следующий epoll event продолжит. */
                     if (++_hs_iters >= 64) { ret = -1; errno = EAGAIN; break; }
                 } while (ret == 0); /* продолжаем пока фреймы доступны */
-                if (grpc_fatal) break;
                 /* EAGAIN — ждём следующего epoll события.
                  * Исключение: Trojan отправил proto header early (state = PROTO_SENT). */
                 if (ret <= 0 && r->grpc->state != GRPC_HS_PROTO_SENT) break;
@@ -4767,9 +4901,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     /* VLESS: 200 OK получен — отправляем proto header */
                     if (grpc_send_proto_header(r, srv_grpc) < 0) {
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        break;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                 }
                 /* Для Trojan нет response — сразу ACTIVE.
@@ -4827,8 +4959,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                 "gRPC VLESS response провалился [%s]: %s",
                                 srv_grpc->name, strerror(saved));
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     break;
                 }
@@ -4847,8 +4978,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         int saved = errno;
                         if (saved != EAGAIN && saved != EWOULDBLOCK) {
                             dispatcher_server_result(ds, r->server_idx, false);
-                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                            relay_free(ds, r);
+                            RELAY_FAIL_OR_RETRY(ds, r);
                         }
                         break;
                     }
@@ -4888,9 +5018,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     log_msg(LOG_WARN, "WS HS провалился [%s]: %s",
                             srv_ws->name, strerror(saved_errno));
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    break;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 if (ret == 0) break; /* ждём ещё данных */
 
@@ -4900,9 +5028,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     muxcool_ws_ctx_t *wctx = malloc(sizeof(*wctx));
                     if (!wctx) {
                         dispatcher_server_result(ds, r->server_idx, false);
-                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                        relay_free(ds, r);
-                        break;
+                        RELAY_FAIL_OR_RETRY(ds, r);
                     }
                     wctx->ws  = (ws_client_conn_t *)r->ws;
                     wctx->tls = (tls_conn_t *)r->tls;
@@ -4926,9 +5052,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 if (vless_uuid_parse(srv_ws->uuid, &ws_uuid) < 0) {
                     log_msg(LOG_WARN, "WS: VLESS UUID невалидный [%s]", srv_ws->name);
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    break;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 uint8_t vless_hdr[300];
                 int hdr_len = vless_build_request(
@@ -4939,16 +5063,12 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 if (hdr_len <= 0) {
                     log_msg(LOG_WARN, "WS: не удалось построить VLESS header");
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    break;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 if (ws_client_send(r->ws, grpc_tls_send, r->tls,
                                    vless_hdr, (size_t)hdr_len) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    break;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 r->ws->proto_sent = true;
                 r->vless_resp_len = 0;
@@ -4967,15 +5087,11 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     log_msg(LOG_WARN, "WS VLESS resp провалился [%s]: %s",
                             srv_ws->name, strerror(saved_errno));
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    goto ws_hs_done;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 if (rv == 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    goto ws_hs_done;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 r->vless_resp_len += (uint8_t)rv;
             }
@@ -4984,7 +5100,6 @@ void dispatcher_tick(dispatcher_state_t *ds)
             dispatcher_server_result(ds, r->server_idx, true);
             log_msg(LOG_INFO, "relay [%s] WS_HS→ACTIVE (VLESS resp ok)", srv_ws->name);
             r->state = RELAY_ACTIVE;
-            ws_hs_done:;
             break;
         }
 
@@ -5141,18 +5256,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 (ev & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))) {
                 log_msg(LOG_WARN, "Reality HS: upstream закрыл соединение (EPOLLRDHUP)");
                 dispatcher_server_result(ds, r->server_idx, false);
-                proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                /* Снимаем upstream_fd, не трогаем client_fd */
-                if (r->upstream_fd >= 0) {
-                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_DEL, r->upstream_fd, NULL);
-                    close(r->upstream_fd);
-                    r->upstream_fd = -1;
-                }
-                r->upstream_eof = true;
-                r->state = RELAY_HALF_CLOSE;
-                if (r->client_fd >= 0)
-                    shutdown(r->client_fd, SHUT_WR);
-                break;
+                RELAY_FAIL_OR_RETRY(ds, r);
             }
             /* WHY: не стартовать новый Reality HS если уже 2 в процессе.
              * pending_init=true = keygen ещё не запускался → блокируем только новые.
@@ -5212,9 +5316,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                          srv->reality_short_id) != 0) {
                     log_msg(LOG_WARN, "T0-03: deferred reality_auth_init провалился");
                     dispatcher_server_result(ds, r->server_idx, false);
-                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
-                    relay_free(ds, r);
-                    break;
+                    RELAY_FAIL_OR_RETRY(ds, r);
                 }
                 r->reality_pending_init = false;
                 s_reality_hs_active++;
