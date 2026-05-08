@@ -1,5 +1,142 @@
 # Changelog
 
+## [1.5.114] — 2026-05-07
+
+### Fixed
+
+- **[CRIT/OOM]** `http_server.c route_clash_group_delay_batch`: Снижен
+  `GROUP_HC_BATCH_MAX` 24 → **8**, `GROUP_HC_DEADLINE_SEC` 30 → 20,
+  `GROUP_HC_TIMEOUT_CAP_MS` 3000 → 2000. WHY: 24 параллельных fork в batch HC,
+  каждый AWG `child_do_awg_handshake` зависает на UDP `poll()` 3000мс. После
+  parent close pipe — child не убивается (poll ждёт UDP socket). 70+ live child
+  накапливалось при повторных нажатиях молнии → 116MB EC330 OOM → dropbear/uhttpd
+  не форкались, LuCI :80 502, dashboard :8080 unresponsive. 8 fork × 4MB = 32MB
+  worst-case, безопасно для EC330.
+
+## [1.5.113] — 2026-05-07
+
+### Changed
+
+- **[FEAT]** `route_clash_group_delay_batch`: BATCH_MAX 16 → 24, deadline 60 → 30,
+  per_server formula `client * 2` (было `* 3`), CAP 5000 → 3000.
+- **[FEAT]** JSON ответ с fallback на `pgm_server_latency()` для серверов которые
+  не успели пройти batch HC за deadline. Возвращает все известные RTT (batch +
+  background HC), не только batch results.
+
+## [1.5.112] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `net_utils.c child_do_awg_handshake`: Удалён `awg_process_incoming()`
+  call. Раньше функция возвращала ERR если handshake не валиден (Cloudflare WARP
+  отвечает 16-байт error пакетом → не handshake response → ERR). Теперь измеряем
+  RTT при первом UDP ответе (`pr > 0`). AWG показывает реальный RTT 206-307мс.
+- **[FIX]** `gd_spawn_one` (http_server.c): AWG → `net_spawn_awg_check` (был
+  TCP 443 fallback v1.5.111). Реальный AmneziaWG handshake (148 байт + junks/CPS).
+
+## [1.5.111] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `pgm_server_latency()`: возвращает первое **ненулевое** значение из
+  любой группы где встречается `srv_idx`. Раньше первая match (часто 0) скрывала
+  реальный RTT записанный другой группой при batch HC.
+
+## [1.5.110] — 2026-05-07
+
+### Changed
+
+- **[FEAT]** `route_clash_group_delay_batch`: BATCH_MAX 4 → 16, deadline 25 → 60.
+  body buffer 16K → 64K (для 100+ серверов). per_server = `min(client*3, 5000)`.
+- **[FEAT]** AWG fake delay=1 в batch результате → real RTT в v1.5.111+.
+
+## [1.5.109] — 2026-05-07
+
+### Changed
+
+- **[BREAK]** `route_clash_proxy_delay`: Полный rewrite. **Никогда не форкает HC**,
+  только cached `pgm_server_latency`. Возвращает `{"delay":N}` 200 OK всегда
+  (cached>0 → ms; cached=0 или AWG → 0; never 408). Браузер не таймаутит,
+  серверы не пропадают. Удалены `s_ping_active`/`PING_MAX_CONCURRENT`.
+
+## [1.5.108] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `config.h ServerConfig.name` 64 → **128**. Длинные UTF-8 имена с
+  emoji + кириллица (97+ байт) обрезались в середине sequence → `%EF%BF%BD`
+  в JSON, strcmp не матчил → 404 для `/proxies/{name}/delay`.
+- **[FIX]** `http_server.h HTTP_PATH_MAX` 256 → **1024**. URL `/proxies/<191 enc
+  bytes>/delay?timeout=1500` ≈ 280 байт — обрезалось query string или `/delay`
+  суффикс терялся → 405 Method Not Allowed.
+- **[FEAT]** `route_clash_proxy_delay`: instant cached latency (до v1.5.109).
+
+## [1.5.107] — 2026-05-07
+
+### Added
+
+- **[FEAT]** `cors_origin_hdr`: echo Origin + `Access-Control-Allow-Credentials: true`
+  + `Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS` + `Allow-Headers: Content-Type,
+  Authorization` + `Vary: Origin`. Раньше allow только localhost/127.0.0.1.
+- **[FEAT]** OPTIONS preflight: 204 No Content + CORS + `Access-Control-Max-Age: 600`.
+  Без preflight браузер блокировал PUT/PATCH/DELETE с custom headers.
+- **[FIX]** `route_clash_group_delay_batch`: добавлен `finished_real` flag в
+  `gd_slot_t`. Серверы прерванные deadline не штрафуются (не fail_count++) —
+  нажатие молнии больше не выкидывает серверы из группы после 3-х timeout.
+
+## [1.5.106] — 2026-05-07
+
+### Fixed
+
+- **[CRIT]** `proxy_group.c init`: `available=true` (было `false`) при загрузке
+  группы. mihomo-семантика: серверы видимы до первого HC. Раньше при старте
+  324 серверов имели `available=false` → 30 минут пустой dashboard пока HC
+  ползёт по 8 параллельных слотов × 10 раундов.
+- **[FEAT]** `route_clash_group_delay_batch`: новый endpoint, параллельный fork
+  HC всех серверов группы (mihomo-compat /group/:name/delay).
+
+## [1.5.105] — 2026-05-07
+
+### Added
+
+- **[FEAT]** Dashboard zashboard **v3.5.1 cdn-fonts** (upstream, идентичный
+  Flint2 mihomo). 3 MB, 5 ассетов (index js/css + Noto/Twemoji woff2 + jpg).
+- **[FEAT]** Раздача под `/` и `/ui/` (mihomo-compat). 307 redirect `/ui` → `/ui/`.
+  `http_send_redirect()` helper. luci-app Makefile installs dashboard в IPK.
+
+## [1.5.103] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `PROXY_GROUP_MAX_SERVERS` 32 → **256**. Провайдер ~80 серверов
+  обрезался до 32 → недоступные группы.
+- **[FIX]** `nftables.c`: QUIC UDP 443 drop в исходниках (было временно через
+  ручной nft). iPhone YouTube fallback на TCP+TLS вместо серого экрана.
+- **[FEAT]** `xudp:true` тег в /proxies JSON для серверов с packet-encoding=xudp.
+
+## [1.5.101] — 2026-05-07
+
+### Fixed
+
+- **[FIX]** `hc_vless.c`: Добавлен `hc_clamp_ms()` — inline helper для безопасного
+  приведения `int64_t` latency к `uint32_t`. Применён во всех 7 местах вычисления
+  `ms` (Trojan/gRPC, WS, HTTPUpgrade, XHTTP, TCP-tunnel, TCP-RTT fallback, Reality).
+  `CLOCK_MONOTONIC` на MIPS с низким разрешением может дать отрицательный diff →
+  child писал `"OK -N\n"` → parent делал `(uint32_t)(-N) = 4294967295 = UINT32_MAX`.
+
+- **[FIX]** `net_utils.c`: Аналогичный `if (ms < 1) ms = 0; if (ms > 9999) ms = 9999`
+  в `child_do_tcp_ping`, `child_do_udp_ping`, `child_do_awg_handshake`.
+
+- **[FIX]** `proxy_group.c handle_hc_event`: Валидация ms от child-процесса.
+  Только `0 < ms <= 9999` меняет `latency_ms` и `available`. `ms == 0 || ms > 9999`
+  → `LOG_WARN "невалидная latency"` без изменения `available` (defence-in-depth
+  против переполнения в child). Серверы с `delay=UINT32_MAX` больше не получают
+  `available=true` и не попадают в displayed list zashboard с аномальным значением.
+
+- **[CLARIFY]** `hc_vless.c child_do_hc_vless`: Добавлен комментарий — `packet_encoding`
+  (`xudp`/`packetaddr`) не используется в HC. HC всегда отправляет VLESS CMD=TCP
+  независимо от конфига relay. RELAY_MUXCOOL не вызывается из fork() child.
+
 ## [1.5.100] — 2026-05-07
 
 ### Fixed
