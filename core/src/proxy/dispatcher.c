@@ -61,6 +61,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 
 /* Runtime лимиты по mem_tier (G15-2). Default = LOW значения,
@@ -1435,9 +1436,17 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
                 proxy_group_mark_server_fail(g_pgm, r->server_idx);
             }
         } else {
-            log_msg(LOG_DEBUG, "relay: закрыт (in:%lu out:%lu)",
-                    (unsigned long)r->bytes_in,
-                    (unsigned long)r->bytes_out);
+            if (r->bytes_in > 0 || r->bytes_out > 0) {
+                const ServerConfig *_s = (r->server_idx >= 0 && g_config)
+                    ? config_get_server(g_config, r->server_idx) : NULL;
+                log_msg(LOG_INFO,
+                        "relay closed [%s] up=%lu down=%lu lifetime=%lus domain=%s",
+                        _s ? _s->name : (r->server_idx == -1 ? "DIRECT" : "?"),
+                        (unsigned long)r->bytes_in,
+                        (unsigned long)r->bytes_out,
+                        (unsigned long)(time(NULL) - r->created_at),
+                        r->domain[0] ? r->domain : "(null)");
+            }
         }
         /* Учесть трафик в per-device статистике */
         if (g_dm && r->client_mac[0])
@@ -2853,6 +2862,15 @@ void dispatcher_handle_udp(tproxy_conn_t *conn,
     else if (conn->dst.ss_family == AF_INET6)
         dst_port = ntohs(((struct sockaddr_in6 *)&conn->dst)->sin6_port);
 
+    /* Временный лог для верификации XUDP приёма (первые 5 вызовов) */
+    static int udp_dbg = 0;
+    if (udp_dbg++ < 5) {
+        char src_dbg[64];
+        net_format_addr(&conn->src, src_dbg, sizeof(src_dbg));
+        log_msg(LOG_INFO, "UDP: src=%s dst_port=%u len=%zu",
+                src_dbg, (unsigned)dst_port, len);
+    }
+
     /* Выбрать сервер через proxy group */
     int server_idx = dispatcher_select_server(ds, g_config);
     if (server_idx < 0) {
@@ -3094,7 +3112,7 @@ static int grpc_install_conn_watcher(dispatcher_state_t *ds, relay_conn_t *r)
 
     /* MOD conn->tcp_fd: data.ptr с &r->ep_upstream → watcher */
     struct epoll_event mev = {
-        .events   = EPOLLIN | EPOLLERR | EPOLLHUP,
+        .events   = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP,
         .data.ptr = w,
     };
     if (epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD, s->conn->tcp_fd, &mev) < 0) {
@@ -3268,6 +3286,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 if (!r->grpc_stream) {
                     log_msg(LOG_ERROR, "relay: gRPC MULTIPLEX без grpc_stream");
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3282,6 +3301,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->grpc = calloc(1, sizeof(grpc_conn_t));
                 if (!r->grpc) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3315,6 +3335,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 if (!r->muxcool_stream->conn) {
                     log_msg(LOG_ERROR, "muxcool: conn==NULL после TLS HS");
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3337,6 +3358,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->ws = calloc(1, sizeof(ws_client_conn_t));
                 if (!r->ws) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3352,6 +3374,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 r->http_ug = calloc(1, sizeof(http_upgrade_conn_t));
                 if (!r->http_ug) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3366,6 +3389,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                                             server->password,
                                             r->domain[0] ? r->domain : NULL) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3391,12 +3415,14 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                         log_msg(LOG_WARN,
                                 "VLESS: невалидный UUID для Vision init");
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         return;
                     }
                     r->vision = malloc(sizeof(vision_state_t));
                     if (!r->vision) {
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         return;
                     }
@@ -3415,6 +3441,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                                           vision_addons_len ? vision_addons : NULL,
                                           vision_addons_len) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -3437,6 +3464,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                       r->upstream_fd, &mod);
         } else if (tls_rc == TLS_ERR) {
             dispatcher_server_result(ds, r->server_idx, false);
+            proxy_group_mark_server_fail(g_pgm, r->server_idx);
             relay_free(ds, r);
         }
     } else {
@@ -3453,6 +3481,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
             log_msg(LOG_DEBUG, "relay: VLESS установлен, relay активен");
         } else if (vrc < 0) {
             dispatcher_server_result(ds, r->server_idx, false);
+            proxy_group_mark_server_fail(g_pgm, r->server_idx);
             relay_free(ds, r);
         }
     }
@@ -3684,6 +3713,7 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                         xhttp_send_upload_request(r->xhttp, &r->dst, srv->uuid) < 0 ||
                         xhttp_send_download_request(r->xhttp) < 0) {
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         return;
                     }
@@ -3691,6 +3721,7 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                 }
             } else if (tr == TLS_ERR) {
                 dispatcher_server_result(ds, r->server_idx, false);
+                proxy_group_mark_server_fail(g_pgm, r->server_idx);
                 relay_free(ds, r);
             }
         }
@@ -3719,6 +3750,7 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                 r->state = RELAY_XHTTP_DN_REQ;
             } else if (tr == TLS_ERR) {
                 dispatcher_server_result(ds, r->server_idx, false);
+                proxy_group_mark_server_fail(g_pgm, r->server_idx);
                 relay_free(ds, r);
             }
         }
@@ -3760,6 +3792,7 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                 log_msg(LOG_DEBUG, "XHTTP: relay активен");
             } else if (prc < 0) {
                 dispatcher_server_result(ds, r->server_idx, false);
+                proxy_group_mark_server_fail(g_pgm, r->server_idx);
                 relay_free(ds, r);
             }
         }
@@ -4040,12 +4073,14 @@ static void relay_handle_reality(dispatcher_state_t *ds,
                         log_msg(LOG_WARN,
                                 "VLESS Reality: невалидный UUID для Vision");
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         return;
                     }
                     r->vision = malloc(sizeof(vision_state_t));
                     if (!r->vision) {
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         return;
                     }
@@ -4065,6 +4100,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
                                                       ? vision_addons : NULL,
                                                     vision_addons_len) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     return;
                 }
@@ -4095,6 +4131,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
             } else if (rc == -1) {
                 log_msg(LOG_WARN, "Reality: handshake провалился");
                 dispatcher_server_result(ds, r->server_idx, false);
+                proxy_group_mark_server_fail(g_pgm, r->server_idx);
                 relay_free(ds, r);
                 return;
             }
@@ -4148,6 +4185,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
         }
     } else if (vrc < 0) {
         dispatcher_server_result(ds, r->server_idx, false);
+        proxy_group_mark_server_fail(g_pgm, r->server_idx);
         relay_free(ds, r);
     }
 }
@@ -4269,6 +4307,35 @@ static void cb_grpc_free(void *ctx)
 
 #endif /* CONFIG_EBURNET_XUDP */
 
+#if CONFIG_EBURNET_GRPC_MULTIPLEX
+/* WHY: raw recv() drain уничтожает зашифрованные DATA frames,
+ * не давая wolfSSL их расшифровать и доставить pending_to_client.
+ * Результат: premature EOS для iOS → серый экран YouTube.
+ *
+ * Правильный подход: не трогать tcp_fd. Стримы сами деградируют
+ * через wolfSSL_read → EBADF/EOF → relay_free когда пробудятся.
+ * pool_tick уберёт GRPC_CONN_IDLE через GRPC_CONN_IDLE_TIMEOUT_SEC. */
+static void grpc_conn_teardown(dispatcher_state_t *ds, grpc_conn_ep_t *w)
+{
+    (void)ds;
+
+    grpc_connection_t *pconn = w->conn;
+    if (!pconn)
+        return;
+
+    /* Пнуть wake_fd всех живых streams чтобы они быстро завершились */
+    for (int i = 0; i < GRPC_STREAMS_PER_CONN_MAX; i++) {
+        if (pconn->streams[i] && pconn->streams[i]->wake_fd >= 0) {
+            uint64_t v = 1;
+            write(pconn->streams[i]->wake_fd, &v, sizeof(v));
+        }
+    }
+
+    /* НЕ закрывать tcp_fd, НЕ делать raw recv drain, НЕ менять state */
+    /* wolfSSL продолжит работу через существующий tcp_fd */
+}
+#endif /* CONFIG_EBURNET_GRPC_MULTIPLEX */
+
 /* ------------------------------------------------------------------ */
 /*  dispatcher_tick — обработка событий relay (C-06 декомпозиция)       */
 /* ------------------------------------------------------------------ */
@@ -4308,9 +4375,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
         if (*(int *)events[i].data.ptr == EPOLL_EP_GRPC_CONN) {
             grpc_conn_ep_t *w = (grpc_conn_ep_t *)events[i].data.ptr;
             uint32_t wev = events[i].events;
-            if (wev & (EPOLLERR | EPOLLHUP)) {
-                /* Соединение оборвалось — оставляем cleanup на pool_tick
-                 * после того как все streams отвалятся по recv ECONNRESET. */
+            if (wev & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                grpc_conn_teardown(ds, w);
                 continue;
             }
             grpc_connection_t *pconn = w->conn;
@@ -4503,6 +4569,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                         "gRPC pool HS провалился [%s]: %s",
                                         srv_grpc->name, strerror(saved));
                                 dispatcher_server_result(ds, r->server_idx, false);
+                                proxy_group_mark_server_fail(g_pgm, r->server_idx);
                                 relay_free(ds, r);
                                 pfatal = true;
                             }
@@ -4519,6 +4586,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         muxcool_grpc_ctx_t *gctx = malloc(sizeof(*gctx));
                         if (!gctx) {
                             dispatcher_server_result(ds, r->server_idx, false);
+                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
                             relay_free(ds, r);
                             pfatal = true;
                             break;
@@ -4540,6 +4608,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
 #endif /* CONFIG_EBURNET_XUDP */
                     if (grpc_stream_send_proto_header(r, srv_grpc) < 0) {
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         break;
                     }
@@ -4589,6 +4658,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                     "gRPC pool VLESS response провалился [%s]: %s",
                                     srv_grpc->name, strerror(saved));
                             dispatcher_server_result(ds, r->server_idx, false);
+                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
                             relay_free(ds, r);
                         }
                         break;
@@ -4608,6 +4678,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             int saved = errno;
                             if (saved != EAGAIN && saved != EWOULDBLOCK) {
                                 dispatcher_server_result(ds, r->server_idx, false);
+                                proxy_group_mark_server_fail(g_pgm, r->server_idx);
                                 relay_free(ds, r);
                             }
                             break;
@@ -4658,6 +4729,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                     "gRPC HS провалился [%s]: %s",
                                     srv_grpc->name, strerror(saved));
                             dispatcher_server_result(ds, r->server_idx, false);
+                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
                             relay_free(ds, r);
                             grpc_fatal = true;
                         }
@@ -4673,6 +4745,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     if (ret == 2 && strcmp(srv_grpc->protocol, "trojan") == 0) {
                         if (grpc_send_proto_header(r, srv_grpc) < 0) {
                             dispatcher_server_result(ds, r->server_idx, false);
+                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
                             relay_free(ds, r);
                             grpc_fatal = true;
                         }
@@ -4694,6 +4767,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     /* VLESS: 200 OK получен — отправляем proto header */
                     if (grpc_send_proto_header(r, srv_grpc) < 0) {
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         break;
                     }
@@ -4753,6 +4827,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                 "gRPC VLESS response провалился [%s]: %s",
                                 srv_grpc->name, strerror(saved));
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                     }
                     break;
@@ -4772,6 +4847,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         int saved = errno;
                         if (saved != EAGAIN && saved != EWOULDBLOCK) {
                             dispatcher_server_result(ds, r->server_idx, false);
+                            proxy_group_mark_server_fail(g_pgm, r->server_idx);
                             relay_free(ds, r);
                         }
                         break;
@@ -4812,6 +4888,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     log_msg(LOG_WARN, "WS HS провалился [%s]: %s",
                             srv_ws->name, strerror(saved_errno));
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     break;
                 }
@@ -4823,6 +4900,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     muxcool_ws_ctx_t *wctx = malloc(sizeof(*wctx));
                     if (!wctx) {
                         dispatcher_server_result(ds, r->server_idx, false);
+                        proxy_group_mark_server_fail(g_pgm, r->server_idx);
                         relay_free(ds, r);
                         break;
                     }
@@ -4848,6 +4926,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 if (vless_uuid_parse(srv_ws->uuid, &ws_uuid) < 0) {
                     log_msg(LOG_WARN, "WS: VLESS UUID невалидный [%s]", srv_ws->name);
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     break;
                 }
@@ -4860,12 +4939,14 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 if (hdr_len <= 0) {
                     log_msg(LOG_WARN, "WS: не удалось построить VLESS header");
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     break;
                 }
                 if (ws_client_send(r->ws, grpc_tls_send, r->tls,
                                    vless_hdr, (size_t)hdr_len) < 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     break;
                 }
@@ -4886,11 +4967,13 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     log_msg(LOG_WARN, "WS VLESS resp провалился [%s]: %s",
                             srv_ws->name, strerror(saved_errno));
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     goto ws_hs_done;
                 }
                 if (rv == 0) {
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     goto ws_hs_done;
                 }
@@ -5129,6 +5212,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                          srv->reality_short_id) != 0) {
                     log_msg(LOG_WARN, "T0-03: deferred reality_auth_init провалился");
                     dispatcher_server_result(ds, r->server_idx, false);
+                    proxy_group_mark_server_fail(g_pgm, r->server_idx);
                     relay_free(ds, r);
                     break;
                 }

@@ -7,7 +7,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=4eburnet
-PKG_VERSION:=1.5.115
+PKG_VERSION:=1.5.127
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Rostislav
