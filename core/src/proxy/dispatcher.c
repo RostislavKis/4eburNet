@@ -89,6 +89,9 @@ unsigned g_relay_drain_per_call  = 4;
 #define REALITY_HS_MAX_CONCURRENT   2u
 static uint32_t s_reality_hs_active = 0;
 
+/* Лимит retry per tick — предотвращает N×upstream_connect burst при HC batch + retry chain */
+static int s_retries_this_tick = 0;
+
 /* Частота проверки таймаутов (раз в N тиков) */
 #define RELAY_TIMEOUT_CHECK     100
 
@@ -1610,9 +1613,14 @@ static int upstream_connect(dispatcher_state_t *ds,
 
 static int relay_try_retry(dispatcher_state_t *ds, relay_conn_t *r)
 {
-    /* Пометить текущий сервер как failed в любом случае */
+    /* Лимит до 2 retry per tick — предотвращает burst upstream_connect при многопоточных HS fail */
+    if (s_retries_this_tick >= 2) return -1;
+    s_retries_this_tick++;
+
+    /* HS fail в relay — немедленно исключаем сервер из пула (не ждём 3 сбоев).
+     * HC-loop восстановит available через mark_server_ok после 3 успешных HC. */
     if (r->server_idx >= 0)
-        proxy_group_mark_server_fail(g_pgm, r->server_idx);
+        proxy_group_mark_server_fail_immediate(g_pgm, r->server_idx);
 
     if (r->retries >= 3) return -1;
     if (!g_pgm || r->group_name[0] == '\0') return -1;
@@ -1635,6 +1643,7 @@ static int relay_try_retry(dispatcher_state_t *ds, relay_conn_t *r)
     r->server_idx = new_idx;
     r->bytes_in   = 0;
     r->bytes_out  = 0;
+    r->upstream_first_byte_deadline = 0;  /* новый HS установит deadline после своего завершения */
 
     log_msg(LOG_INFO, "relay retry %u/3: → %s (domain=%s)",
             r->retries, srv->name,
@@ -3568,6 +3577,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
                 }
                 dispatcher_server_result(ds, r->server_idx, true);
                 r->state = RELAY_ACTIVE;
+                r->upstream_first_byte_deadline = time(NULL) + 10;
                 log_msg(LOG_DEBUG, "relay: Trojan активен");
             } else {
                 /* T0-02: активировать Vision если reality_flow содержит "vision".
@@ -3644,6 +3654,7 @@ static void relay_handle_tls(dispatcher_state_t *ds, relay_conn_t *r,
             dispatcher_server_result(ds, r->server_idx, true);
             log_msg(LOG_INFO, "relay VLESS_SHAKE→ACTIVE");
             r->state = RELAY_ACTIVE;
+            r->upstream_first_byte_deadline = time(NULL) + 10;
             log_msg(LOG_DEBUG, "relay: VLESS установлен, relay активен");
         } else if (vrc < 0) {
             dispatcher_server_result(ds, r->server_idx, false);
@@ -4302,6 +4313,7 @@ static void relay_handle_reality(dispatcher_state_t *ds,
         proxy_group_mark_server_ok(g_pgm, r->server_idx);
         log_msg(LOG_INFO, "relay REALITY_VLESS→ACTIVE");
         r->state = RELAY_ACTIVE;
+        r->upstream_first_byte_deadline = time(NULL) + 10;
         log_msg(LOG_DEBUG, "relay: VLESS+Reality установлен, активен");
 #ifdef __mips__
         /* WHY: на MIPS AES-GCM без HW accl ~0.5ms/запись. EPOLLET + for(;;) drain
@@ -4497,6 +4509,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
     struct timespec ts_start;
     clock_gettime(CLOCK_MONOTONIC, &ts_start);
+
+    s_retries_this_tick = 0;
 
     /* WHY: throttle только для RELAY_REALITY_HS (keygen + HS-шаги содержат Curve25519).
      * RELAY_REALITY_VLESS использует только AES-GCM — throttle там не нужен. */
@@ -4759,6 +4773,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         r->client_sent_first = true;
                         dispatcher_server_result(ds, r->server_idx, true);
                         r->state = RELAY_ACTIVE;
+                        r->upstream_first_byte_deadline = now + 10;
                         /* Установить watcher ДО forced drain — relay_transfer
                          * ожидает r->upstream_fd = wake_fd для grpc_stream */
                         if (grpc_install_conn_watcher(ds, r) < 0) {
@@ -4831,6 +4846,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                             "relay [%s] GRPC_HS→ACTIVE pool (VLESS resp ok)",
                             srv_grpc->name);
                     r->state = RELAY_ACTIVE;
+                    r->upstream_first_byte_deadline = now + 10;
                     /* Установить persistent watcher на conn->tcp_fd —
                      * вторичные streams теперь получают данные независимо от
                      * жизни этого primary relay. */
@@ -4926,6 +4942,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                                 r->domain[0] ? r->domain : "(empty)");
                     }
                     r->state = RELAY_ACTIVE;
+                    r->upstream_first_byte_deadline = now + 10;
                     /* WHY forced drain (upstream): с EPOLLET данные (WINDOW_UPDATE,
                      * SETTINGS) от сервера могут остаться в wolfSSL buffer после HS
                      * loop — EPOLLIN не придёт до прихода НОВЫХ байт. Дренируем
@@ -4990,6 +5007,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
                         "relay [%s] GRPC_HS→ACTIVE (VLESS resp ok)",
                         srv_grpc->name);
                 r->state = RELAY_ACTIVE;
+                r->upstream_first_byte_deadline = now + 10;
             }
             break;
         }
@@ -5100,6 +5118,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
             dispatcher_server_result(ds, r->server_idx, true);
             log_msg(LOG_INFO, "relay [%s] WS_HS→ACTIVE (VLESS resp ok)", srv_ws->name);
             r->state = RELAY_ACTIVE;
+            r->upstream_first_byte_deadline = now + 10;
             break;
         }
 
@@ -5235,6 +5254,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
             log_msg(LOG_INFO, "relay [%s] HY2_CONNECT→ACTIVE",
                     srv_hy2 ? srv_hy2->name : "?");
             r->state = RELAY_ACTIVE;
+            r->upstream_first_byte_deadline = now + 10;
             break;
         }
 #endif /* CONFIG_EBURNET_QUIC */
@@ -5667,6 +5687,23 @@ void dispatcher_tick(dispatcher_state_t *ds)
             if (r->state == RELAY_DONE)
                 continue;
             checked++;
+
+            /* Upstream first-byte timeout: если upstream не ответил за 10с после HS */
+            if (r->state == RELAY_ACTIVE &&
+                r->upstream_first_byte_deadline > 0 &&
+                r->bytes_out == 0 &&
+                now > r->upstream_first_byte_deadline) {
+                const ServerConfig *_srv = (r->server_idx >= 0 && g_config)
+                    ? config_get_server(g_config, r->server_idx) : NULL;
+                log_msg(LOG_WARN,
+                    "relay timeout: нет ответа upstream 10с (up=%lu) domain=%s server=%s",
+                    (unsigned long)r->bytes_in,
+                    r->domain[0] ? r->domain : "(null)",
+                    _srv ? _srv->name : "?");
+                if (relay_try_retry(ds, r) != 0)
+                    relay_free(ds, r);
+                continue;
+            }
 
             time_t idle_since = r->last_active > r->created_at
                                 ? r->last_active : r->created_at;
