@@ -762,9 +762,12 @@ static int vless_protocol_start(relay_conn_t *relay,
     }
     cfg.fingerprint = map_fingerprint(server->reality_fingerprint);
     cfg.verify_cert = false;
-    /* WHY: gRPC требует ALPN "h2" — без него HTTP/2 соединение отклоняется */
+    /* WHY: gRPC требует ALPN "h2"; WS требует "http/1.1" — иначе Chrome fingerprint
+     * согласует h2, сервер ждёт HTTP/2 frames, а relay шлёт HTTP/1.1 WS Upgrade → RST. */
     if (server->transport[0] && strcmp(server->transport, "grpc") == 0)
         strncpy(cfg.alpn, "h2", sizeof(cfg.alpn) - 1);
+    else if (server->transport[0] && strcmp(server->transport, "ws") == 0)
+        strncpy(cfg.alpn, "http/1.1", sizeof(cfg.alpn) - 1);
     /* DEC-025: передаём shortId для диагностики после handshake */
     if (server->reality_short_id[0])
         cfg.reality_short_id = server->reality_short_id;
@@ -978,9 +981,11 @@ static int trojan_protocol_start(relay_conn_t *relay,
     }
     cfg.fingerprint = TLS_FP_CHROME120;
     cfg.verify_cert = false;
-    /* WHY: gRPC требует ALPN "h2" — без него HTTP/2 соединение отклоняется */
+    /* WHY: gRPC требует ALPN "h2"; WS требует "http/1.1" — та же проблема что и VLESS */
     if (server->transport[0] && strcmp(server->transport, "grpc") == 0)
         strncpy(cfg.alpn, "h2", sizeof(cfg.alpn) - 1);
+    else if (server->transport[0] && strcmp(server->transport, "ws") == 0)
+        strncpy(cfg.alpn, "http/1.1", sizeof(cfg.alpn) - 1);
 #if CONFIG_EBURNET_STLS
     if (relay->stls_io) {
         cfg.io_send = stls_ssl_send;
@@ -1599,6 +1604,7 @@ static void relay_release_upstream(dispatcher_state_t *ds, relay_conn_t *r)
     r->upstream_lt_mode   = false;
     r->upstream_fd_paused = false;
 #endif
+    r->connect_deadline = 0;
     r->state = RELAY_CONNECTING;
 }
 
@@ -1606,10 +1612,13 @@ static void relay_release_upstream(dispatcher_state_t *ds, relay_conn_t *r)
 /*  relay_try_retry — выбрать следующий сервер, не закрывая клиента   */
 /* ------------------------------------------------------------------ */
 
-/* forward declaration — upstream_connect определён ниже */
+/* forward declarations — определения ниже в файле */
 static int upstream_connect(dispatcher_state_t *ds,
                             relay_conn_t *r,
                             const ServerConfig *server);
+#if CONFIG_EBURNET_GRPC_MULTIPLEX
+static int grpc_stream_send_proto_header(relay_conn_t *r, const ServerConfig *server);
+#endif
 
 static int relay_try_retry(dispatcher_state_t *ds, relay_conn_t *r)
 {
@@ -1617,10 +1626,12 @@ static int relay_try_retry(dispatcher_state_t *ds, relay_conn_t *r)
     if (s_retries_this_tick >= 2) return -1;
     s_retries_this_tick++;
 
-    /* HS fail в relay — немедленно исключаем сервер из пула (не ждём 3 сбоев).
-     * HC-loop восстановит available через mark_server_ok после 3 успешных HC. */
+    /* HS fail — исключаем сервер только в группе этого relay.
+     * WHY: mark_server_fail_immediate бьёт по всем группам → каскадный failover
+     * N-серверов × M-групп за один тик, dispatcher_tick 130-155ms.
+     * HC восстановит available через mark_server_ok после успешных проверок. */
     if (r->server_idx >= 0)
-        proxy_group_mark_server_fail_immediate(g_pgm, r->server_idx);
+        proxy_group_mark_server_fail_for_group(g_pgm, r->server_idx, r->group_name);
 
     if (r->retries >= 3) return -1;
     if (!g_pgm || r->group_name[0] == '\0') return -1;
@@ -1648,6 +1659,56 @@ static int relay_try_retry(dispatcher_state_t *ds, relay_conn_t *r)
     log_msg(LOG_INFO, "relay retry %u/3: → %s (domain=%s)",
             r->retries, srv->name,
             r->domain[0] ? r->domain : "(null)");
+
+#if CONFIG_EBURNET_GRPC_MULTIPLEX
+    /* WHY: relay_release_upstream() обнулил r->grpc_stream. Если новый сервер
+     * тоже gRPC — нужно получить stream из pool ДО upstream_connect, иначе
+     * в TLS_SHAKE→GRPC_HS переходе сработает guard "MULTIPLEX без grpc_stream". */
+    if (ds->grpc_pool && srv->transport[0] && strcmp(srv->transport, "grpc") == 0) {
+        char _authority[288];
+        int  _an;
+        if (srv->port == 443 || srv->port == 80)
+            _an = snprintf(_authority, sizeof(_authority), "%s", srv->address);
+        else
+            _an = snprintf(_authority, sizeof(_authority), "%s:%u",
+                           srv->address, srv->port);
+        if (_an < 0 || (size_t)_an >= sizeof(_authority))
+            _authority[sizeof(_authority) - 1] = '\0';
+        const char *_svc = srv->grpc_service_name[0]
+                           ? srv->grpc_service_name : "GunService";
+        int _needs_io = 0, _tcp_fd_unused = -1;
+        grpc_stream_t *_gs = grpc_pool_acquire_stream(ds->grpc_pool, new_idx,
+                                                       _authority, _svc,
+                                                       &_needs_io, &_tcp_fd_unused);
+        if (!_gs) {
+            log_msg(LOG_WARN, "relay: retry gRPC pool acquire провалился");
+            return -1;
+        }
+        r->grpc_stream = _gs;
+        if (_needs_io == 0) {
+            /* Существующее соединение: secondary stream — активируем немедленно */
+            r->upstream_fd = _gs->wake_fd;
+            if (grpc_stream_send_proto_header(r, srv) < 0) {
+                grpc_stream_release(r->grpc_stream);
+                r->grpc_stream = NULL;
+                r->upstream_fd = -1;
+                return -1;
+            }
+            dispatcher_server_result(ds, new_idx, true);
+            struct epoll_event _wev = { .events = EPOLLIN, .data.ptr = &r->ep_upstream };
+            if (epoll_ctl(ds->epoll_fd, EPOLL_CTL_ADD, r->upstream_fd, &_wev) < 0) {
+                r->upstream_fd = -1;
+                return -1;
+            }
+            r->state             = RELAY_ACTIVE;
+            r->client_sent_first = true;
+            log_msg(LOG_INFO, "relay retry [%s] gRPC secondary stream id=%u",
+                    srv->name, _gs->stream_id);
+            return 0;
+        }
+        /* _needs_io == 1: продолжаем к upstream_connect — grpc_stream уже установлен */
+    }
+#endif
 
     return upstream_connect(ds, r, srv);
 }
@@ -1837,6 +1898,9 @@ static int upstream_connect(dispatcher_state_t *ds,
     }
 
     r->upstream_fd = fd;
+    /* EINPROGRESS: connect не завершён, ставим дедлайн 5с */
+    if (rc < 0)
+        r->connect_deadline = time(NULL) + 5;
 
     /* Добавить upstream_fd в epoll: ждём завершения connect (EPOLLOUT) */
     struct epoll_event ev = {
@@ -4628,7 +4692,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
                     continue;
                 }
 
-                /* connect успешен — переключить upstream на EPOLLIN|EPOLLOUT */
+                /* connect успешен — сброс дедлайна и переключить upstream на EPOLLIN|EPOLLOUT */
+                r->connect_deadline = 0;
                 struct epoll_event mod = {
                     .events   = EPOLLIN | EPOLLOUT | EPOLLET,
                     .data.ptr = &r->ep_upstream,
@@ -5687,6 +5752,21 @@ void dispatcher_tick(dispatcher_state_t *ds)
             if (r->state == RELAY_DONE)
                 continue;
             checked++;
+
+            /* TCP connect timeout: сервер не ответил на SYN за 5с */
+            if (r->state == RELAY_CONNECTING &&
+                r->connect_deadline > 0 &&
+                now > r->connect_deadline) {
+                const ServerConfig *_srv = (r->server_idx >= 0 && g_config)
+                    ? config_get_server(g_config, r->server_idx) : NULL;
+                log_msg(LOG_WARN,
+                    "relay connect timeout: %s → %s (5с)",
+                    r->domain[0] ? r->domain : "?",
+                    _srv ? _srv->name : "?");
+                if (relay_try_retry(ds, r) != 0)
+                    relay_free(ds, r);
+                continue;
+            }
 
             /* Upstream first-byte timeout: если upstream не ответил за 10с после HS */
             if (r->state == RELAY_ACTIVE &&
