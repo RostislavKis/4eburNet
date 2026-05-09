@@ -8,7 +8,7 @@
 #include <time.h>
 
 #ifndef EBURNET_VERSION
-#define EBURNET_VERSION "1.5.136"  /* fallback; Makefile.dev передаёт через -D */
+#define EBURNET_VERSION "1.5.139"  /* fallback; Makefile.dev передаёт через -D */
 #endif
 #define EBURNET_NAME    "4eburnetd"
 

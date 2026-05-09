@@ -81,13 +81,31 @@ unsigned g_relay_drain_per_call  = 4;
 #define RELAY_HALF_CLOSE_TIMEOUT    10  /* half-close ещё короче */
 /* MIPS MT7621A: Curve25519 ~10-15 мс без аппаратного ускорения →
  * не более 2 Reality handshake за один dispatcher_tick (~10 мс). */
+/* WHY: MIPS MT7621A — Curve25519 keygen ~60-70ms (vs 10-15ms на ARM/x86).
+ * PER_TICK=2 даст 130ms+ тик → предупреждение > порога 100ms.
+ * PER_TICK=1 на MIPS: 1 keygen≤70ms < 100ms, HC чуть медленнее но стабильнее. */
+#ifdef __mips__
+#define REALITY_HS_PER_TICK         1u
+#else
 #define REALITY_HS_PER_TICK         2u
+#endif
 
 /* WHY: глобальный лимит одновременных Reality HS (все архитектуры).
  * YouTube burst: 8 соединений одновременно → 8×keygen = 3.5s dispatcher stall.
  * Лимит 2 = keygen суммарно ≤30ms при уже начатых HS не блокируют. */
 #define REALITY_HS_MAX_CONCURRENT   2u
 static uint32_t s_reality_hs_active = 0;
+
+/* Очередь relay с pending_init=true, ожидающих свободный HS-слот.
+ * Relay в очереди ждут ТОЛЬКО EPOLLRDHUP (без spin). Пробуждаются
+ * напрямую при active-- когда предыдущий HS завершается. */
+/* WHY 64: HC тестирует все серверы параллельно; TELEGRAM группа имеет 100+
+ * серверов, многие Reality. При retry cascade 32+ HS встают в очередь
+ * одновременно → overflow → ложный mark_fail → retry storm. 64 слотов
+ * покрывают реальный peak без ложных failures. */
+#define REALITY_PENDING_MAX  64
+static relay_conn_t *s_reality_pending[REALITY_PENDING_MAX];
+static int           s_reality_pending_cnt;
 
 /* Лимит retry per tick — предотвращает N×upstream_connect burst при HC batch + retry chain */
 static int s_retries_this_tick = 0;
@@ -104,8 +122,11 @@ static int s_retries_this_tick = 0;
         return; \
     } while (0)
 
-/* Размер static resolve cache для gs=NULL call sites */
-#define GLOBAL_RESOLVE_CACHE    4
+/* Размер static resolve cache для gs=NULL call sites.
+ * WHY 64: prewarm резолвит до 64 уникальных hostname; при GLOBAL_RESOLVE_CACHE=4
+ * LRU-вытеснение оставлял только 4 записи → 16+ cached=no в event loop →
+ * тики 220-1693ms. 64 слотов покрывают все серверы без вытеснения. */
+#define GLOBAL_RESOLVE_CACHE    64
 
 /* splice удалён: shared pipe = data corruption (H-12, C-05) */
 
@@ -1249,14 +1270,33 @@ static relay_conn_t *relay_alloc(dispatcher_state_t *ds)
     return NULL;
 }
 
+#if CONFIG_EBURNET_VLESS
+/* Удаляет relay из очереди ожидания keygen. Вызывается из relay_free /
+ * relay_release_upstream чтобы исключить use-after-free при dequeue. */
+static void reality_pending_remove(relay_conn_t *r)
+{
+    for (int i = 0; i < s_reality_pending_cnt; i++) {
+        if (s_reality_pending[i] == r) {
+            s_reality_pending[i] = s_reality_pending[--s_reality_pending_cnt];
+            return;
+        }
+    }
+}
+#endif
+
 static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 {
 #if CONFIG_EBURNET_VLESS
     /* WHY: EPOLLERR/EPOLLHUP срабатывают до switch() → RELAY_REALITY_HS case
-     * не выполняется → декремент потеряется. Снимаем здесь безусловно. */
-    if (r->state == RELAY_REALITY_HS && !r->reality_pending_init
-            && s_reality_hs_active > 0)
-        s_reality_hs_active--;
+     * не выполняется → декремент потеряется. Снимаем здесь безусловно.
+     * pending_init=true → relay в очереди ожидания; удаляем до RELAY_DONE
+     * чтобы dequeue не получил указатель на переиспользованный слот. */
+    if (r->state == RELAY_REALITY_HS) {
+        if (r->reality_pending_init)
+            reality_pending_remove(r);
+        else if (s_reality_hs_active > 0)
+            s_reality_hs_active--;
+    }
 #endif
     bool had_vision = (r->vision != NULL);
     bool had_grpc   = (r->grpc   != NULL);
@@ -1487,9 +1527,12 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
 static void relay_release_upstream(dispatcher_state_t *ds, relay_conn_t *r)
 {
 #if CONFIG_EBURNET_VLESS
-    if (r->state == RELAY_REALITY_HS && !r->reality_pending_init
-            && s_reality_hs_active > 0)
-        s_reality_hs_active--;
+    if (r->state == RELAY_REALITY_HS) {
+        if (r->reality_pending_init)
+            reality_pending_remove(r);
+        else if (s_reality_hs_active > 0)
+            s_reality_hs_active--;
+    }
 #endif
 
     if (r->use_tls && r->tls) {
@@ -5359,16 +5402,31 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 RELAY_FAIL_OR_RETRY(ds, r);
             }
             /* WHY: не стартовать новый Reality HS если уже 2 в процессе.
-             * pending_init=true = keygen ещё не запускался → блокируем только новые.
-             * Уже начатые (pending_init=false) продолжают без задержки. */
+             * pending_init=true = keygen ещё не запускался → помещаем в очередь.
+             * ТОЛЬКО EPOLLRDHUP — без EPOLLOUT spin. Relay разбудим напрямую
+             * когда HS-слот освободится (при active-- в dequeue-блоке ниже). */
             if (r->reality_pending_init
                     && s_reality_hs_active >= REALITY_HS_MAX_CONCURRENT) {
-                if (r->upstream_fd >= 0) {
-                    struct epoll_event ev_lt2 = {
-                        .events   = EPOLLIN | EPOLLRDHUP,
-                        .data.ptr = &r->ep_upstream,
-                    };
-                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD, r->upstream_fd, &ev_lt2);
+                bool _already = false;
+                for (int _q = 0; _q < s_reality_pending_cnt; _q++)
+                    if (s_reality_pending[_q] == r) { _already = true; break; }
+                if (!_already) {
+                    if (s_reality_pending_cnt < REALITY_PENDING_MAX) {
+                        s_reality_pending[s_reality_pending_cnt++] = r;
+                    } else {
+                        log_msg(LOG_WARN, "Reality: очередь pending полна (%d)",
+                                REALITY_PENDING_MAX);
+                        dispatcher_server_result(ds, r->server_idx, false);
+                        RELAY_FAIL_OR_RETRY(ds, r);
+                    }
+                    if (r->upstream_fd >= 0) {
+                        struct epoll_event ev_wait = {
+                            .events   = EPOLLRDHUP,
+                            .data.ptr = &r->ep_upstream,
+                        };
+                        epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                                  r->upstream_fd, &ev_wait);
+                    }
                 }
                 break;
             }
@@ -5376,12 +5434,16 @@ void dispatcher_tick(dispatcher_state_t *ds)
             if (s_reality_hs_this_tick++ >= REALITY_HS_PER_TICK) {
                 /* WHY: ET stall prevention — если ServerHello уже в буфере но мы throttled,
                  * новый edge event не придёт. Переключаем upstream_fd в LT на этот тик
-                 * чтобы epoll_wait вернул событие снова на следующем тике без нового пакета.
-                 * ТОЛЬКО EPOLLIN — EPOLLOUT здесь лишний: Reality HS ждёт ServerHello,
-                 * сокет всегда writable → EPOLLOUT в LT = busy-spin 100% CPU. */
+                 * чтобы epoll_wait вернул событие снова на следующем тике.
+                 * pending_init=true: ClientHello не отправлен, сервер молчит → EPOLLIN
+                 * не разбудит → добавляем EPOLLOUT (writable сокет = wake-up на след. тике).
+                 * pending_init=false: ClientHello отправлен, ждём ServerHello →
+                 * LT EPOLLIN достаточен (данные могут быть уже в буфере). */
                 if (r->upstream_fd >= 0) {
                     struct epoll_event ev_lt = {
-                        .events   = EPOLLIN | EPOLLRDHUP, /* без EPOLLET = LT, без EPOLLOUT */
+                        .events   = r->reality_pending_init
+                            ? (EPOLLIN | EPOLLOUT | EPOLLRDHUP)
+                            : (EPOLLIN | EPOLLRDHUP),
                         .data.ptr = &r->ep_upstream,
                     };
                     epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD, r->upstream_fd, &ev_lt);
@@ -5420,13 +5482,73 @@ void dispatcher_tick(dispatcher_state_t *ds)
                 }
                 r->reality_pending_init = false;
                 s_reality_hs_active++;
+                /* WHY EPOLLOUT|EPOLLET: если keygen запустился на client-event
+                 * (EPOLLIN клиента → RELAY_REALITY_HS), то ev не содержит EPOLLOUT
+                 * и relay_handle_reality вернётся рано (is_client path).
+                 * ep_modify на writable upstream_fd квеит один EPOLLOUT →
+                 * следующий тик вызовет send_client_hello без busy-spin. */
+                if (r->upstream_fd >= 0) {
+                    struct epoll_event ev_pre_ch = {
+                        .events   = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP,
+                        .data.ptr = &r->ep_upstream,
+                    };
+                    epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD, r->upstream_fd, &ev_pre_ch);
+                }
             }
             relay_handle_reality(ds, r, ep, ev);
             /* Декремент если relay вышел из REALITY_HS (VLESS→ACTIVE или relay_free).
              * relay_free уже снял счётчик выше — здесь только переход →VLESS. */
             if (r->state != RELAY_REALITY_HS && r->state != RELAY_DONE
-                    && s_reality_hs_active > 0)
+                    && s_reality_hs_active > 0) {
                 s_reality_hs_active--;
+                /* Пробудить первый pending relay из очереди ожидания keygen.
+                 * WHY: relay в очереди ждёт только EPOLLRDHUP — без spin.
+                 * Здесь, при освобождении слота, делаем keygen напрямую
+                 * и восстанавливаем EPOLLIN|EPOLLOUT|EPOLLET → ep_modify
+                 * квеит один EPOLLOUT → следующий тик отправит ClientHello. */
+                while (s_reality_pending_cnt > 0
+                           && s_reality_hs_active < REALITY_HS_MAX_CONCURRENT) {
+#ifdef __mips__
+                    /* WHY: keygen ~60-70ms на MIPS → учитываем в per-tick бюджете.
+                     * Если уже выполнен inline keygen (s_reality_hs_this_tick≥PER_TICK),
+                     * откладываем dequeue до следующего тика. */
+                    if (s_reality_hs_this_tick >= REALITY_HS_PER_TICK) break;
+                    s_reality_hs_this_tick++;
+#endif
+                    relay_conn_t *_pr = s_reality_pending[0];
+                    s_reality_pending_cnt--;
+                    if (s_reality_pending_cnt > 0)
+                        memmove(s_reality_pending, s_reality_pending + 1,
+                                (size_t)s_reality_pending_cnt
+                                * sizeof(s_reality_pending[0]));
+                    if (!_pr || _pr->state != RELAY_REALITY_HS
+                             || !_pr->reality_pending_init)
+                        continue;
+                    const ServerConfig *_srv2 = (g_config && _pr->server_idx >= 0)
+                        ? config_get_server(g_config, _pr->server_idx) : NULL;
+                    uint8_t _rpub[32];
+                    if (!_srv2
+                        || reality_pbk_decode(_srv2->reality_pbk, _rpub) != 0
+                        || reality_auth_init((reality_auth_t *)_pr->reality_auth,
+                                             _rpub, _srv2->reality_short_id) != 0) {
+                        log_msg(LOG_WARN, "T0-03: deferred keygen провалился");
+                        dispatcher_server_result(ds, _pr->server_idx, false);
+                        relay_free(ds, _pr);
+                        continue;
+                    }
+                    _pr->reality_pending_init = false;
+                    s_reality_hs_active++;
+                    if (_pr->upstream_fd >= 0) {
+                        struct epoll_event _ev_rw = {
+                            .events   = EPOLLIN | EPOLLOUT | EPOLLET | EPOLLRDHUP,
+                            .data.ptr = &_pr->ep_upstream,
+                        };
+                        epoll_ctl(ds->epoll_fd, EPOLL_CTL_MOD,
+                                  _pr->upstream_fd, &_ev_rw);
+                    }
+                    break;
+                }
+            }
             break;
         case RELAY_REALITY_VLESS:
             /* нет throttle — AES-GCM только, Curve25519 отсутствует */
