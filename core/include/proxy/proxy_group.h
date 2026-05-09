@@ -50,6 +50,7 @@ typedef struct {
     group_server_state_t  servers[PROXY_GROUP_MAX_SERVERS];
     int                   server_count;
     int                   selected_idx;
+    bool                  pinned;         /* ручной выбор через PUT — не сбрасывать HC */
     int                   rr_idx;
     int                   check_cursor;   /* H-1: позиция для неблокирующего health-check */
     time_t                next_check;

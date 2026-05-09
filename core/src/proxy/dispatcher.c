@@ -4391,14 +4391,9 @@ static void relay_handle_reality(dispatcher_state_t *ds,
                     dispatcher_server_result(ds, r->server_idx, false);
                     RELAY_FAIL_OR_RETRY(ds, r);
                 }
-                /* WHY: xray-core с Vision flow не отвечает до получения первого
-                 * Vision-framed пакета от клиента. Отправляем пустой probe
-                 * (cmd=CONTINUE, content_len=0) чтобы разблокировать сервер. */
-                if (r->vision) {
-                    vision_write_ex(r->vision, reality_send_fn, r->reality,
-                                    NULL, 0);
-                    log_msg(LOG_DEBUG, "Reality+Vision: empty probe отправлен");
-                }
+                /* Vision пишет только при реальных клиентских данных:
+                 * reality_vless_drain_client ниже пробросит inner-TLS ClientHello
+                 * через vision_write_ex с настоящим payload. */
                 log_msg(LOG_INFO, "relay [%s] REALITY_HS→REALITY_VLESS", srv->name);
                 r->state = RELAY_REALITY_VLESS;
                 r->vless_resp_len = 0;

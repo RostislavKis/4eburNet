@@ -96,8 +96,9 @@ static void pgm_restore_selection(proxy_group_state_t *gs,
         const ServerConfig *sc = config_get_server(cfg, gs->servers[i].server_idx);
         if (sc && strcmp(sc->name, saved) == 0) {
             gs->selected_idx = i;
+            gs->pinned        = true;
             log_msg(LOG_INFO,
-                "proxy_group %s: восстановлен выбор [%d] '%s'",
+                "proxy_group %s: восстановлен выбор [%d] '%s' (pinned)",
                 gs->name, i, saved);
             return;
         }
@@ -421,6 +422,10 @@ int proxy_group_init(proxy_group_manager_t *pgm, const EburNetConfig *cfg,
             pgm_restore_selection(gs, cfg);
         }
 
+        /* URL_TEST: восстановить ручной pinned-выбор из selected.json */
+        if (gs->type == PROXY_GROUP_URL_TEST && gs->server_count > 0)
+            pgm_restore_selection(gs, cfg);
+
         /* WHY: -1 = свободный слот; проверяется в tick и owns_fd */
         for (int s = 0; s < PROXY_GROUP_HC_SLOTS; s++)
             gs->hc_slots[s].pipe_fd = -1;
@@ -446,8 +451,8 @@ void proxy_group_restore_all_selections(proxy_group_manager_t *pgm)
     if (!pgm) return;
     for (int i = 0; i < pgm->count; i++) {
         proxy_group_state_t *gs = &pgm->groups[i];
-        if (gs->type != PROXY_GROUP_SELECT) continue;
-        if (gs->selected_idx > 0) continue;
+        if (gs->type != PROXY_GROUP_SELECT && gs->type != PROXY_GROUP_URL_TEST) continue;
+        if (gs->selected_idx > 0 || gs->pinned) continue;
         pgm_restore_selection(gs, pgm->cfg);
     }
 }
@@ -677,6 +682,7 @@ void proxy_group_mark_server_fail(proxy_group_manager_t *pgm, int server_idx)
                             }
                         }
                         if (_best >= 0) {
+                            gs->pinned       = false;
                             gs->selected_idx = _best;
                             const ServerConfig *sn = config_get_server(
                                 pgm->cfg, gs->servers[_best].server_idx);
@@ -739,6 +745,7 @@ void proxy_group_mark_server_fail_immediate(proxy_group_manager_t *pgm, int serv
                         }
                     }
                     if (_best >= 0) {
+                        gs->pinned       = false;
                         gs->selected_idx = _best;
                         const ServerConfig *sn = config_get_server(
                             pgm->cfg, gs->servers[_best].server_idx);
@@ -806,6 +813,7 @@ void proxy_group_mark_server_fail_for_group(proxy_group_manager_t *pgm,
                         }
                     }
                     if (_best >= 0) {
+                        gs->pinned       = false;
                         gs->selected_idx = _best;
                         const ServerConfig *sn = config_get_server(
                             pgm->cfg, gs->servers[_best].server_idx);
@@ -937,7 +945,7 @@ void proxy_group_tick(proxy_group_manager_t *pgm)
                     uint32_t _cl  = _cur_ok
                                     ? gs->servers[gs->selected_idx].latency_ms
                                     : UINT32_MAX;
-                    if (_ei != gs->selected_idx && (!_cur_ok || _el + _tol < _cl)) {
+                    if (!gs->pinned && _ei != gs->selected_idx && (!_cur_ok || _el + _tol < _cl)) {
                         gs->selected_idx = _ei;
                         const ServerConfig *sc = config_get_server(
                             pgm->cfg, gs->servers[_ei].server_idx);
@@ -1055,7 +1063,7 @@ void proxy_group_tick(proxy_group_manager_t *pgm)
                     uint32_t _cl  = _cur_ok
                                     ? gs->servers[gs->selected_idx].latency_ms
                                     : UINT32_MAX;
-                    if (_bi != gs->selected_idx && (!_cur_ok || _bl + _tol < _cl)) {
+                    if (!gs->pinned && _bi != gs->selected_idx && (!_cur_ok || _bl + _tol < _cl)) {
                         gs->selected_idx = _bi;
                         const ServerConfig *sc = config_get_server(
                             pgm->cfg, gs->servers[_bi].server_idx);
@@ -1161,7 +1169,7 @@ void proxy_group_handle_hc_event(proxy_group_manager_t *pgm,
                                    : UINT32_MAX;
                 /* WHY tolerance: гистерезис — переключаться только если новый быстрее
                  * более чем на tol мс. Аналог mihomo fastNode stability guard. */
-                if (best_i != gs->selected_idx &&
+                if (!gs->pinned && best_i != gs->selected_idx &&
                     (!cur_ok || best + tol < cur_lat)) {
                     gs->selected_idx = best_i;
                     const ServerConfig *sc =
@@ -1267,7 +1275,7 @@ void proxy_group_save_all_selections(const proxy_group_manager_t *pgm,
     bool first = true;
     for (int i = 0; i < pgm->count; i++) {
         const proxy_group_state_t *gs = &pgm->groups[i];
-        if (gs->type != PROXY_GROUP_SELECT) continue;
+        if (gs->type != PROXY_GROUP_SELECT && !gs->pinned) continue;
         if (gs->selected_idx < 0 || gs->selected_idx >= gs->server_count) continue;
         const ServerConfig *sc = config_get_server(cfg,
             gs->servers[gs->selected_idx].server_idx);

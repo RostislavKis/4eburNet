@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.143] — 2026-05-09
+
+### Added
+
+- **[proxy_group]** `proxy_group_state_t.pinned` — флаг ручного выбора через PUT.
+  Сохраняет выбор url-test и select групп в `/etc/4eburnet/selected.json` и
+  восстанавливает при рестарте. HC-раунды не перезаписывают `selected_idx` пока
+  `pinned=true`. При вынужденном failover (сервер недоступен) `pinned` сбрасывается.
+  `proxy_group_save_all_selections`: теперь сохраняет pinned url-test наряду с select.
+  `pgm_restore_selection`: после восстановления ставит `pinned=true`.
+  `proxy_group_init`: вызывает `pgm_restore_selection` и для URL_TEST групп.
+  http_server.c PUT `/proxies/{group}`: ставит `g->pinned=true`.
+
 ## [1.5.129] — 2026-05-08
 
 ### Fixed
