@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.5.153] — 2026-05-10
+
+### Fixed
+
+- **[BUG/dispatcher.c]** `RELAY_XHTTP_VLESS_RESP`: после отправки VLESS header демон
+  переходил в состояние VLESS_RESP и ждал `EPOLLIN`, который никогда не приходил.
+  Причина: сервер мог прислать 2-байтовый VLESS response одновременно с 200 OK —
+  EPOLLET уже сработал при 200 OK, новый edge-переход не генерируется.
+  Фикс: `goto xhttp_vless_resp_read` сразу после перехода в VLESS_RESP из DN_REQ и
+  VLESS_SEND — немедленный `xhttp_recv_chunk` до EAGAIN без ожидания epoll. (v1.5.153)
+
+## [1.5.152] — 2026-05-10
+
+### Fixed
+
+- **[BUG/dispatcher.c]** `RELAY_XHTTP_VLESS_SEND`: после получения 200 OK (EPOLLIN)
+  сокет уже writable, но EPOLLET не повторит EPOLLOUT без нового edge-перехода.
+  Демон зависал в VLESS_SEND навсегда. Фикс: немедленный `xhttp_send_chunk` в DN_REQ
+  handler сразу после `prc==0`; EAGAIN → fallback на ожидание EPOLLOUT. (v1.5.152)
+
 ## [1.5.150] — 2026-05-10
 
 ### Fixed
