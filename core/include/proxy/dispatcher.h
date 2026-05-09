@@ -69,6 +69,8 @@ typedef enum {
     RELAY_MUXCOOL_HS    = 22,   /* VLESS+CMD=Mux handshake (после TLS) */
     RELAY_MUXCOOL_ACTIVE = 23,  /* активный relay через wake_fd */
 #endif
+    RELAY_XHTTP_VLESS_SEND = 24, /* XHTTP: отправить VLESS header (первый DATA frame) */
+    RELAY_XHTTP_VLESS_RESP = 25, /* XHTTP: читать 2 байта VLESS response */
 } relay_state_t;
 
 /* Предварительные объявления */

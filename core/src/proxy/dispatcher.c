@@ -839,10 +839,11 @@ static int xhttp_protocol_start(relay_conn_t *relay,
 {
     (void)dst;
 
-    /* stream-one если Reality pbk настроен (один H2 POST = upload+download).
-     * WHY: refs/mihomo/transport/xhttp/config.go EffectiveMode():
-     *   hasReality && no DownloadSettings → "stream-one". */
-    bool use_stream_one = (server->reality_pbk[0] != '\0');
+    /* stream-one: один H2 POST где тело запроса = upload, тело ответа = download.
+     * WHY всегда stream-one: stream-up требует два отдельных TCP соединения;
+     * большинство серверов (xray-core, sing-box) ожидают stream-one по умолчанию.
+     * Серверы без Reality отвергают второй TCP → EPOLLERR → тихий relay_free. */
+    bool use_stream_one = true;
 
     /* upstream_fd уже подключён (upload). Для stream-up создаём download fd. */
     /* inet_pton fast path для IP; hostname → net_resolve_host */
@@ -1421,7 +1422,7 @@ static void relay_free(dispatcher_state_t *ds, relay_conn_t *r)
     }
 #endif
     /* T0-04: WebSocket transport state */
-    if (r->ws)      { free(r->ws);      r->ws      = NULL; }
+    if (r->ws)      { ws_client_free(r->ws); free(r->ws); r->ws = NULL; }
     /* T0-06: HTTPUpgrade transport state */
     if (r->http_ug) { free(r->http_ug); r->http_ug = NULL; }
 #if CONFIG_EBURNET_QUIC
@@ -2296,7 +2297,7 @@ static ssize_t relay_transfer(dispatcher_state_t *ds,
 #endif
         /* T0-04: WS transport — снять WS frame header */
         if (r->ws)
-            n = ws_client_recv(r->ws, grpc_tls_recv, r->tls,
+            n = ws_client_recv(r->ws, grpc_tls_send, grpc_tls_recv, r->tls,
                                ds->relay_buf, ds->relay_buf_size);
         /* T0-03: gRPC transport — снять H2 + gRPC framing */
         else if (r->grpc)
@@ -3992,6 +3993,8 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                     const ServerConfig *srv = NULL;
                     if (g_config && r->server_idx >= 0)
                         srv = config_get_server(g_config, r->server_idx);
+                    log_msg(LOG_INFO, "relay [%s] XHTTP_UP_TLS→DN_REQ",
+                            srv ? srv->name : "?");
                     if (!srv ||
                         xhttp_send_upload_request(r->xhttp, &r->dst, srv->uuid) < 0 ||
                         xhttp_send_download_request(r->xhttp) < 0) {
@@ -4066,14 +4069,128 @@ static void relay_handle_xhttp(dispatcher_state_t *ds, relay_conn_t *r,
                     return;
                 }
 #endif /* CONFIG_EBURNET_XUDP */
-                dispatcher_server_result(ds, r->server_idx, true);
-                r->state = RELAY_XHTTP_ACTIVE;
-                log_msg(LOG_DEBUG, "XHTTP: relay активен");
+                /* Строим VLESS header и переходим в VLESS_SEND */
+                {
+                    const ServerConfig *srv_xh =
+                        (g_config && r->server_idx >= 0)
+                        ? config_get_server(g_config, r->server_idx) : NULL;
+                    if (!srv_xh) {
+                        dispatcher_server_result(ds, r->server_idx, false);
+                        relay_free(ds, r);
+                        return;
+                    }
+                    vless_uuid_t xh_uuid;
+                    if (vless_uuid_parse(srv_xh->uuid, &xh_uuid) < 0) {
+                        log_msg(LOG_WARN, "XHTTP: невалидный UUID [%s]",
+                                srv_xh->name);
+                        dispatcher_server_result(ds, r->server_idx, false);
+                        RELAY_FAIL_OR_RETRY(ds, r);
+                    }
+                    int xh_hdr_len = vless_build_request(
+                        r->xhttp->vless_hdr_buf,
+                        sizeof(r->xhttp->vless_hdr_buf),
+                        &xh_uuid, &r->dst,
+                        r->domain[0] ? r->domain : NULL,
+                        VLESS_CMD_TCP, NULL, 0);
+                    if (xh_hdr_len <= 0) {
+                        log_msg(LOG_WARN, "XHTTP: не удалось построить VLESS header [%s]",
+                                srv_xh->name);
+                        dispatcher_server_result(ds, r->server_idx, false);
+                        RELAY_FAIL_OR_RETRY(ds, r);
+                    }
+                    r->xhttp->vless_hdr_len = (uint16_t)xh_hdr_len;
+                    r->vless_resp_len = 0;
+                    log_msg(LOG_INFO, "relay [%s] XHTTP_DN_REQ→VLESS_SEND",
+                            srv_xh->name);
+                    /* WHY немедленная отправка: после EPOLLIN (200 OK) сокет уже
+                     * writable, но EPOLLET не повторит EPOLLOUT без edge-перехода.
+                     * Сначала пробуем отправить сразу; EAGAIN → fallback на ожидание. */
+                    {
+                        ssize_t n_imm = xhttp_send_chunk(r->xhttp,
+                                                          r->xhttp->vless_hdr_buf,
+                                                          (size_t)xh_hdr_len);
+                        if (n_imm > 0) {
+                            r->xhttp->vless_hdr_len = 0;
+                            log_msg(LOG_INFO, "relay XHTTP_VLESS_SEND→VLESS_RESP (immediate)");
+                            r->state = RELAY_XHTTP_VLESS_RESP;
+                        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            r->state = RELAY_XHTTP_VLESS_SEND;
+                        } else {
+                            dispatcher_server_result(ds, r->server_idx, false);
+                            RELAY_FAIL_OR_RETRY(ds, r);
+                        }
+                    }
+                }
             } else if (prc < 0) {
                 dispatcher_server_result(ds, r->server_idx, false);
                 RELAY_FAIL_OR_RETRY(ds, r);
             }
         }
+        return;
+
+    case RELAY_XHTTP_VLESS_SEND:
+        /* upload_fd (ep_upstream) уже в EPOLLIN|EPOLLOUT|EPOLLET после TLS.
+         * Ждём EPOLLOUT → отправляем VLESS header через xhttp_send_chunk. */
+        if (ep->is_client) return;
+        if (cur_event->data.ptr != &r->ep_upstream) return;
+        if (!(ev & EPOLLOUT)) return;
+        if (!r->xhttp || r->xhttp->vless_hdr_len == 0) {
+            relay_free(ds, r); return;
+        }
+        {
+            ssize_t n = xhttp_send_chunk(r->xhttp,
+                                          r->xhttp->vless_hdr_buf,
+                                          r->xhttp->vless_hdr_len);
+            if (n > 0) {
+                log_msg(LOG_INFO, "relay XHTTP_VLESS_SEND→VLESS_RESP");
+                r->state = RELAY_XHTTP_VLESS_RESP;
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                dispatcher_server_result(ds, r->server_idx, false);
+                RELAY_FAIL_OR_RETRY(ds, r);
+            }
+            /* EAGAIN: остаёмся в VLESS_SEND, ждём следующий EPOLLOUT */
+        }
+        return;
+
+    case RELAY_XHTTP_VLESS_RESP:
+        /* Читаем 2-байтовый VLESS response через H2 DATA frames.
+         * stream-one: EPOLLIN на ep_upstream; stream-up: ep_download. */
+        if (r->download_fd >= 0) {
+            if (cur_event->data.ptr != &r->ep_download) return;
+        } else {
+            if (cur_event->data.ptr != &r->ep_upstream) return;
+        }
+        if (!(ev & EPOLLIN)) return;
+        if (!r->xhttp) { relay_free(ds, r); return; }
+        while (r->vless_resp_len < 2) {
+            ssize_t rv = xhttp_recv_chunk(r->xhttp,
+                                           r->vless_resp_buf + r->vless_resp_len,
+                                           2u - r->vless_resp_len);
+            if (rv < 0) {
+                int saved_errno = errno;
+                if (saved_errno == EAGAIN || saved_errno == EWOULDBLOCK) return;
+                log_msg(LOG_WARN, "XHTTP VLESS resp провалился: %s",
+                        strerror(saved_errno));
+                dispatcher_server_result(ds, r->server_idx, false);
+                RELAY_FAIL_OR_RETRY(ds, r);
+            }
+            if (rv == 0) {
+                dispatcher_server_result(ds, r->server_idx, false);
+                RELAY_FAIL_OR_RETRY(ds, r);
+            }
+            r->vless_resp_len += (uint8_t)rv;
+        }
+        /* Получили 2 байта VLESS response */
+        {
+            const ServerConfig *srv_xr =
+                (g_config && r->server_idx >= 0)
+                ? config_get_server(g_config, r->server_idx) : NULL;
+            dispatcher_server_result(ds, r->server_idx, true);
+            log_msg(LOG_INFO, "relay [%s] XHTTP→ACTIVE (VLESS resp ok)",
+                    srv_xr ? srv_xr->name : "?");
+        }
+        r->state = RELAY_XHTTP_ACTIVE;
+        r->upstream_first_byte_deadline = now + 10;
         return;
 
     case RELAY_XHTTP_ACTIVE:
@@ -4533,13 +4650,13 @@ static ssize_t cb_ws_send(void *ctx, const uint8_t *buf, size_t len)
 static ssize_t cb_ws_recv(void *ctx, uint8_t *buf, size_t len)
 {
     muxcool_ws_ctx_t *c = ctx;
-    return ws_client_recv(c->ws, _mux_ws_tls_recv, c->tls, buf, len);
+    return ws_client_recv(c->ws, _mux_ws_tls_send, _mux_ws_tls_recv, c->tls, buf, len);
 }
 static void cb_ws_free(void *ctx)
 {
     muxcool_ws_ctx_t *c = ctx;
     if (!c) return;
-    if (c->ws)  { free(c->ws);  c->ws  = NULL; }
+    if (c->ws)  { ws_client_free(c->ws); free(c->ws);  c->ws  = NULL; }
     if (c->tls) { tls_close(c->tls); free(c->tls); c->tls = NULL; }
     free(c);
 }
@@ -5214,7 +5331,7 @@ void dispatcher_tick(dispatcher_state_t *ds)
 
             /* Фаза 2: читаем 2-байтовый VLESS response через WS frames */
             while (r->vless_resp_len < 2) {
-                ssize_t rv = ws_client_recv(r->ws, grpc_tls_recv, r->tls,
+                ssize_t rv = ws_client_recv(r->ws, grpc_tls_send, grpc_tls_recv, r->tls,
                                             r->vless_resp_buf + r->vless_resp_len,
                                             2u - r->vless_resp_len);
                 if (rv < 0) {
@@ -5561,6 +5678,8 @@ void dispatcher_tick(dispatcher_state_t *ds)
         case RELAY_XHTTP_DN_TLS:
         case RELAY_XHTTP_UP_REQ:
         case RELAY_XHTTP_DN_REQ:
+        case RELAY_XHTTP_VLESS_SEND:
+        case RELAY_XHTTP_VLESS_RESP:
         case RELAY_XHTTP_ACTIVE:
             relay_handle_xhttp(ds, r, ep, ev, &events[i], now);
             break;
