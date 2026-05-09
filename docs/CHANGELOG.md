@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.5.148] — 2026-05-10
+
+### Added
+
+- **[h2.c/h2.h]** Автономная библиотека HTTP/2 framing primitives без внешних зависимостей.
+  8 функций: `h2_write/read_frame_hdr` (с len guard, return int), `h2_varint_encode/decode`,
+  `h2_grpc_lpm_write/parse`, `h2_pb_field1_write/parse`. Добавлен в Makefile.dev.
+  Закрывает T0-03 / T2-06 (standalone вместо nghttp2).
+
+### Fixed
+
+- **[BUG/grpc.c]** `grpc_send` (монолит): удалены дублирующие static `h2_write/read_frame_hdr`
+  и 13 `#define` (H2_DATA..H2_FLAG_ACK); теперь приходят из h2.h.
+  `grpc_send`: ручной PB varint + ручной LPM write заменены на `h2_pb_field1_write` +
+  `h2_grpc_lpm_write` + единый `malloc` буфер. (v1.5.145-146)
+- **[BUG/grpc.c]** `grpc_stream_send` (multiplex): два `send_fn` вызова (header + payload)
+  заменены единым `malloc` буфером → один `wolfSSL_write` = один TLS record. (v1.5.147)
+- **[BUG/grpc.c]** `grpc_hs_drain_payload`: добавлен лимит 256 итераций + `errno=EAGAIN`
+  при превышении (аналог `grpc_drain`). (v1.5.147)
+- **[BUG/grpc.c]** `grpc_connection_recv_dispatch`: PING mid-read desync при EAGAIN.
+  `got` (локальная) заменена на `conn->pending_ctrl_got` (cursor в структуре).
+  `pending_ctrl_buf[9]=2` выставляется ДО первого `recv_fn` — фиксирует вход в PING ветку
+  даже при EAGAIN с 0 прочитанных байт. Добавлен Шаг 2б (resume). (v1.5.148)
+- **[BUG/grpc.c]** PING ACK send check: `== 0` (никогда не true) исправлен на `>= 0`. (v1.5.148)
+
+### Changed
+
+- **[grpc.h]** `goaway_last_stream_id` переименован в `pending_stream_id` + WHY-комментарий:
+  это cursor прерванного stream frame read, не lastStreamID из GOAWAY. (v1.5.148)
+
 ## [1.5.143] — 2026-05-09
 
 ### Added

@@ -55,7 +55,7 @@ endif
 
 # CONFIG_VISION_ENABLED=1 — не включать до верификации T0-02
 EXTRA_CFLAGS ?=
-EBURNET_VERSION ?= 1.5.143
+EBURNET_VERSION ?= 1.5.148
 CFLAGS = -std=gnu2x -Wall -Wextra -Wsign-compare -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
          -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
          -ffunction-sections -fdata-sections \
@@ -83,6 +83,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/crypto/reality/reality_auth.c \
           $(SRCDIR)/crypto/reality/tls13_hs.c \
           $(SRCDIR)/crypto/reality/reality_conn.c \
+          $(SRCDIR)/proxy/protocols/h2.c \
           $(SRCDIR)/proxy/protocols/grpc.c \
           $(SRCDIR)/proxy/protocols/muxcool.c \
           $(SRCDIR)/proxy/protocols/ws_client.c \
