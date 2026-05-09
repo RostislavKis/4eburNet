@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.150] — 2026-05-10
+
+### Fixed
+
+- **[BUG/ws_client.c]** `ws_client_send`: два вызова `send_fn` (заголовок + payload)
+  заменены единым `malloc(hdr_len + len)` буфером → один `wolfSSL_write` = один TLS record.
+  Исключает race при EAGAIN между отправкой заголовка и payload. (v1.5.150)
+- **[BUG/ws_client.c]** `WS_RECV_CTRL` CLOSE: `return -1` + `ECONNRESET` заменён на
+  `return 0` — нормальное завершение сессии по инициативе сервера. (v1.5.150)
+- **[BUG/ws_client.c]** `ws_verify_accept`: `Base64_Encode` добавлял `\n` в конец
+  (b64len=29), а `strncmp` сравнивал 28 символов — результат был случаен.
+  Добавлен цикл обрезки `\r\n` перед сравнением. (v1.5.150)
+
 ## [1.5.148] — 2026-05-10
 
 ### Added
