@@ -480,14 +480,32 @@ int proxy_group_select_server(proxy_group_manager_t *pgm, const char *group_name
     proxy_group_state_t *g = proxy_group_find(pgm, group_name);
     if (!g || g->server_count == 0) return -1;
 
+    /* WHY: AWG = VPN туннель (один на весь интерфейс), нельзя создавать отдельный
+     * AWG handshake на каждое TCP соединение (Telegram, YouTube и т.д.).
+     * AWG серверы допустимы только в "AWG Group" (type=select). */
+    bool skip_awg = pgm->cfg && strcmp(group_name, "AWG Group") != 0;
+
     switch (g->type) {
     case PROXY_GROUP_SELECT: {
         /* WHY: pg_select_rotate обновляет selected_idx при N сбоях.
          * Между сбоем и ротацией selected может указывать на unavailable — найти первый доступный. */
         int _sel = g->selected_idx;
-        if (_sel >= 0 && _sel < g->server_count && !g->servers[_sel].available) {
+        bool _sel_ok = _sel >= 0 && _sel < g->server_count && g->servers[_sel].available;
+        if (_sel_ok && skip_awg) {
+            const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                         g->servers[_sel].server_idx);
+            if (_sc && strcmp(_sc->protocol, "awg") == 0) _sel_ok = false;
+        }
+        if (!_sel_ok) {
             for (int _j = 0; _j < g->server_count; _j++) {
-                if (g->servers[_j].available) { _sel = _j; break; }
+                if (!g->servers[_j].available) continue;
+                if (skip_awg) {
+                    const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                                 g->servers[_j].server_idx);
+                    if (_sc && strcmp(_sc->protocol, "awg") == 0) continue;
+                }
+                _sel = _j;
+                break;
             }
         }
         return (_sel >= 0 && _sel < g->server_count)
@@ -500,6 +518,11 @@ int proxy_group_select_server(proxy_group_manager_t *pgm, const char *group_name
         uint32_t best_lat = UINT32_MAX;
         for (int i = 0; i < g->server_count; i++) {
             if (!g->servers[i].available) continue;
+            if (skip_awg) {
+                const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                             g->servers[i].server_idx);
+                if (_sc && strcmp(_sc->protocol, "awg") == 0) continue;
+            }
             if (g->servers[i].latency_ms < best_lat) {
                 best_lat = g->servers[i].latency_ms;
                 chosen = i;
@@ -510,30 +533,52 @@ int proxy_group_select_server(proxy_group_manager_t *pgm, const char *group_name
          * Round-robin по available серверам — хуже не будет чем всегда Canada. */
         for (int i = 0; i < g->server_count; i++) {
             int idx = (g->rr_idx + i) % g->server_count;
-            if (g->servers[idx].available) {
-                g->rr_idx = (idx + 1) % g->server_count;
-                return g->servers[idx].server_idx;
+            if (!g->servers[idx].available) continue;
+            if (skip_awg) {
+                const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                             g->servers[idx].server_idx);
+                if (_sc && strcmp(_sc->protocol, "awg") == 0) continue;
             }
+            g->rr_idx = (idx + 1) % g->server_count;
+            return g->servers[idx].server_idx;
         }
         return g->servers[0].server_idx;
     }
 
     case PROXY_GROUP_FALLBACK:
-        for (int i = 0; i < g->server_count; i++)
-            if (g->servers[i].available)
-                return g->servers[i].server_idx;
+        for (int i = 0; i < g->server_count; i++) {
+            if (!g->servers[i].available) continue;
+            if (skip_awg) {
+                const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                             g->servers[i].server_idx);
+                if (_sc && strcmp(_sc->protocol, "awg") == 0) continue;
+            }
+            return g->servers[i].server_idx;
+        }
         return g->servers[0].server_idx;
 
     case PROXY_GROUP_LOAD_BALANCE: {
         int avail = 0;
-        for (int i = 0; i < g->server_count; i++)
-            if (g->servers[i].available) avail++;
+        for (int i = 0; i < g->server_count; i++) {
+            if (!g->servers[i].available) continue;
+            if (skip_awg) {
+                const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                             g->servers[i].server_idx);
+                if (_sc && strcmp(_sc->protocol, "awg") == 0) continue;
+            }
+            avail++;
+        }
         if (avail == 0) return g->servers[0].server_idx;
         int target = g->rr_idx % avail;
         g->rr_idx++;
         int count = 0;
         for (int i = 0; i < g->server_count; i++) {
             if (!g->servers[i].available) continue;
+            if (skip_awg) {
+                const ServerConfig *_sc = config_get_server(pgm->cfg,
+                                                             g->servers[i].server_idx);
+                if (_sc && strcmp(_sc->protocol, "awg") == 0) continue;
+            }
             if (count == target) return g->servers[i].server_idx;
             count++;
         }

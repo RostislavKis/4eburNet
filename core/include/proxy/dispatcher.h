@@ -227,6 +227,9 @@ struct relay_conn {
      * пакет (включая ClientHello). До этого upstream→client пересылка
      * приостанавливается. */
     bool      client_sent_first;
+#if CONFIG_EBURNET_AWG
+    uint32_t  awg_hs_epollin_count; /* счётчик EPOLLIN в RELAY_AWG_HANDSHAKE; > 50 → timeout */
+#endif
 };
 
 /* Состояние диспетчера */

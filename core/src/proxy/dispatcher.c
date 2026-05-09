@@ -4107,6 +4107,18 @@ static void relay_handle_awg(dispatcher_state_t *ds, relay_conn_t *r,
                               relay_ep_t *ep, uint32_t ev, time_t now)
 {
     if (r->state == RELAY_AWG_HANDSHAKE) {
+        r->awg_hs_epollin_count++;
+        /* WHY: AWG HS зависает навсегда (hs_done=0) при неответе сервера →
+         * сотни EPOLLIN заполняют dispatcher tick, блокируя YouTube/Telegram.
+         * Лимит 50: ~30с при интервале awg_tick ~600ms. */
+        if (r->awg_hs_epollin_count > 50) {
+            const ServerConfig *_srv = g_config
+                ? config_get_server(g_config, r->server_idx) : NULL;
+            log_msg(LOG_WARN, "AWG HS timeout (50 EPOLLIN без hs_done): сервер %s",
+                    _srv ? _srv->name : "?");
+            dispatcher_server_result(ds, r->server_idx, false);
+            RELAY_FAIL_OR_RETRY(ds, r);
+        }
         if (!ep->is_client && r->awg) {
             log_msg(LOG_INFO, "AWG HS: ev=0x%x fd=%d srv=%d",
                     ev, r->upstream_fd, r->server_idx);
@@ -4129,9 +4141,12 @@ static void relay_handle_awg(dispatcher_state_t *ds, relay_conn_t *r,
                 awg_tick(r->awg);
             }
         } else if (ep->is_client) {
-            log_msg(LOG_INFO,
-                    "AWG HS: client EPOLLIN ignored (HS pending) ev=0x%x",
-                    ev);
+            /* Логируем только каждые 100 раз — AWG HS может получать много
+             * client EPOLLIN пока туннель не установлен. */
+            if ((r->awg_hs_epollin_count % 100) == 1)
+                log_msg(LOG_INFO,
+                        "AWG HS: client EPOLLIN ignored #%u (HS pending) ev=0x%x",
+                        r->awg_hs_epollin_count, ev);
         }
         return;
     }
