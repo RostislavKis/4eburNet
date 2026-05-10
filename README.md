@@ -3,7 +3,7 @@
   <h1>4eburNet</h1>
   <p>Прокси-маршрутизатор для OpenWrt — один бинарник вместо mihomo + xray + podkop</p>
   <p>
-    <img src="https://img.shields.io/badge/версия-v1.5.163-brightgreen?style=flat-square">
+    <img src="https://img.shields.io/badge/версия-v1.5.164-brightgreen?style=flat-square">
     <img src="https://img.shields.io/badge/OpenWrt-23.05%20%2F%2024.10%20%2F%2025.12-blue?style=flat-square">
     <img src="https://img.shields.io/badge/arch-mipsel%20%7C%20aarch64%20%7C%20x86__64-green?style=flat-square">
     <img src="https://img.shields.io/badge/бинарник-3.0%20МБ-orange?style=flat-square">
@@ -127,13 +127,12 @@ LAN-трафик помечается в TC hook до netfilter. Пакеты п
 
 Два уровня, работают одновременно:
 
-**DeviceProfile (compile-time, по MemTotal)** — задаёт ёмкость структур при сборке:
+**DeviceProfile (runtime, по MemTotal)** — задаёт ёмкость структур при старте. Минимальная платформа: 116 МБ RAM (EC330):
 
 | Профиль | RAM | Fake-IP пул | DNS кэш | Соединения |
 |---|---|---|---|---|
-| MICRO | < 48 МБ | 512 | 128 | 256 |
-| NORMAL | < 192 МБ | 4 096 | 512 | 1 024 |
-| FULL | ≥ 192 МБ | 65 536 | 2 048 | 4 096 |
+| NORMAL | ≤ 256 МБ | 4 096 | 512 | 2 048 |
+| FULL | > 256 МБ | 65 536 | 2 048 | 16 384 |
 
 **mem_tier (runtime, по MemAvailable при старте)** — один бинарник, оптимален на любом железе:
 
