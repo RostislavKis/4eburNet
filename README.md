@@ -7,7 +7,7 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/версия-v1.5.178-brightgreen?style=flat-square" alt="version">
+    <img src="https://img.shields.io/badge/версия-v1.5.179-brightgreen?style=flat-square" alt="version">
     <img src="https://img.shields.io/badge/OpenWrt-23.05%20%2F%2024.10%20%2F%2025.12-blue?style=flat-square" alt="OpenWrt">
     <img src="https://img.shields.io/badge/arch-mipsel%20%7C%20aarch64%20%7C%20armv7%20%7C%20x86__64-green?style=flat-square" alt="arch">
     <img src="https://img.shields.io/badge/бинарник-3.1%20МБ-orange?style=flat-square" alt="size">
