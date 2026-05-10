@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.5.169] — 2026-05-10
+
+### Added
+
+- **[NEW/proxy/protocols/anytls_frame.c|h]** Wire format encode/decode AnyTLS-кадров.
+  7-байтовый заголовок (type, flags, stream_id, length). Функции `anytls_frame_encode`,
+  `anytls_frame_decode_header`. (~150 LoC)
+
+- **[NEW/proxy/protocols/anytls_padding.c|h]** Парсер адаптивных схем дополнения (`paddingScheme`).
+  Поддержка `writeConn` padding при отправке. Функции `anytls_pad_parse`,
+  `anytls_pad_get_size`, `anytls_pad_is_off`, `ANYTLS_DEFAULT_SCHEME`. (~120 LoC)
+
+- **[NEW/proxy/protocols/anytls_session.c|h]** RX state-machine AnyTLS-сессии.
+  11 команд протокола (CMD_AUTH, CMD_NEW_STREAM, CMD_DATA, CMD_FIN, CMD_PADDING…).
+  TX coalesce + padding через writeConn. Transport-agnostic: `cb_send/cb_recv/cb_free` callbacks.
+  SHA256-аутентификация (password → hash → CMD_AUTH). (~600 LoC)
+
+- **[NEW/proxy/protocols/anytls_pool.c|h]** Idle-pool AnyTLS-сессий с TTL.
+  `anytls_pool_init/get_idle/return/tick/free`. TTL вытеснение устаревших сессий.
+  Индексация по `server_idx`. (~150 LoC)
+
+- **[NEW/proxy/protocols/hc_anytls.c]** Health-check AnyTLS: TCP-connect → TLS-handshake →
+  CMD_AUTH → open_stream → send VLESS header → recv response. Честная проверка туннеля. (~120 LoC)
+
+- **[NEW/proxy/dispatcher.c]** Интеграция AnyTLS в event loop:
+  `RELAY_ANYTLS_ACTIVE = 26` (dual-fd: upstream_fd=TLS socket, download_fd=stream wake_fd).
+  `anytls_pool_init/tick/free` в `dispatcher_init/tick/cleanup`.
+  `anytls_protocol_start` (.start fn) + `anytls_install_stream_watcher`.
+  TLS_SHAKE dispatch hook: SHA256(password) → session_create → send_auth → open_stream.
+  `relay_free` cleanup: stream_close → pool_return или session_free по stream_count.
+  `cb_tls_send/recv/free` вынесены из `#if CONFIG_EBURNET_XUDP` в unconditional секцию
+  (WHY: используются также AnyTLS и Mux.Cool).
+
+- **[NEW/include/config.h + src/config.c]** Поля `anytls_password[128]` и `anytls_sni[256]`
+  в `ServerConfig`. Парсинг UCI-опций `anytls_password`, `anytls_sni`.
+
+- **[NEW/tools/sub_convert.py]** Парсинг `type: anytls` из Clash YAML подписок.
+  Поля: password, sni, host, port.
+
+- **[NEW/tests/test_anytls.c]** 54 юнит-теста: frame encode/decode, padding parse,
+  session create/auth/stream/recv, pool idle/TTL (ALL PASS).
+
 ## [1.5.164] — 2026-05-10
 
 ### Removed
