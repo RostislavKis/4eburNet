@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.5.173] — 2026-05-10
+
+### Added
+
+- **[NEW/proxy/protocols/tuic_v5_proto.c|h]** TUIC v5 wire-протокол: Address encode/decode
+  (IPv4/IPv6/domain/None), команды Auth/Connect/Pkt/Dissociate/Heartbeat. deFragger
+  (reassembly UDP-фрагментов, TTL-вытеснение). Stream pool (bidi-ID +4, find/remove).
+  NewReno CC: slow start, congestion avoidance, loss recovery, `can_send` gate. (~455 LoC)
+
+- **[NEW/proxy/protocols/tuic_v5_conn.c]** QUIC-соединение TUIC v5: wolfSSL QUIC callbacks
+  (`cb_set_secrets`, `cb_add_handshake`, `cb_flush`, `cb_recv`). TLS-Exporter auth-token
+  (raw UUID bytes → HMAC-SHA256, mihomo-совместимо). `tuic_conn_create/hs_step/send_auth`.
+  `tuic_conn_open_tcp` → открытие TCP stream поверх QUIC. `tuic_stream_tcp_send/recv`.
+  `tuic_conn_recv_dispatch` (UDP EPOLLIN → deFragger → wake_fd). `tuic_conn_get_fd` +
+  `tuic_conn_invalidate_fd` (паттерн HY2, защита от double-close). (~851 LoC)
+
+- **[NEW/proxy/dispatcher.c]** Интеграция TUIC v5 в event loop:
+  `RELAY_TUIC_HS = 29` — UDP QUIC HS → `tuic_conn_hs_step` → `tuic_send_auth` →
+  `tuic_conn_open_tcp` → регистрация wake_fd (`ep_download.relay = r` явно).
+  `RELAY_TUIC_ACTIVE = 30` — 3-way dispatch: client_fd (→ stream_tcp_send),
+  ep_download wake_fd (← stream_tcp_recv → write), upstream UDP (← recv_dispatch).
+  `tuic_protocol_start`: `dispatcher_resolve_server` → UDP socket + connect →
+  `tuic_conn_create` → epoll. `relay_free` cleanup: `tuic_conn_invalidate_fd` +
+  `tuic_stream_pool_remove` (wake_fd=-1 guard). `relay_try_retry` skip (tuic/tuic5 UDP).
+
+- **[NEW/include/proxy/dispatcher.h]** `RELAY_TUIC_HS = 29`, `RELAY_TUIC_ACTIVE = 30`
+  в `relay_state_t` (под `#if CONFIG_EBURNET_QUIC`). Поля `tuic_conn` + `tuic_stream`
+  в `relay_conn_t`.
+
+- **[NEW/include/config.h + src/config.c]** Поля `tuic_uuid[37]`, `tuic_password[128]`,
+  `tuic_udp_relay_mode` в `ServerConfig`. Парсинг UCI-опций `tuic_uuid`, `tuic_password`,
+  `tuic_udp_relay_mode` (quic=1 / native=0).
+
+- **[NEW/tools/sub_convert.py]** Парсинг `type: tuic/tuic5/tuic-v5` из Clash YAML подписок.
+  Поля: uuid, password, udp-relay-mode → UCI `tuic_uuid`, `tuic_password`, `tuic_udp_relay_mode`.
+
+- **[NEW/tests/test_tuic_v5.c]** 99 юнит-тестов: A=wire encode/decode, B=команды,
+  C=deFragger (in-order, OOO, multi-pkt, TTL-evict), D=stream pool, E=NewReno CC (ALL PASS).
+
 ## [1.5.169] — 2026-05-10
 
 ### Added
