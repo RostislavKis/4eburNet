@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.5.178] — 2026-05-10
+
+### Fixed (audit_v48)
+
+- **[FIX/proxy/dispatcher.c]** relay_release_upstream: добавлен AnyTLS cleanup
+  (anytls_stream_close + pool_return) — устранён USE-AFTER-FREE при AnyTLS failover.
+  relay_try_retry: "anytls" добавлен в skip list. ws_client_free добавлен перед
+  free(r->ws) в relay_release_upstream — устранён /dev/urandom fd leak при WS retry.
+
+- **[FIX/proxy/protocols/tuic_v5_conn.c + dispatcher.c]** TUIC EPOLLET drain loop:
+  RELAY_TUIC_HS и tuic_conn_recv_dispatch — один recv() → for(;;) до EAGAIN.
+  tuic_defrag_tick вызывается в dispatcher_tick (итерация по ds->conns[]).
+
+- **[FIX/proxy/protocols/hysteria2.c]** h3frame[600] → static в hy2_http3_auth() и
+  hy2_h3_auth_send(). Устранены 2 MIPS stack блокера.
+
+- **[FIX/proxy/protocols/anytls_session.c]** tmp[8192] → static s_anytls_pad_scheme_buf.
+  Устранён MIPS stack блокер (8KB >> 512B лимит).
+
+- **[FIX/proxy/protocols/muxcool.c]** stack_buf[1500] → static s_muxcool_stream_buf.
+  Устранён MIPS stack блокер на горячем пути UDP relay.
+
+- **[FIX/http_server.c]** cors[384] → static в route_api_backup(). uci_type_to_clash():
+  "anytls"/"tuic"/"tuic5" маппинг добавлен. /proxies JSON: anytls_kv + tuic_kv теги.
+  WS роутер: /ws/logs + /ws/connections добавлены (как /ws/memory, /ws/traffic).
+
+- **[NEW/proxy/hc_anytls.c + hc_tuic.c]** Честные туннельные HC для AnyTLS (TLS+auth+stream)
+  и TUIC v5 (QUIC HS+TLS-Exporter+stream). proxy_group.c: dispatch добавлен для anytls/tuic.
+  transport_is_implemented: явные ветки anytls=true, tuic=true с WHY.
+
+- **[FIX/Makefile + README.md]** PKG_VERSION синхронизирован с EBURNET_VERSION.
+  README badge обновлён. nftables.h комментарий: старые default значения исправлены.
+
 ## [1.5.173] — 2026-05-10
 
 ### Added
