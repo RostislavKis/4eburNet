@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.5.164] — 2026-05-10
+
+### Removed
+
+- **[REMOVE/include/4eburnet.h]** `DEVICE_MICRO` удалён из enum `DeviceProfile`.
+  Константы `MICRO_MAX_CONNECTIONS`, `MICRO_BUFFER_SIZE`, `MICRO_MAX_RULES`, `MICRO_DNS_CACHE_SIZE` удалены.
+  Минимальная целевая платформа — EC330 116 МБ RAM → `DEVICE_NORMAL`.
+- **[REMOVE/include/device.h]** `RELAY_BUF_MICRO`, `RELAY_CONNS_MICRO`, `DNS_PENDING_MICRO`,
+  `DNS_TCP_CLIENTS_MICRO` удалены. Ветки `case DEVICE_MICRO:` удалены из 4 inline-функций.
+- **[REMOVE/include/dns/dns_server.h]** `DNS_RATE_TABLE_MICRO` удалён.
+- **[REMOVE/src/resource_manager.c]** Ветка `MemTotal < 64MB → DEVICE_MICRO` удалена.
+  Fallback при ошибке `/proc/meminfo` → `DEVICE_NORMAL`. Граница NORMAL/FULL: 256 МБ.
+  `case DEVICE_MICRO:` удалён из `rm_profile_name`, `rm_max_connections`, `rm_buffer_size`.
+- **[REMOVE/src/dns/dns_upstream_doq.c]** Ветка `DEVICE_MICRO: return 0` удалена.
+  DoQ (DNS-over-QUIC) теперь доступен на всех поддерживаемых платформах.
+  Лог `"DoQ: отключён (MICRO профиль)"` удалён.
+- **[REMOVE/src/dns/dns_server.c]** `case DEVICE_MICRO: DNS_RATE_TABLE_MICRO` удалён.
+- **[REMOVE/src/dns/fake_ip.c]** `case DEVICE_MICRO: limit = 512` удалён.
+- **[REMOVE/src/http_server.c]** Ветка `mem_kb < 65536 → profile = "MICRO"` удалена.
+- **[REMOVE/src/ipc.c]** `case DEVICE_MICRO: profile = "MICRO"` удалён.
+- **[REMOVE/src/proxy/dispatcher.c]** `case DEVICE_MICRO: MICRO_MAX_CONNECTIONS` удалён.
+- **[REMOVE/src/proxy/proxy_group.c]** `case DEVICE_MICRO: max_ms = 1000` удалён.
+- **[REMOVE/src/proxy/proxy_provider.c]** `case DEVICE_MICRO: return 256` удалён.
+- **[REMOVE/src/proxy/tproxy.c]** `case DEVICE_MICRO: rcvbuf = 64KB` удалён.
+- **[REMOVE/core/Kconfig]** Упоминания MICRO в help-текстах удалены.
+- **[IMPROVE/README.md]** Badge → v1.5.164; таблица DeviceProfile: строка MICRO удалена,
+  описание обновлено: минимальная платформа 116 МБ (EC330).
+
 ## [1.5.163] — 2026-05-10
 
 ### Changed
