@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.5.163] — 2026-05-10
+
+### Changed
+
+- **[IMPROVE/crypto/tls.c]** `tls_global_cleanup()`: добавлен `static bool s_cleaned_up` guard.
+  `wolfSSL_Cleanup()` не идемпотентен — повторный вызов возвращает ошибку.
+  Guard защищает при будущем рефакторинге main.c и signal handlers. (audit_v47 #5)
+- **[IMPROVE/proxy/ja3.c]** Массив `g_references`: добавлена дата верификации `2026-04-22`
+  к каждой записи (Chrome 120 / Firefox 121 / Safari 17 / curl 7.x).
+  Обновлён комментарий: ритм Chrome-обновлений (~6 недель), назначение массива. (audit_v47 #19)
+- **[IMPROVE/proxy/protocols/hysteria2.c]** Добавлен `hy2_ensure_level_flushed()` inline wrapper
+  вокруг `hy2_flush_hs()`. В `hy2_cb_add_handshake` условный прямой вызов заменён на wrapper.
+  Четыре принудительных вызова (строки ~889/932/1623/1658) помечены WHY-комментарием. (audit_v47 #29)
+- **[IMPROVE/README.md]** Badge версии обновлён: `v1.5.97` → `v1.5.163`. (audit_v47 #33)
+
+## [1.5.162] — 2026-05-10
+
+### Changed
+
+- **[IMPROVE/core/include/constants.h]** Централизованы три константы из локальных define:
+  `TC_FAST_MARK=0x20U` (из `tc_fast.c`), `IPC_MAX_CLIENTS=8` (из `ipc.c`),
+  `DNS_DRAIN_BATCH=32` (из `dns_server.c`). Добавлен блок `Лимиты подсистем`. (audit_v47 #25, #26)
+- **[IMPROVE/routing/tc_fast.c]** Удалён локальный `#define TC_FAST_MARK`, добавлен
+  `#include "constants.h"`. (audit_v47 #25)
+- **[IMPROVE/http_server.c]** `route_set_dns_upstream`: `popen(cmd, "r")` с shell pipeline
+  заменён на два последовательных `exec_cmd_safe()` вызова с argv.
+  Устраняет риск shell injection, согласуется с остальными UCI вызовами. (audit_v47 #15)
+
 ## [1.5.158] — 2026-05-10
 
 ### Fixed
