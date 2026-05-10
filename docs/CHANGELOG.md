@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.157] — 2026-05-10
+
+### Changed
+
+- **[REFACTOR/grpc.c]** Унификация `grpc_drain` (Step 1-3 из рефакторинга gRPC):
+  - **Step 1**: введена `grpc_build_hpack_raw(svc, auth, out, out_size)` — общая реализация
+    HPACK-кодирования для монолит (`grpc_conn_t`) и multiplex (`grpc_connection_t`).
+    Оба старых wrapper'а сведены к thin-вызовам.
+  - **Step 2**: удалена `grpc_hs_drain_payload` (16 строк). Все 7 call-site заменены
+    inline-паттерном `{ uint32_t _n = length; grpc_drain(recv_fn, io_ctx, &_n); }`.
+  - **Step 3**: `pending_to_client` предварительно выделяется в `grpc_pool_acquire_stream`
+    (оба пути: existing conn + new conn) вместо `realloc` при каждом чтении.
+    `GRPC_RECV_DATA` заменяет `realloc` на bounds-check + `memmove`-компактирование
+    при нехватке места; `grpc_stream_recv` сбрасывает `len/pos=0` без `free`.
+
 ## [1.5.156] — 2026-05-10
 
 ### Fixed
