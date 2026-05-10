@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.158] — 2026-05-10
+
+### Fixed
+
+- **[BUG/grpc.c]** `grpc_stream_recv` — ложный EAGAIN при заполненном `pending_to_client`.
+  После `grpc_connection_recv_dispatch` возвращал `EAGAIN` не проверив, что `feed_data`
+  успел заполнить `pending_to_client` текущего stream. Данные оставались в буфере до
+  следующего epoll-события. Фикс: `if (pending) goto deliver; errno=EAGAIN; return -1`.
+  Метка `deliver:` перед шагом 4 устраняет дублирование проверки (БАГ 1 + БАГ 3).
+- **[BUG/grpc.c]** `grpc_connection_recv_dispatch` — `H2_WINDOW_UPDATE` с `length != 4`
+  не обрабатывался: попадал в ветку `else` и выполнял тихий drain произвольного числа
+  байт вместо завершения соединения. Фикс: явная проверка `length != 4` →
+  `conn->state = GRPC_CONN_GOAWAY; errno = EPROTO; return -1`. (БАГ 2)
+
 ## [1.5.157] — 2026-05-10
 
 ### Changed
