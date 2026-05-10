@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.155] — 2026-05-10
+
+### Fixed
+
+- **[BUG/hysteria2.c]** `hysteria2_connect_step` фаза CONNECTING: `errno = EAGAIN`
+  перезаписывал реальную ошибку из `recv()` (ECONNREFUSED, ENETUNREACH и т.п.).
+  Реле навсегда застревало в `RELAY_HY2_CONNECT` до idle timeout. Фикс: проверка
+  `errno == EAGAIN || EWOULDBLOCK` перед возвратом 0; иначе `set_error` + return -1. (T0-07/A)
+- **[BUG/hysteria2.c]** `hysteria2_connect_step` фаза AUTH: то же самое — маскировка
+  UDP recv-ошибок под EAGAIN. Фикс аналогичный. (T0-07/B)
+- **[BUG/hysteria2.c]** `hysteria2_wait_response_step`: то же самое — при ошибке
+  recv() relay получал EAGAIN вместо -1, ждал бесконечно. Фикс: `stream->state = ERROR`,
+  `strerror(errno)` в `stream->error_msg`, return -1. (T0-07/C)
+- **[BUG/dispatcher.c]** `RELAY_HY2_CONNECT`: не обрабатывался `EPOLLERR` без `EPOLLIN`.
+  ICMP unreachable на UDP вызывал `EPOLLERR` без `EPOLLIN` → `!(ev & EPOLLIN) break`
+  → relay висел до idle timeout. Фикс: `if (ev & EPOLLERR) && !(ev & EPOLLIN)` →
+  log + `dispatcher_server_result(false)` + `relay_free`. (T0-07/D)
+
 ## [1.5.154] — 2026-05-10
 
 ### Fixed
