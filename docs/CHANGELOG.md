@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.5.156] — 2026-05-10
+
+### Fixed
+
+- **[BUG/hysteria2.c]** `hy2_cb_add_handshake`: данные разных уровней шифрования
+  (Initial/Handshake/Application) смешивались в одном `hs_buf`. При смене уровня
+  flush не вызывался, и предыдущие данные отправлялись с неверным ключом.
+  Фикс: `if (hs_buf_len && hs_level != level) hy2_flush_hs(conn)` до записи новых данных.
+  Добавлен forward-declaration `hy2_flush_hs`. (T0-07/E)
+- **[BUG/dispatcher.c]** `RELAY_HY2_CONNECT`: отсутствовал явный HS timeout.
+  Глобальный first-byte timeout срабатывает только в `RELAY_ACTIVE`, поэтому зависший
+  QUIC handshake мог ждать до общего idle timeout (60с). Фикс: `upstream_first_byte_deadline`
+  выставляется в `hysteria2_protocol_start` + проверка в начале `RELAY_HY2_CONNECT`.
+  Timeout → `dispatcher_server_result(false)` + `relay_free`. (T0-07/F)
+- **[BUG/hysteria2.c]** `hy2_process_incoming`: при `sid == 0` переполнение `auth_rxbuf`
+  (512 байт) молча игнорировалось — сервер мог отправить длинный H3 HEADERS frame,
+  который бы обрезался без ошибки. Фикс: проверка переполнения → `set_error` + return -1. (T0-07/G)
+- **[IMPROVE/dispatcher.c]** `RELAY_HY2_CONNECT`: заменён `relay_free` на `RELAY_FAIL_OR_RETRY`
+  в двух точках (HS fail + TCPResponse fail). Hysteria2 теперь участвует в общем
+  механизме retry (до 3 попыток в группе), как все остальные транспорты. (T0-07/H)
+
 ## [1.5.155] — 2026-05-10
 
 ### Fixed
