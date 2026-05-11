@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.5.188] — 2026-05-11
+
+### Added (F1-6c: BBR v2 для TUIC v5)
+
+- **[NEW/core/include/proxy/protocols/tuic_v5.h]** BBR v2 константы:
+  `BBR2_HIGH_GAIN_X100=289` (2/ln(2)·100 = 2.885·100, quiche/Google, не 277).
+  `BBR2_STARTUP_FULL_LOSS_COUNT=8` (quicBbr2: exit STARTUP после 8 потерь).
+  `BBR2_BETA_X100=70`, `BBR2_HEADROOM_X100=85`, `BBR2_PROBE_RTT_CWND_GAIN_X100=50`.
+  `BBR2_LOSS_THRESH_X1000=20` (2%, quicBbr2DefaultLossThreshold).
+  Profile gains: `BBR2_PROBE_UP_GAIN_STD=125`, `CONS=110`, `AGG=150`.
+  `BBR2_CWND_GAIN_STD=200`, `CONS=150`, `AGG=250`.
+  `bbr2_ack_phase_t` enum: `INIT`, `PROBE_STARTING`, `PROBE_FEEDBACK`, `PROBE_STOPPING`.
+  `bbr2_probe_bw_phase_t` enum: `PROBE_UP`, `PROBE_DOWN`, `PROBE_CRUISE`.
+  Новые поля в `tuic_cc_t`: `bbr2_inflight_hi/lo`, `bbr2_ack_phase`,
+  `bbr2_probe_phase`, `bbr2_probe_up_gain_x100`, `bbr2_probe_up_cnt`,
+  `bbr2_loss_round_delivered`, `bbr2_loss_in_round`, `bbr2_loss_events`,
+  `bbr2_startup_losses`.
+
+- **[NEW/core/src/proxy/protocols/tuic_v5_proto.c]** BBR v2 реализация:
+  `bbr2_is_inflight_too_high`: loss_events/round_count > 2% → перегрузка.
+  `bbr2_handle_inflight_too_high`: inflight_hi = beta·in_flight (0.7); PROBE_UP→DOWN.
+  `bbr2_probe_bw_advance_phase`: PROBE_UP(gain=probe_up_gain, ≤4 раунда)→
+  PROBE_DOWN(gain=0.9, дренаж до BDP)→PROBE_CRUISE(gain=1.0, период=10·RTprop)→цикл.
+  WHY: в отличие от v1 8-фазного цикла, v2 зондирует только вверх и даёт буферу
+  опуститься, предотвращая buffer bloat (Cardwell 2019).
+  `bbr2_set_cwnd`: target=BDP·cwnd_gain; clamp inflight_hi; PROBE_RTT=0.5·BDP.
+  `bbr_v2_on_ack`: state machine с loss-aware STARTUP exit + PROBE_BW v2 фазы.
+  `bbr_v2_on_loss`: loss_events++; startup_losses++; проверяет is_inflight_too_high.
+  `tuic_cc_init`: BBR v2 поля инициализируются (inflight_hi=UINT32_MAX, phase=CRUISE).
+  `tuic_cc_on_ack`/`tuic_cc_on_loss`: ветки `TUIC_CC_BBR_V2`.
+  `tuic_cc_probe_rtt_tick`: расширен для `TUIC_CC_BBR_V2`.
+
+- **[NEW/core/include/config.h]** поле `tuic_cc_profile[16]`
+  ("conservative"/"standard"/"aggressive", default="standard").
+
+- **[NEW/core/src/config.c]** парсинг UCI `tuic_cc_profile`.
+
+- **[FIX/core/src/proxy/dispatcher.c]** `tuic_cc=bbr2` → `TUIC_CC_BBR_V2`.
+  Profile mapping после init: conservative (cwnd=1.5, probe_up=1.1),
+  standard (cwnd=2.0, probe_up=1.25 — default), aggressive (cwnd=2.5, probe_up=1.5).
+
+- Ref: Cardwell et al. netdev0x13 2019 + IETF BBRv2 draft + Google quiche.
+
+- EC330 deploy 2026-05-11: 3.1MB mipsel, 33 PASS 0 FAIL, VmRSS 2.1MB.
+
 ## [1.5.187] — 2026-05-11
 
 ### Added (F1-6b: BBR v1 для TUIC v5)
