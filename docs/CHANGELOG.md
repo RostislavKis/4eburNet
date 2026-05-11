@@ -34,6 +34,15 @@
   `generate_uci`: AND-правила эмитируют `option network` и `option port`.
   EC330 deploy 2026-05-11: 3.0MB, 99 PASS 0 FAIL, VmRSS 3440 kB.
 
+- **[FIX/tools/sub_convert.py]** `generate_uci`: секция `config main 'main'` исправлена
+  на `config 4eburnet 'main'` (init script ищет тип '4eburnet', не 'main').
+  Добавлен `option enabled '1'` в секцию main.
+  Генерация переведена на shell-скрипт формат: `#!/bin/sh` / `uci import 4eburnet <<'UCIEOF'`
+  / footer с `uci commit`. Применять через `sh /tmp/generated_uci.sh`.
+
+- **[NEW/docs/DEPLOY.md]** Правила деплоя: Windows-only scp, UCI gotchas,
+  восстановление после uci import, чеклист проверки.
+
 ## [1.5.183] — 2026-05-11
 
 ### Fixed (T1-01: rule-providers YAML parsing + classical format fix)
