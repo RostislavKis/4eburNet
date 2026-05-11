@@ -21,6 +21,19 @@
   geosite-ru: 1andrevich + antifilter (замена недоступных URLs).
   TLS protocol: Tls12 | Tls13. Добавлена pre-check функция `Test-Url`.
 
+- **[FIX/tools/sub_convert.py]** F0-2+F0-3 — полный парсинг Clash YAML:
+  - rule-providers: добавлено поле `file_format` (text/yaml/mrs) в UCI `rule_provider`.
+    WHY: ранее `format` (кодировка файла) игнорировался; загрузчик не знал как декодировать.
+  - Orphan warning: rule-providers без RULE-SET ссылок теперь выводят WARNING с именами.
+  - Nameserver/fallback: `_classify_dns_upstream()` вместо `_extract_ip()` →
+    DoH серверы → `upstream_doh`, DoT → `upstream_dot`, UDP → `upstream_default`.
+    Fallback аналогично: `upstream_doh_fallback` / `upstream_dot_fallback`.
+  - `enhanced-mode: fake-ip` → UCI `config main: option fake_ip_enabled '1'`.
+  - `fake-ip-filter` (до 50 записей) → `config main: list fake_ip_filter`.
+  - `hosts` (до 20 записей) → `config dns: list static_hosts 'domain=ip'`.
+  - `mode` (rule/global/direct) → `config main: option mode 'rules/global/direct'`.
+  - `_warn_unsupported_sections`: mode warning только для нераспознанных значений.
+
 ## [1.5.178] — 2026-05-10
 
 ### Fixed (audit_v48)
