@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.5.189] — 2026-05-11
+
+### Added (F1-2: ShadowTLS v3 server-side + Aparecium defense)
+
+- **[NEW/core/include/proxy/shadowtls.h]** Типы server-side:
+  `stls_srv_state_t` enum: `WAIT_CH/PROXY_HS/RELAY/BYPASS`.
+  `stls_srv_ctx_t`: state, authorized, embedded `shadowtls_ctx_t inner`
+  (переиспользует wrap/unwrap логику без дублирования HMAC кода).
+  Объявления: `stls_srv_ctx_init`, `stls_srv_check_client_hello`,
+  `stls_srv_unwrap`, `stls_srv_wrap`.
+
+- **[NEW/core/src/proxy/protocols/shadowtls.c]** Реализация server-side:
+  `stls_srv_ctx_init`: инициализирует inner ctx + state=WAIT_CH.
+  `stls_srv_check_client_hello`: парсит TLS ClientHello (offset 11=random,
+  43=sid_len, 44=sid); верифицирует SessionID = HMAC-SHA256(pwd,random) первые 32 байта.
+  Constant-time `memcmp` предотвращает timing attack при авторизации.
+  `stls_srv_unwrap`: делегирует в `stls_unwrap(&ctx->inner, ...)`.
+  `stls_srv_wrap`: делегирует в `stls_wrap(&ctx->inner, ...)`.
+  Aparecium bypass: неверный HMAC → STLS_SRV_BYPASS (прозрачный проброс без drop).
+  WHY dispatcher интеграция pending: inbound listener требует отдельного accept loop
+  и проксирования HS к реальному TLS backend.
+
+- **[NEW/core/include/proxy/dispatcher.h]** `RELAY_STLS_SERVER = 32`
+  в relay_state_t под `#if CONFIG_EBURNET_STLS`.
+
+- **[FIX/core/src/proxy/dispatcher.c]** Минимальный `case RELAY_STLS_SERVER`
+  (relay_free + pending comment) — убирает предупреждение компилятора.
+
+- **[FIX/core/tests/test_shadowtls.c]** +3 теста:
+  T8: `stls_srv_check_client_hello` верный HMAC → true.
+  T9: `stls_srv_check_client_hello` неверный HMAC → false.
+  T10: `stls_srv_wrap` + `stls_srv_unwrap` roundtrip.
+
+- Aparecium defense: `dpi_make_tls_clienthello_ex` уже включает ALPN h2+http/1.1
+  (15 extensions, Chrome 120+ fingerprint) — отдельного кода не потребовалось.
+
+- Ref: mihomo transport/shadowtls/shadowtls.go (v2); v3 SHA256 уже реализован.
+
+- EC330 deploy 2026-05-11: 3.0MB mipsel, 99 PASS 0 FAIL, VmRSS 2.8MB.
+
 ## [1.5.188] — 2026-05-11
 
 ### Added (F1-6c: BBR v2 для TUIC v5)
