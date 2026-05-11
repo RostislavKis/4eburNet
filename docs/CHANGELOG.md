@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.5.196] — 2026-05-12
+
+### Added (Dashboard Фаза 4 — SSH Console + Monitor окно)
+
+- **[NEW/http_server.c + ws.h + ws_frame.c]** WS `/ssh` — pty bridge:
+  - `ssh_session_start()`: `openpty` + `fork` + `/bin/ash -l`; pty_master в epoll
+  - `ssh_pty_on_output()`: EPOLLIN на pty_master → `ws_send_binary` → клиент
+  - `ws_ssh_on_input()`: WS frame → `write(pty_master)` + resize `TIOCSWINSZ`
+  - `ssh_is_lan_client()`: RFC 1918 проверка по `peer_addr.sin_addr` (LAN-only guard)
+  - `ssh_session_stop()`: SIGHUP к ash + EPOLL_CTL_DEL + close pty_master
+  - Одиночный глобальный сеанс (`s_ssh` + `s_ssh_conn`) — ограничение MIPS
+  - `WS_ROUTE_SSH = 6` в enum; `ws_send_binary()` добавлен в ws_frame.c
+
+- **[NEW/http_server.c]** GET `/monitor` — standalone HTML страница:
+  - Инлайн HTML (~3.6KB) с WS `/logs` + `/traffic` + `/connections`
+  - Метрики: скорость трафика, кол-во соединений, DNS queries/blocked
+  - Pause/Resume + Clear кнопки; автообновление DNS stats каждые 5s
+  - Открывается в новом окне: `http://router:8080/monitor`
+
+- **[NEW/dashboard-src]** Vue SSH Console вкладка (`SSHConsolePage.vue`):
+  - WS binary frames → `TextDecoder` → `<pre>` вывод терминала
+  - Ctrl+C/D, Tab, стрелки → ANSI escape sequences → pty
+  - Resize JSON `{"type":"resize","rows":N,"cols":M}` при изменении окна
+  - `ROUTE_NAME.ssh` + `CommandLineIcon` в сайдбаре
+
+- **[NEW/dashboard-src]** Кнопка Monitor в SidebarButtons:
+  - `ChartBarSquareIcon` → `window.open('/monitor', ...)` 900×700
+
+### Fixed
+
+- Рестарт процесса после деплоя: `killall` перед `init.d start` (inode gotcha)
+
 ## [1.5.195] — 2026-05-12
 
 ### Added (Dashboard Фаза 3 — CRUD + расширенные endpoints)
