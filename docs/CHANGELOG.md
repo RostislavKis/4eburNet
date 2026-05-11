@@ -1,5 +1,81 @@
 # Changelog
 
+## [1.5.195] — 2026-05-12
+
+### Added (Dashboard Фаза 3 — CRUD + расширенные endpoints)
+
+- **[NEW/http_server.c]** Server CRUD:
+  - `POST /api/servers` — создать named UCI секцию `4eburnet.NAME=server`;
+    парсит `name/protocol/address/port/uuid/password/transport/sni/pbk/sid/flow/tls`;
+    201 Created
+  - `PUT /api/servers/{name}` — обновить поля существующего сервера; 204
+  - `DELETE /api/servers/{name}` — удалить UCI секцию; 204
+
+- **[NEW/http_server.c]** Subscribe:
+  - `POST /api/subscribe/parse` — preview URI-листа (vless://trojan://ss://);
+    без сохранения, возвращает JSON-массив объектов
+  - `POST /api/subscribe/import` — wget загрузка или inline-парсинг, батч UCI add
+
+- **[NEW/http_server.c]** Rules CRUD:
+  - `POST /api/rules` — добавить `@traffic_rule[-1]` с type/value/policy/priority;
+    поддерживает ключ `policy` как псевдоним `target`; 201
+  - `PATCH /api/rules/{id}` — обновить правило по UCI section hash; 204
+  - `DELETE /api/rules/{id}` — удалить; 204
+  - `POST /api/rules/test` — тест совпадения по домену; ключ `domain` или `target`;
+    парсит весь UCI вывод (128KB static buf) для поиска по DOMAIN/SUFFIX/KEYWORD/MATCH
+
+- **[NEW/http_server.c]** Providers CRUD:
+  - `POST /api/providers/proxies` — добавить proxy_provider; 201
+  - `DELETE /api/providers/proxies/{name}` — удалить; 204
+  - `POST /api/providers/rules` — добавить rule_provider; 201
+  - `DELETE /api/providers/rules/{name}` — удалить; 204
+
+- **[NEW/http_server.c]** DNS расширенный API:
+  - `PATCH /api/dns` — изменить DNS настройки; маппинг 15 JSON-ключей → UCI;
+    поддерживает boolean `true/false` через `http_json_get_val` (не только строки)
+  - `POST /api/dns/cache/flush` — удалить кэш-файл + SIGHUP; 204
+  - `POST /api/dns/fakeip/flush` — SIGHUP (перезапуск fake-IP пула); 204
+  - `GET /api/dns/query?name=X&type=Y` — getaddrinfo probe → JSON answers
+  - `GET /api/dns/stats` — stub (`queries/cached/blocked/hit_rate`)
+
+- **[NEW/http_server.c]** DPI/Sniffer/Network:
+  - `GET /api/dpi` — IPC_CMD_DPI_GET → JSON
+  - `PATCH /api/dpi` — IPC_CMD_DPI_SET + UCI commit; поддерживает boolean
+  - `GET /api/sniffer` — stub (tls_sni/http_host/quic_sni из UCI)
+  - `PATCH /api/sniffer` — UCI set main.sniffer_{tls,http,quic}; 204
+  - `GET /api/network` — flow_offload/tc_fast_path из s_cfg
+  - `PATCH /api/network` — UCI set main.flow_offload/tc_fast_enabled; 204
+
+- **[NEW/http_server.c]** Geo/Devices:
+  - `POST /api/geo/update` — async fork+execv geo_update.sh; 202 Accepted
+  - `PATCH /api/devices/{mac}` — UCI device_config секция с policy/proxy_group; 204
+
+### Fixed
+
+- **[FIX/http_server.c]** Dispatch ordering — GET /api/servers и GET /api/dns без
+  метода перехватывали POST/PATCH запросы. Добавлены guards
+  `!is_post && !is_put && !is_delete && !is_patch`.
+
+- **[FIX/http_server.c]** `route_api_servers_post`: ключ `"server"` → `"address"`;
+  парсинг порта как JSON-числа (не только строки).
+
+- **[FIX/http_server.c]** `uci_find_server_section` / `uci_find_provider_section`:
+  `uci show 4eburnet` даёт 123KB; буфер был 8KB → section не находилась.
+  Заменено на `uci show 4eburnet.{name}` (таргетированный запрос, <512B).
+
+- **[NEW/http_server.c]** `http_json_get_val` — извлечение JSON-примитивов без
+  кавычек (true/false/число); используется в dns_patch/sniffer_patch/network_patch.
+
+### Verified on EC330 (2026-05-12)
+
+- 17/17 PASS PowerShell тест: GET×7, POST servers 201, PUT servers 204,
+  DELETE servers 204, POST rules 201, PATCH dns 204, POST dns/cache/flush 204,
+  GET dns/query, POST rules/test, PATCH network 204, PATCH sniffer 204
+- 35/35 unit tests PASS (no regression)
+- Бинарник 3.1MB (в рамках 4MB)
+
+---
+
 ## [1.5.194] — 2026-05-12
 
 ### Fixed (UCI дубль + PATCH /configs reload)
