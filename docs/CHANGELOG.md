@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.183] — 2026-05-11
+
+### Fixed (T1-01: rule-providers YAML parsing + classical format fix)
+
+- **[FIX/core/src/proxy/rules_engine.c]** `load_file_entries`: убрана обработка
+  записей Clash classical format без стрипа типа правила. Записи вида
+  `DOMAIN-SUFFIX,t.me` теперь корректно стриплись до `t.me`.
+  Пропускаются `PROCESS-NAME,`, `IP-ASN,`, `DOMAIN-KEYWORD,`.
+  WHY: suffix_match("t.me", "DOMAIN-SUFFIX,t.me") → false; после fix → true.
+  EC330 deploy 2026-05-11: t.me → 198.18.0.1 (fake-IP) ✓, ya.ru → real IP ✓.
+
+- **[FIX/core/src/proxy/rules_engine.c]** `MAX_PROVIDER_CACHE` 16 → 64.
+  WHY: конфиг содержит 34 rule-provider; при MAX=16 часть не загружалась.
+
+- **[FIX/core/src/proxy/rule_provider.c]** first-boot: `next_update=0` если
+  cache file отсутствует. WHY: `now + interval` = 24ч ожидание без файла.
+
+- **[FIX/core/src/proxy/rules_engine.c]** YAML payload parsing: auto-detect
+  по "payload:" строке, rewind + парсинг с поддержкой `+./×.` prefix.
+
+- **[FIX/core/src/proxy/rule_provider.c]** `fetch_with_ip_cache`: упрощена
+  сигнатура (3 параметра), добавлен mkdir для директории кэша.
+
+- **[NEW/core/include/config.h]** `rp_file_format_t` enum (AUTO/TEXT/YAML).
+  `RuleProviderConfig.file_format` — поле для хранения формата файла.
+
+- **[FIX/core/src/config.c]** парсинг `file_format` (yaml/text) в
+  SECTION_RULE_PROVIDER.
+
 ## [1.5.181] — 2026-05-11
 
 ### Fixed / Added (F0-1: geo pipeline + DNS adblock)
