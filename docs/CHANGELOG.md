@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.5.194] — 2026-05-12
+
+### Fixed (UCI дубль + PATCH /configs reload)
+
+- **[FIX/http_server.c]** `PATCH /configs`: добавлен `kill(getpid(), SIGHUP)` после
+  UCI commit — теперь `s_cfg` пересчитывается из UCI при каждом изменении режима
+  или log-level. Ранее SIGHUP не вызывался из-за анонимного блока `@4eburnet[1]`
+  который перезаписывал mode при `config_load`.
+
+- **[FIX/EC330]** Удалён дублирующий anonymous UCI блок `@4eburnet[1]`
+  (`config 4eburnet` без имени) — источник конфликта mode при SIGHUP reload.
+  Теперь `/etc/config/4eburnet` содержит только `config 4eburnet 'main'`.
+
+- **[NOOP/tools/sub_convert.py]** Проверено: `config 4eburnet 'main'` уже
+  корректно генерируется. Дубль возник при ручном `uci import` без `--merge`.
+
+### Verified on EC330 (2026-05-12)
+
+- PATCH mode=global → GET mode=global ✓
+- PATCH mode=rule → GET mode=rule ✓
+- Только одна `config 4eburnet 'main'` секция ✓
+
+---
+
 ## [1.5.193] — 2026-05-12
 
 ### Added (Dashboard Фаза 2 — Core Clash API завершён)
