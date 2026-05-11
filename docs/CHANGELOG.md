@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.5.193] — 2026-05-12
+
+### Added (Dashboard Фаза 2 — Core Clash API завершён)
+
+- **[NEW/http_server.c]** `PATCH /configs`: изменить `mode`/`log-level` → UCI set
+  + in-memory обновление `s_cfg`; `reload_daemon()` не вызывается (дублирующиеся
+  блоки `config 4eburnet` в UCI конфиге — `named` vs `@4eburnet[1]`).
+
+- **[NEW/http_server.c]** `DELETE /proxies/{group}`: снять pinned выбор сервера
+  → `g->pinned = false` + `proxy_group_save_all_selections`; 204 No Content.
+
+- **[NEW/http_server.c]** `DELETE /connections`: закрыть все relay; 204 No Content
+  (GET /connections возвращает `connections:[]`, реальный список не экспортируется).
+
+- **[NEW/http_server.c]** `DELETE /connections/{id}`: закрыть конкретный relay; 204.
+
+- **[NEW/http_server.c]** `PATCH /rules/disable`: toggle UCI `rules_enabled`
+  (0↔1) → `uci commit` + `reload_daemon()`; 204 No Content.
+
+- **[FWD-DECL]** `static void reload_daemon(void)` forward declaration добавлена
+  в блок объявлений (необходима для функций определённых до строки 3009).
+
+### Verified on EC330 (2026-05-12)
+
+- `GET /version` → `{"version":"4eburnet-1.5.191","premium":false,"meta":true}` ✅
+- `PATCH /configs {"mode":"global"}` → 204, GET /configs возвращает `mode=global` ✅
+- `DELETE /connections` → 204 ✅
+- `DELETE /connections/abc123` → 204 ✅
+- `PATCH /rules/disable` → 204 ✅
+- `DELETE /proxies/GEMINI` → 204 ✅
+- `GET /proxies` → 115 proxies ✅ | `GET /rules` → 397 rules ✅
+- Размер бинарника: 3.1MB ✅ (лимит 4MB)
+
 ## [1.5.192] — 2026-05-12
 
 ### Fixed
