@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.5.184] — 2026-05-11
+
+### Added (F0-4: AND/OR logical rules в rules engine)
+
+- **[NEW/core/include/config.h]** `RULE_TYPE_AND = 10` в `rule_type_t` enum.
+  Новые поля в `TrafficRule`: `port_min`, `port_max` (uint16_t), `network` (uint8_t).
+  WHY: AND,((NETWORK,TCP),(DST-PORT,50000-65535)) требует хранить протокол и диапазон.
+
+- **[FIX/core/src/config.c]** Парсинг `type='and'` → `RULE_TYPE_AND`.
+  Парсинг `option network 'tcp'/'udp'` → `tr->network=6/17`.
+  Парсинг `option port '50000-65535'` → `tr->port_min=50000, tr->port_max=65535`.
+  Парсинг `option value '50000-65535'` для `RULE_TYPE_DST_PORT` также заполняет
+  port_min/port_max (ранее `strtoul` обрезал диапазон до первого числа).
+
+- **[FIX/core/src/proxy/rules_engine.c]** `RULE_TYPE_DST_PORT`: использует
+  `port_min/port_max` вместо `strtoul(value)`. Поддержка диапазона портов.
+  `RULE_TYPE_AND`: новый case — `match_net && match_port`.
+  `network==0` → любой протокол; `dport==0` → AND с портом не матчится.
+
+- **[FIX/core/include/proxy/rules_engine.h]** Сигнатуры `rules_engine_match` и
+  `rules_engine_get_server` расширены параметрами `uint8_t proto, uint16_t dport`.
+
+- **[FIX/core/src/proxy/dispatcher.c]** Извлечение `conn_proto` (из `conn->proto`)
+  и `conn_dport` (из `conn->dst`) перед вызовом rules engine.
+  Добавлен `RULE_TYPE_AND` в switch `_rule_kind`.
+
+- **[FIX/core/src/main.c]** DNS callback `dns_engine_consult`: `proto=0, dport=0`.
+
+- **[FIX/tools/sub_convert.py]** `_parse_clash_rule`: AND-блок переписан.
+  Новый парсер `re.finditer(r'\(([^()]+)\)')` извлекает все sub-conditions.
+  NETWORK (tcp/udp) сохраняется в `network` поле UCI. Тип правила `'and'`.
+  `generate_uci`: AND-правила эмитируют `option network` и `option port`.
+  EC330 deploy 2026-05-11: 3.0MB, 99 PASS 0 FAIL, VmRSS 3440 kB.
+
 ## [1.5.183] — 2026-05-11
 
 ### Fixed (T1-01: rule-providers YAML parsing + classical format fix)
