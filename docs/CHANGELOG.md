@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.5.190] — 2026-05-11
+
+### Added (F1-1: SS2022 AES-128/256-GCM варианты)
+
+- **[MOD/core/include/proxy/protocols/shadowsocks.h]** Новый enum `ss_cipher_t`:
+  `SS_CIPHER_CHACHA20_POLY1305=0` (существующий), `SS_CIPHER_AES_128_GCM=1`,
+  `SS_CIPHER_AES_256_GCM=2`.
+  В `ss_state_t`: поля `cipher`, `psk_len` (16 или 32), `Aes aes_enc`, `Aes aes_dec`.
+  WHY отдельные enc/dec: wolfSSL Aes не reentrant при concurrent enc+dec в одной сессии.
+  Добавлен `#include <wolfssl/wolfcrypt/aes.h>`.
+  Сигнатуры обновлены: `ss_psk_decode(b64, out, out_len)`,
+  `ss_handshake_start(..., cipher)`.
+
+- **[MOD/core/src/proxy/protocols/shadowsocks.c]** Реализация AES-GCM ветвей:
+  `ss_psk_decode`: принимает 16B (AES-128) или 32B (AES-256/ChaCha20).
+  `ss_derive_key`: параметры `psk_len` и `key_len` — BLAKE3 KDF с переменной длиной
+  выхода (16B для AES-128, 32B для остальных).
+  `ss_aead_encrypt/decrypt`: switch по `st->cipher`:
+  AES → `wc_AesGcmEncrypt/Decrypt(&st->aes_enc/dec, ..., nonce, 12, tag, 16, NULL, 0)`;
+  default → `wc_ChaCha20Poly1305_Encrypt/Decrypt`.
+  AES key schedule: `wc_AesInit + wc_AesGcmSetKey` при `ss_handshake_start`, один раз.
+  `ss_cleanup`: `wc_AesFree` для AES cipher типов.
+
+- **[MOD/core/include/config.h]** Поле `char ss_method[32]` в `ServerConfig`
+  (рядом с `password`): хранит cipher string из UCI/подписки.
+
+- **[MOD/core/src/config.c]** Парсинг ключа `ss_method` (strncpy pattern).
+
+- **[MOD/core/src/proxy/dispatcher.c]** `ss_protocol_start`: маппинг
+  `server->ss_method` → `ss_cipher_t` перед вызовом `ss_handshake_start`.
+  Default: `SS_CIPHER_CHACHA20_POLY1305` при пустом/неизвестном ss_method.
+
+- **[MOD/tools/sub_convert.py]** SS cipher propagation в трёх местах:
+  `parse_ss_uri`: добавлен `'ss_method': method` в возвращаемый dict.
+  `_clash_proxy_to_server` (YAML): `'ss_method': proxy.get('cipher', '...')`.
+  `parse_singbox_json`: `'ss_method': ob.get('method', '...')`.
+  Default fallback: `2022-blake3-chacha20-poly1305`.
+
+- **[FIX/core/include/proxy/shadowtls.h]** Добавлен `#include <stdbool.h>` —
+  missing include, обнаруженный при добавлении wolfSSL AES в shadowsocks.h.
+
+- EC330 deploy 2026-05-11: 3.1MB mipsel, 99 PASS 0 FAIL, VmRSS 3.1MB.
+
 ## [1.5.189] — 2026-05-11
 
 ### Added (F1-2: ShadowTLS v3 server-side + Aparecium defense)
