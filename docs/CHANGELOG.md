@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.192] — 2026-05-12
+
+### Fixed
+
+- **[FIX/http_server.c]** async http_send_file: устранён ERR_CONNECTION_RESET
+  при загрузке >1MB JS bundle через WiFi.
+  - `send_offset` + `send_remaining` в HttpConn
+  - Удалён `conn_feed_file` (лишний memcpy pipeline)
+  - `http_send_file_continue`: drain loop при EPOLLOUT (46 строк)
+  - HTTP/1.1 с `Content-Length` вместо HTTP/1.0
+  - EPOLLOUT MOD/DEL через epoll_ctl
+  - Результат: dashboard 200 ✅, JS 1.58MB ✅, CSS 653KB ✅
+
+- **[FIX/deploy]** scp на занятый inode молча не обновляет файл.
+  Рабочий паттерн: scp → /tmp/4eburnetd_new → cp → killall → start
+  (зафиксировано в docs/DEPLOY.md)
+
 ## [1.5.191] — 2026-05-12
 
 ### Added (F1-3: VMess AEAD — полная реализация ~900 LoC)

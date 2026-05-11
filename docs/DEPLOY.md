@@ -46,6 +46,16 @@ scp -O D:\Проекты\4eburNet\prebuilt\mipsel\4eburnetd root@192.168.2.1:/us
 ssh root@192.168.2.1 "chmod +x /usr/sbin/4eburnetd && /etc/init.d/4eburnet start"
 ```
 
+### ⚠️ Gotcha: scp на занятый inode
+
+Если 4eburnetd запущен, `scp -O ... /usr/sbin/4eburnetd` молча не обновит файл
+(старый процесс держит inode). Правильный порядок:
+
+```powershell
+scp -O D:\Проекты\4eburNet\prebuilt\mipsel\4eburnetd root@192.168.2.1:/tmp/4eburnetd_new
+ssh root@192.168.2.1 "cp /tmp/4eburnetd_new /usr/sbin/4eburnetd && killall 4eburnetd; sleep 1; /etc/init.d/4eburnet start"
+```
+
 ---
 
 ## Деплой UCI (применение конфигурации)
