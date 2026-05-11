@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.5.191] — 2026-05-12
+
+### Added (F1-3: VMess AEAD — полная реализация ~900 LoC)
+
+- **[NEW/core/include/crypto/vmess_kdf.h]** Тип `vmess_kdf_path_t` + макросы
+  `VMESS_KDF_PATH_STR/BIN/NONE`. Функции `vmess_kdf16/32` — nested HMAC-SHA256
+  KDF по алгоритму xray-core Go: h0=HMAC(key,""), hN=HMAC(h(N-1),pathN).
+  Поддержка 1/2/3-level путей; лишние `NONE`-пути игнорируются.
+
+- **[NEW/core/src/crypto/vmess_kdf.c]** Реализация KDF через `hmac_sha256`
+  (wolfSSL). `kdf_level` → двухшаговый HMAC, `kdf_two_levels` → три шага,
+  `vmess_kdf16/32` — dispatch по числу ненулевых путей + truncate до 16/32 байт.
+
+- **[NEW/core/include/proxy/protocols/vmess.h]** Константы `VMESS_SEC_AES_128_GCM=3`,
+  `VMESS_SEC_CHACHA20_POLY1305=4`. Структура `vmess_conn_t`: cmd_key[16], auth_id[16],
+  nonce[8], body_key[16], body_iv[16], resp_auth, resp_body_key/iv[16], send_count,
+  recv_count, security, `shake_enc/dec` (heap: `wc_Shake`).
+  API: `vmess_conn_init/free`, `vmess_encode_request_header`,
+  `vmess_decode_response_header`, `vmess_encode/decode_chunk`.
+
+- **[NEW/core/src/proxy/protocols/vmess.c]** Полная реализация протокола:
+  `vmess_fnv1a32` + `vmess_crc32_ieee` хелперы.
+  `vmess_create_auth_id`: timestamp(8 BE)+rand(4)+CRC32(12)(4 BE) → AES-128-ECB
+  (`wc_AesSetKeyDirect` + `wc_AesEcbEncrypt`).
+  `vmess_conn_init`: MD5(uuid+magic)→cmdKey, random nonce/body_key/body_iv/resp_auth,
+  SHA256 resp keys, heap `wc_Shake` с `Shake128_Update(body_iv)`.
+  `vmess_encode_request_header`: сборка hdr[], 3-path KDF для len_key/iv + hdr_key/iv,
+  wire: AuthID[16]+EncLen[18]+nonce[8]+EncHdr[N+16].
+  `vmess_decode_response_header`: 1-path KDF, AES-128-GCM decode, resp_auth verify.
+  `vmess_encode/decode_chunk`: ChunkMasking (SHAKE-128 squeeze 2 байта/чанк),
+  AES-128-GCM или ChaCha20-Poly1305; ChaCha ключ 16→32 через MD5(key)||MD5(MD5(key)).
+
+- **[NEW/core/include/proxy/hc_vmess.h]** `hc_vmess_spawn(srv, target_host, port, ms)`
+  — non-blocking HC для VMess серверов.
+
+- **[NEW/core/src/proxy/hc_vmess.c]** `child_do_hc_vmess`: fork+pipe паттерн
+  как в `hc_vless.c`. DNS→TCP→TLS→vmess_conn_init→encode_request→recv_response→RTT.
+  Target: `www.gstatic.com:443` (стандарт mihomo). Pipe: `OK <ms>\n` / `ERR\n`.
+
+- **[MOD/core/Makefile.dev]** Добавлены `vmess_kdf.c`, `vmess.c`, `hc_vmess.c`
+  в SOURCES. Цель `test-vmess`: 10 тестов, 35 PASS. `EBURNET_VERSION ?= 1.5.191`.
+
+- **[NEW/core/tests/test_vmess.c]** T1-T3: KDF детерминизм + cross-path.
+  T4: conn_init все поля. T5: encode_request_header длины. T6: response header
+  roundtrip (ручная AES-GCM через wolfSSL). T7: chunk enc→dec + SHAKE sync.
+  T8: ChunkMasking enc_len XOR. T9-T10: send_count/recv_count инкремент. 35 PASS.
+
 ## [1.5.190] — 2026-05-11
 
 ### Added (F1-1: SS2022 AES-128/256-GCM варианты)
