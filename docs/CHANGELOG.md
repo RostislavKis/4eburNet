@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.5.187] — 2026-05-11
+
+### Added (F1-6b: BBR v1 для TUIC v5)
+
+- **[NEW/core/include/proxy/protocols/tuic_v5.h]** BBR константы:
+  `BBR_HIGH_GAIN_X100=277` (4·ln(2)·100, Google quiche/mihomo, не 289),
+  `BBR_DRAIN_GAIN_X100=36`, `BBR_CWND_GAIN_X100=200`, `BBR_PROBE_RTT_CWND=4`,
+  `BBR_RTPROP_EXPIRE_MS=10000`, `BBR_PROBE_RTT_DUR_MS=200`, `BBR_BW_WINDOW_SIZE=10`.
+  `bbr_state_t` enum: `BBR_STARTUP`, `BBR_DRAIN`, `BBR_PROBE_BW`, `BBR_PROBE_RTT`.
+  Новые поля в `tuic_cc_t`: `bbr_state`, `bbr_btl_bw`, `bbr_rt_prop`,
+  `bbr_rt_prop_stamp`, `bbr_cycle_stamp/idx`, `bbr_delivered/stamp`,
+  `bbr_pacing_gain_x100`, `bbr_cwnd_gain_x100`, `bbr_filled_pipe`,
+  `bbr_bw_samples[10]`, `bbr_bw_idx`, `bbr_round_count`, `bbr_round_start`.
+  Добавлена функция `tuic_cc_probe_rtt_tick(cc, now_ms)`.
+
+- **[NEW/core/src/proxy/protocols/tuic_v5_proto.c]** BBR v1 реализация:
+  `bbr_update_btl_bw`: windowed max за 10 RTT раундов через кольцевой буфер.
+  WHY: windowed max (не EMA) — BBR берёт МАКСИМУМ BW, не среднее. O(1) без heap.
+  `bbr_update_rt_prop`: min RTT filter с 10s expiry → вход в PROBE_RTT.
+  `bbr_bdp`: BDP = BtlBw·RTprop/mss (пакеты).
+  `bbr_set_cwnd`: cwnd = BDP·cwnd_gain (2.0) в PROBE_BW; min cwnd=4 в PROBE_RTT.
+  `bbr_advance_cycle_phase`: 8-фазный gain cycle [1.25, 0.75, 1×6] по 1 RTprop.
+  `bbr_check_startup_done`: STARTUP→DRAIN когда cwnd≥BDP (bbr_filled_pipe).
+  `bbr_v1_on_ack`: диспетчер state machine + BtlBw + RTprop update.
+  `bbr_v1_on_loss`: no-op (BBR не реагирует cwnd-ом на потери — Cardwell 2016).
+  `tuic_cc_init`: инициализация BBR полей с `clock_gettime` (избегает elapsed=uptime).
+  `tuic_cc_on_ack`/`tuic_cc_on_loss`: добавлены ветки `TUIC_CC_BBR_V1`.
+  `tuic_cc_probe_rtt_tick`: запускает PROBE_RTT если RTprop_stamp устарел >10s.
+
+- **[FIX/core/src/proxy/dispatcher.c]** Парсинг UCI `tuic_cc=bbr1` → `TUIC_CC_BBR_V1`.
+  В цикле `tuic_defrag_tick` добавлен вызов `tuic_cc_probe_rtt_tick` с `now_ms`
+  из `ts_start` (CLOCK_MONOTONIC мс).
+
+- EC330 deploy 2026-05-11: 3.1MB mipsel, 99 PASS 0 FAIL, VmRSS 3.6MB.
+
 ## [1.5.186] — 2026-05-11
 
 ### Added (F1-6a: CUBIC CC для TUIC v5)
