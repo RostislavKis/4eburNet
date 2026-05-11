@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.5.186] — 2026-05-11
+
+### Added (F1-6a: CUBIC CC для TUIC v5)
+
+- **[NEW/core/include/proxy/protocols/tuic_v5.h]** `tuic_cc_algo_t` enum:
+  `NEWRENO=0`, `CUBIC=1`, `BBR_V1=2`, `BBR_V2=3` (BBR pending).
+  Новые поля в `tuic_cc_t`: `algo`, `cubic_w_max`, `cubic_k`,
+  `cubic_epoch_start`, `cubic_w_est`, `cubic_ack_cnt`.
+  Сигнатура `tuic_cc_on_ack` расширена параметром `uint64_t now_ms`
+  (CUBIC W(t) = C*(t-K)^3 + W_max требует время с начала эпохи).
+
+- **[NEW/core/src/proxy/protocols/tuic_v5_proto.c]** CUBIC реализация:
+  `cubic_compute_k`: K = cbrt(W\_max·(1-β)/C) через `pow(x, 1/3)` из libm.
+  `cubic_w_cubic`: W_cubic(t) = C*(t-K)³ + W_max.
+  `cubic_on_ack`: W_cubic + TCP-friendliness W_est (RFC 8312 §5.1).
+  `cubic_on_loss`: W_max snapshot + β=0.7 (vs 0.5 NewReno → меньший откат).
+  Диспетчеры `tuic_cc_on_ack`/`tuic_cc_on_loss` переключаются по `algo`.
+  WHY: CUBIC быстрее восстанавливает cwnd после потери на high-RTT каналах
+  по сравнению с NewReno; является дефолтным CC в Linux kernel.
+
+- **[FIX/core/src/proxy/protocols/tuic_v5_conn.c]** ACK handler:
+  `tuic_cc_on_ack(&conn->cc, 1200)` → добавлен `now_ms` из `CLOCK_MONOTONIC`.
+
+- **[NEW/core/include/config.h]** `char tuic_cc[16]` в `ServerConfig`.
+  WHY: UCI-опция для выбора CC алгоритма per-server.
+
+- **[FIX/core/src/config.c]** Дефолт `"cubic"` и парсинг `option tuic_cc`.
+
+- **[FIX/core/src/proxy/dispatcher.c]** После `tuic_conn_create`:
+  `((tuic_conn_t *)relay->tuic_conn)->cc.algo = algo` по значению `server->tuic_cc`.
+  Default: CUBIC; `tuic_cc=newreno` → NEWRENO.
+
+- EC330 deploy 2026-05-11: 3.1MB mipsel, 99 PASS 0 FAIL, VmRSS 6.8MB.
+
 ## [1.5.184] — 2026-05-11
 
 ### Added (F0-4: AND/OR logical rules в rules engine)
