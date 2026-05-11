@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.5.181] — 2026-05-11
+
+### Fixed / Added (F0-1: geo pipeline + DNS adblock)
+
+- **[FIX/core/src/config.c]** `block_geosite_ads/trackers/threats` = true по умолчанию.
+  WHY: без явных defaults `dns_rules_add_geosite` не вызывался → adblock не работал.
+  Домены рекламных категорий получали fake-IP вместо NXDOMAIN. Теперь `doubleclick.net`,
+  `ads.google.com`, `mc.yandex.ru` → NXDOMAIN без UCI `list block_geosite`.
+
+- **[NEW/tools/Makefile.dev]** target `geo-compile-host` — сборка geo_compile для x86_64
+  через musl-gcc. Результат: `prebuilt/host/geo_compile` (23KB).
+
+- **[NEW]** .gbin формат geo баз: mmap() вместо текстового HashSet.
+  EC330 RSS: 52MB → 5.8MB (9x экономия). 5 категорий: geosite-ru (1.2M),
+  geosite-ads (220K), geosite-trackers (41K), geosite-threats (310K),
+  opencck-domains (382K). Развёрнуто на EC330 2026-05-11.
+
+- **[FIX/scripts/geo_update_repos.ps1]** Исправлены источники geo списков:
+  geosite-ru: 1andrevich + antifilter (замена недоступных URLs).
+  TLS protocol: Tls12 | Tls13. Добавлена pre-check функция `Test-Url`.
+
 ## [1.5.178] — 2026-05-10
 
 ### Fixed (audit_v48)
