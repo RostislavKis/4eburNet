@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.2.0.1] — 2026-05-12
+
+### Fixed (SIGHUP DNS rebind crash-loop)
+
+**Backend (`core/`):**
+
+- `main.c` — SIGHUP при неизменном DNS порту больше не вызывает EADDRINUSE crash-loop.
+  Сохраняем `old_dns_port` до `config_free()`, сравниваем с `new_dns_port`: если порт не изменился
+  и DNS включён — обновляем `dns_state.cfg`/cache-настройки без close/rebind сокета.
+  Полный rebind только при смене порта или отключении DNS.
+- `main.c` — В ветке `dns_port_unchanged` обновляется `dns_state.fake_ip.cfg = cfg_ptr`
+  (WHY: `fake_ip_table_t` хранит raw `EburNetConfig*` и читает `cfg->dns.fake_ip_ttl` при каждом
+  запросе — без обновления → dangling pointer → SIGSEGV).
+- `http_server.c` — `route_clash_configs_patch`: возвращён `changed = true` для блоков
+  `inbound_auth`, `inbound_username`, `inbound_password` (был убран как workaround crash-loop).
+  Все PATCH-endpoints теперь безопасно вызывают `reload_daemon()`.
+- `Makefile.dev` — версия 2.2.0.1
+
+---
+
 ## [2.2.0] — 2026-05-12
 
 ### Added (JA4 column + Status summary card + Inbound auth)

@@ -1829,9 +1829,8 @@ static void route_clash_configs_patch(HttpConn *conn, int epoll_fd)
         const char *commit_argv[] = {"uci", "commit", "4eburnet", NULL};
         exec_cmd_safe(set_argv, NULL, 0);
         exec_cmd_safe(commit_argv, NULL, 0);
-        /* WHY: не SIGHUP — перепривязка :53 в SIGHUP handler вызывает краш.
-         * Флаг обновляется live в s_cfg, действует для новых соединений. */
         if (s_cfg) ((EburNetConfig *)s_cfg)->inbound_auth = enable;
+        changed = true;
     }
 
     char sd_u[64] = {0};
@@ -1845,6 +1844,7 @@ static void route_clash_configs_patch(HttpConn *conn, int epoll_fd)
         exec_cmd_safe(commit_argv, NULL, 0);
         if (s_cfg) strncpy(((EburNetConfig *)s_cfg)->inbound_username, sd_u,
                            sizeof(s_cfg->inbound_username) - 1);
+        changed = true;
     }
 
     char sd_p[64] = {0};
@@ -1858,6 +1858,7 @@ static void route_clash_configs_patch(HttpConn *conn, int epoll_fd)
         exec_cmd_safe(commit_argv, NULL, 0);
         if (s_cfg) strncpy(((EburNetConfig *)s_cfg)->inbound_password, sd_p,
                            sizeof(s_cfg->inbound_password) - 1);
+        changed = true;
     }
 
     if (changed)
