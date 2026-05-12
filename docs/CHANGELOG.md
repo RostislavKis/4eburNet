@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.1.4] — 2026-05-12
+
+### Added (Reality fp + HY2 obfs + ShadowTLS поля в ServerFormModal)
+
+**Backend (`core/src/http_server.c`):**
+
+- **`route_api_servers_post`** — парсинг 6 новых полей: `reality_fingerprint`, `hy2_obfs_enabled`, `hy2_obfs_password`, `hy2_insecure`, `stls_password`, `stls_sni`; буферы `sc0-sc5` + `SRV_SET_OPT` для каждого
+- **`route_api_servers_put`** — добавлены те же 6 полей в массив `flds[]`
+- **`server_config_to_uci_anon`** — добавлены `hy2_obfs_enabled` (if-блок), `UCI_SET("hy2_obfs_password")`, `UCI_SET("stls_password")`, `UCI_SET("stls_sni")` — поля теперь сохраняются при импорте Clash YAML
+
+**Dashboard (`dashboard-src/src/components/proxies/ServerFormModal.vue`):**
+
+- **Reality блок** (`v-if="form.protocol === 'vless'"`): `<select v-model="form.reality_fingerprint">` с 8 вариантами (chrome/firefox/safari/ios/android/edge/random/randomized)
+- **Hysteria2 блок** (`v-if="form.protocol === 'hysteria2'"`): Salamander toggle (`hy2_obfs_enabled`) + пароль (v-if obfs) + Skip TLS verify toggle (`hy2_insecure`)
+- **ShadowTLS блок** (`v-if="form.protocol === 'shadowtls'"`): поля `stls_password` (type=password) + `stls_sni`
+- **`form` ref**: добавлены `reality_fingerprint:''`, `hy2_obfs_enabled:false`, `hy2_obfs_password:''`, `hy2_insecure:false`, `stls_password:''`, `stls_sni:''`
+- **`optStr`**: 4 строковых поля (`reality_fingerprint`, `hy2_obfs_password`, `stls_password`, `stls_sni`)
+- **`submit`**: явная обработка булевых — `hy2_insecure`/`hy2_obfs_enabled` → `'1'` если включены
+- **Tooltips** на всех новых полях с объяснением назначения
+
 ## [2.1.3] — 2026-05-12
 
 ### Added (транспортные поля в ServerFormModal)
