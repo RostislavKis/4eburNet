@@ -83,6 +83,10 @@ static void route_api_dpi_patch(HttpConn *conn, int epoll_fd);
 static void route_api_sniffer_get(HttpConn *conn, int epoll_fd);
 static void route_api_sniffer_patch(HttpConn *conn, int epoll_fd);
 static void route_api_sniffer_stats(HttpConn *conn, int epoll_fd);
+static void route_api_dns_policies_get(HttpConn *conn, int epoll_fd);
+static void route_api_dns_policies_post(HttpConn *conn, int epoll_fd);
+static void route_api_dns_policies_delete(HttpConn *conn, int epoll_fd, const char *id_str);
+static void route_api_dns_policies_reorder(HttpConn *conn, int epoll_fd);
 static void route_api_network_get(HttpConn *conn, int epoll_fd);
 static void route_api_network_patch(HttpConn *conn, int epoll_fd);
 static void route_api_geo_update(HttpConn *conn, int epoll_fd);
@@ -3445,6 +3449,23 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
     if (strcmp(p, "/api/dns/stats") == 0 && !conn->is_post && !conn->is_patch) {
         route_api_dns_stats(conn, epoll_fd); return;
     }
+    /* GET /api/dns/policies */
+    if (strcmp(p, "/api/dns/policies") == 0 &&
+        !conn->is_post && !conn->is_patch && !conn->is_delete) {
+        route_api_dns_policies_get(conn, epoll_fd); return;
+    }
+    /* POST /api/dns/policies */
+    if (strcmp(p, "/api/dns/policies") == 0 && conn->is_post) {
+        route_api_dns_policies_post(conn, epoll_fd); return;
+    }
+    /* PATCH /api/dns/policies/reorder */
+    if (strcmp(p, "/api/dns/policies/reorder") == 0 && conn->is_patch) {
+        route_api_dns_policies_reorder(conn, epoll_fd); return;
+    }
+    /* DELETE /api/dns/policies/{id} */
+    if (strncmp(p, "/api/dns/policies/", 18) == 0 && p[18] && conn->is_delete) {
+        route_api_dns_policies_delete(conn, epoll_fd, p + 18); return;
+    }
 
     /* GET /api/dpi */
     if (strcmp(p, "/api/dpi") == 0 && !conn->is_post && !conn->is_patch) {
@@ -5752,6 +5773,323 @@ static void route_api_dns_stats(HttpConn *conn, int epoll_fd)
         "{\"queries\":0,\"cached\":0,\"blocked\":0,\"hit_rate\":0.0}";
     http_send(conn, epoll_fd, 200, "application/json",
               resp, sizeof(resp) - 1);
+}
+
+/* Проверить что uci вернул реальное значение, а не ошибку */
+static bool uci_got_ok(const char *got)
+{
+    return got[0] != '\0' && strncmp(got, "uci:", 4) != 0;
+}
+
+/* ── GET /api/dns/policies — список dns_policy UCI секций ──────────── */
+static void route_api_dns_policies_get(HttpConn *conn, int epoll_fd)
+{
+    static char resp[12288];
+    static char get_key[80];
+    static char got[256];
+    static char pat[256], ustr[256], sni[256];
+    int pos = 0, max = (int)sizeof(resp) - 4;
+    pos += snprintf(resp + pos, (size_t)(max - pos), "{\"policies\":[");
+    bool first = true;
+    int seq = 0;
+    for (int i = 0; i < 128 && seq < 64 && pos < max - 256; i++) {
+        /* проверяем, существует ли секция вообще */
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d]", i);
+        const char *const aex[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(aex, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) break;  /* конец списка */
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].pattern", i);
+        const char *const a0[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a0, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) continue;  /* пустая секция без pattern — пропускаем */
+        snprintf(pat, sizeof(pat), "%s", got);
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].upstream", i);
+        const char *const a1[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a1, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        snprintf(ustr, sizeof(ustr), "%s", uci_got_ok(got) ? got : "");
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].type", i);
+        const char *const a2[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a2, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        const char *tp = (uci_got_ok(got) && strcmp(got, "dot") == 0) ? "dot"
+                       : (uci_got_ok(got) && strcmp(got, "doh") == 0) ? "doh" : "udp";
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].sni", i);
+        const char *const a3[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a3, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        snprintf(sni, sizeof(sni), "%s", uci_got_ok(got) ? got : "");
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].priority", i);
+        const char *const a4[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a4, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        int prio = (uci_got_ok(got) && got[0] >= '0' && got[0] <= '9')
+                   ? (int)strtol(got, NULL, 10) : 100;
+
+        if (!first) pos += snprintf(resp + pos, (size_t)(max - pos), ",");
+        first = false;
+        pos += snprintf(resp + pos, (size_t)(max - pos),
+            "{\"id\":%d,\"type\":\"%s\",\"priority\":%d,\"pattern\":", seq, tp, prio);
+        pos = json_append_str(resp, pos, max, pat);
+        pos += snprintf(resp + pos, (size_t)(max - pos), ",\"upstream\":");
+        pos = json_append_str(resp, pos, max, ustr);
+        pos += snprintf(resp + pos, (size_t)(max - pos), ",\"sni\":");
+        pos = json_append_str(resp, pos, max, sni);
+        pos += snprintf(resp + pos, (size_t)(max - pos), "}");
+        seq++;
+    }
+    pos += snprintf(resp + pos, (size_t)(max - pos), "]}");
+    http_send(conn, epoll_fd, 200, "application/json", resp, (size_t)pos);
+}
+
+/* ── POST /api/dns/policies — добавить политику ─────────────────────── */
+static void route_api_dns_policies_post(HttpConn *conn, int epoll_fd)
+{
+    const char *hdr_end = strstr(conn->buf, "\r\n\r\n");
+    if (!hdr_end) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"bad request\"}", 34); return;
+    }
+    const char *body = hdr_end + 4;
+    static char pattern[129], upstream[129], type_s[8], sni_s[257], prio_s[12];
+    http_json_get_str(body, "pattern",  pattern,  sizeof(pattern));
+    http_json_get_str(body, "upstream", upstream, sizeof(upstream));
+    http_json_get_str(body, "type",     type_s,   sizeof(type_s));
+    http_json_get_str(body, "sni",      sni_s,    sizeof(sni_s));
+    http_json_get_val(body, "priority", prio_s,   sizeof(prio_s));
+    if (!pattern[0] || !upstream[0]) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"pattern and upstream required\"}", 52); return;
+    }
+    if (strcmp(type_s, "dot") != 0 && strcmp(type_s, "doh") != 0)
+        snprintf(type_s, sizeof(type_s), "udp");
+    if (!prio_s[0]) snprintf(prio_s, sizeof(prio_s), "100");
+
+    static char kv[512];
+    {
+        const char *const aa[] = {"uci", "add", "4eburnet", "dns_policy", NULL};
+        if (exec_cmd_safe(aa, NULL, 0) != 0) {
+            http_send(conn, epoll_fd, 500, "application/json",
+                      "{\"ok\":false,\"error\":\"uci add failed\"}", 37); return;
+        }
+    }
+    snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].pattern=%s",  pattern);
+    { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+    snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].upstream=%s", upstream);
+    { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+    snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].type=%s",     type_s);
+    { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+    if (sni_s[0]) {
+        snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].sni=%s", sni_s);
+        const char *const asni[] = {"uci","set",kv,NULL};
+        exec_cmd_safe(asni, NULL, 0);
+    }
+    snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].priority=%s", prio_s);
+    { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+    { const char *const a[] = {"uci","commit","4eburnet",NULL}; exec_cmd_safe(a,NULL,0); }
+    reload_daemon();
+
+    static char get_key[80], got[8];
+    int new_id = 0;
+    for (int i = 63; i >= 0; i--) {
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].pattern", i);
+        const char *const ac[] = {"uci", "get", get_key, NULL};
+        memset(got, 0, sizeof(got));
+        if (exec_cmd_safe(ac, got, sizeof(got) - 1) == 0) { new_id = i; break; }
+    }
+    static char ok_resp[48];
+    snprintf(ok_resp, sizeof(ok_resp), "{\"ok\":true,\"id\":%d}", new_id);
+    http_send(conn, epoll_fd, 201, "application/json", ok_resp, strlen(ok_resp));
+}
+
+/* ── DELETE /api/dns/policies/{id} ──────────────────────────────────── */
+static void route_api_dns_policies_delete(HttpConn *conn, int epoll_fd,
+                                           const char *id_str)
+{
+    if (!id_str || !id_str[0]) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"missing id\"}", 32); return;
+    }
+    char *ep;
+    long seq_id = strtol(id_str, &ep, 10);
+    if (ep == id_str || seq_id < 0 || seq_id > 255) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"invalid id\"}", 32); return;
+    }
+    /* ищем UCI-индекс секции по последовательному seq_id (пустые пропускаем) */
+    static char get_key[80], got[256];
+    int seq = 0, uci_idx = -1;
+    for (int i = 0; i < 128; i++) {
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d]", i);
+        const char *const aex[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(aex, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) break;
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].pattern", i);
+        const char *const a0[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a0, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) continue;
+        if (seq == (int)seq_id) { uci_idx = i; break; }
+        seq++;
+    }
+    if (uci_idx < 0) {
+        http_send(conn, epoll_fd, 404, "application/json",
+                  "{\"ok\":false,\"error\":\"not found\"}", 31); return;
+    }
+    static char sec[48];
+    snprintf(sec, sizeof(sec), "4eburnet.@dns_policy[%d]", uci_idx);
+    { const char *const ad[] = {"uci","delete",sec,NULL}; exec_cmd_safe(ad,NULL,0); }
+    { const char *const ac2[] = {"uci","commit","4eburnet",NULL}; exec_cmd_safe(ac2,NULL,0); }
+    reload_daemon();
+    http_send(conn, epoll_fd, 200, "application/json", "{\"ok\":true}", 11);
+}
+
+/* ── PATCH /api/dns/policies/reorder ────────────────────────────────── */
+static void route_api_dns_policies_reorder(HttpConn *conn, int epoll_fd)
+{
+    const char *hdr_end = strstr(conn->buf, "\r\n\r\n");
+    if (!hdr_end) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"bad request\"}", 34); return;
+    }
+    const char *body = hdr_end + 4;
+
+    struct policy_entry {
+        char pattern[256]; char upstream[256];
+        char type[8];      char sni[256]; char priority[12];
+    };
+    static struct policy_entry entries[64];
+    static char get_key[80], got[256];
+    int count = 0;
+    for (int i = 0; i < 128 && count < 64; i++) {
+        /* секция существует? */
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d]", i);
+        const char *const aex[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(aex, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) break;  /* конец списка */
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].pattern", i);
+        const char *const a0[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a0, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) continue;  /* пустая секция — пропускаем */
+        snprintf(entries[count].pattern, sizeof(entries[count].pattern), "%s", got);
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].upstream", i);
+        const char *const a1[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a1, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        snprintf(entries[count].upstream, sizeof(entries[count].upstream),
+                 "%s", uci_got_ok(got) ? got : "");
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].type", i);
+        const char *const a2[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a2, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (uci_got_ok(got) && strcmp(got,"dot")==0)
+            snprintf(entries[count].type,sizeof(entries[count].type),"dot");
+        else if (uci_got_ok(got) && strcmp(got,"doh")==0)
+            snprintf(entries[count].type,sizeof(entries[count].type),"doh");
+        else
+            snprintf(entries[count].type,sizeof(entries[count].type),"udp");
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].sni", i);
+        const char *const a3[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a3, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        snprintf(entries[count].sni, sizeof(entries[count].sni),
+                 "%s", uci_got_ok(got) ? got : "");
+
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d].priority", i);
+        const char *const a4[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(a4, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        snprintf(entries[count].priority, sizeof(entries[count].priority),
+                 "%s", (uci_got_ok(got) && got[0] >= '0' && got[0] <= '9') ? got : "100");
+        count++;
+    }
+    if (count == 0) {
+        http_send(conn, epoll_fd, 200, "application/json", "{\"ok\":true}", 11); return;
+    }
+
+    static int order[64];
+    int ocnt = 0;
+    const char *arr = strstr(body, "\"order\"");
+    if (!arr || (arr = strchr(arr, '[')) == NULL) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"missing order\"}", 36); return;
+    }
+    arr++;
+    while (*arr && *arr != ']' && ocnt < 64) {
+        while (*arr == ' ' || *arr == ',') arr++;
+        if (*arr == ']') break;
+        char *ep2;
+        long v = strtol(arr, &ep2, 10);
+        if (ep2 == arr) break;
+        if (v >= 0 && v < count) order[ocnt++] = (int)v;
+        arr = ep2;
+    }
+    if (ocnt != count) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"ok\":false,\"error\":\"order length mismatch\"}", 44); return;
+    }
+
+    static char sec[48], kv[512];
+    /* удаляем ВСЕ dns_policy секции, включая пустые «призрачные» */
+    for (int i = 127; i >= 0; i--) {
+        snprintf(get_key, sizeof(get_key), "4eburnet.@dns_policy[%d]", i);
+        const char *const ach[] = {"uci","get",get_key,NULL};
+        memset(got, 0, sizeof(got));
+        exec_cmd_safe(ach, got, sizeof(got) - 1);
+        got[strcspn(got, "\r\n")] = '\0';
+        if (!uci_got_ok(got)) continue;
+        snprintf(sec, sizeof(sec), "4eburnet.@dns_policy[%d]", i);
+        const char *const ad[] = {"uci","delete",sec,NULL};
+        exec_cmd_safe(ad, NULL, 0);
+    }
+    for (int j = 0; j < ocnt; j++) {
+        int src = order[j];
+        { const char *const aa[] = {"uci","add","4eburnet","dns_policy",NULL}; exec_cmd_safe(aa,NULL,0); }
+        snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].pattern=%s",  entries[src].pattern);
+        { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+        snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].upstream=%s", entries[src].upstream);
+        { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+        snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].type=%s",     entries[src].type);
+        { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+        if (entries[src].sni[0]) {
+            snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].sni=%s", entries[src].sni);
+            const char *const asni[] = {"uci","set",kv,NULL};
+            exec_cmd_safe(asni, NULL, 0);
+        }
+        snprintf(kv, sizeof(kv), "4eburnet.@dns_policy[-1].priority=%s", entries[src].priority);
+        { const char *const a[] = {"uci","set",kv,NULL}; exec_cmd_safe(a,NULL,0); }
+    }
+    { const char *const a[] = {"uci","commit","4eburnet",NULL}; exec_cmd_safe(a,NULL,0); }
+    reload_daemon();
+    http_send(conn, epoll_fd, 200, "application/json", "{\"ok\":true}", 11);
 }
 
 /* ── GET /api/dpi — DPI настройки через IPC ─────────────────────── */
