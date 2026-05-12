@@ -1,5 +1,59 @@
 # Changelog
 
+## [2.0.5] — 2026-05-12
+
+### Added (P1 Providers CRUD + P2 Расширенные настройки)
+
+- **[dashboard/api/index.ts]** +14 новых функций:
+  - Providers CRUD: `addProxyProviderAPI`, `deleteProxyProviderAPI`, `addRuleProviderAPI`, `deleteRuleProviderAPI`
+  - DNS full: `getDNSConfigAPI`, `patchDNSConfigAPI`, `getDNSStatsAPI`
+  - DPI: `getDPIConfigAPI`, `patchDPIConfigAPI`
+  - Network: `getNetworkConfigAPI`, `patchNetworkConfigAPI`
+  - Geo: `getGeoStatusAPI`, `triggerGeoUpdateAPI`
+  - Devices: `getDevicesAPI`, `patchDeviceAPI`
+  - Backup/Restore: `downloadBackupAPI`, `uploadRestoreAPI`
+
+- **[dashboard/components/providers/AddProviderModal.vue]** Модал добавления провайдера:
+  - Поддержка proxy и rule типов (behavior/url/interval)
+  - Используется из ProxiesPage (вкладка PROVIDER) и RulesPage (вкладка PROVIDER)
+
+- **[dashboard/components/proxies/ProxyProvider.vue]** Кнопка удаления провайдера (TrashIcon)
+- **[dashboard/components/rules/RuleProvider.vue]** Кнопка удаления провайдера (TrashIcon)
+
+- **[dashboard/views/ProxiesPage.vue]** Кнопка "Добавить Proxy Provider" в PROVIDER вкладке
+- **[dashboard/views/RulesPage.vue]** Кнопка "Добавить Rule Provider" в PROVIDER вкладке (оба режима)
+
+- **[dashboard/components/settings/DNSFullConfig.vue]** Полная DNS конфигурация:
+  - upstream_default / upstream_bypass / DoH / DoT toggles
+  - Fake-IP: enable toggle + IPv4/IPv6 диапазоны
+  - Adblock: block_ads / block_trackers / block_threats
+  - DNS stats виджет (queries / cached / blocked / hit-rate)
+
+- **[dashboard/components/settings/DPIConfig.vue]** DPI Bypass UI:
+  - enabled / fragment_enabled / fake_ttl (toggle + number) / disorder
+
+- **[dashboard/components/settings/NetworkConfig.vue]** Сетевые оптимизации:
+  - flow_offload / tc_fast_path / bbr / mtu
+
+- **[dashboard/components/settings/GeoConfig.vue]** Geo базы:
+  - Профиль minimal/normal/full с radio buttons
+  - Таблица .gbin файлов (name/entries/size/loaded)
+  - Кнопка "Обновить базы" → `triggerGeoUpdateAPI`
+
+- **[dashboard/components/settings/DevicesConfig.vue]** Per-device routing:
+  - Таблица устройств по MAC с выбором policy + proxy_group
+  - Использует `proxyGroupList` из store/proxies
+
+- **[dashboard/components/settings/backend/BackendSettings.vue]** Новые секции:
+  - Backup/Restore: download tar.gz + upload restore с авто-перезагрузкой страницы
+  - Подключены: DNSFullConfig, DPIConfig, NetworkConfig, GeoConfig, DevicesConfig
+
+- **[dashboard/i18n/ru.ts + en.ts]** Новые ключи: `addProxyProvider`, `addRuleProvider`,
+  `deleteProvider`, `dpiBypass`, `networkOptimizations`, `geoBases`, `devicesRouting`,
+  `backupRestore`, `geoProfileMinimal/Normal/Full`
+
+- EC330 deploy 2026-05-12 ✓
+
 ## [2.0.4] — 2026-05-12
 
 ### Added (P1 — Dashboard: Rules CRUD + Rule Test UI)
