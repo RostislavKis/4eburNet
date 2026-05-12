@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.1.3] — 2026-05-12
+
+### Added (транспортные поля в ServerFormModal)
+
+**Backend (`core/src/http_server.c`):**
+
+- **`route_api_servers_post`** — парсинг 5 новых полей: `ws_path`, `ws_host`, `xhttp_path`, `xhttp_host`, `grpc_service_name`; статические буферы `sb0-sb4` + `SRV_SET_OPT` для каждого
+- **`route_api_servers_put`** — добавлены те же 5 полей в массив `flds[]` — теперь обновляются при редактировании
+- **`server_config_to_uci_anon`** — добавлен `UCI_SET("grpc_service_name", srv->grpc_service_name)` — фикс потери поля при импорте Clash YAML
+
+**Dashboard (`dashboard-src/src/components/proxies/ServerFormModal.vue`):**
+
+- **Transport select**: добавлен вариант `HTTPUpgrade` (с title-tooltip)
+- **WS блок** (`v-if="form.transport === 'ws'"`): поля `ws_path` + `ws_host` с tooltips
+- **gRPC блок** (`v-if="form.transport === 'grpc'"`): поле `grpc_service_name` (placeholder `GunService`)
+- **XHTTP блок** (`v-if="form.transport === 'xhttp'"`): поля `xhttp_path` + `xhttp_host` с tooltips
+- **HTTPUpgrade блок** (`v-if="form.transport === 'httpupgrade'"`): поле `ws_path` (путь для Upgrade запроса)
+- **`form` ref**: добавлены `ws_path`, `ws_host`, `grpc_service_name`, `xhttp_path`, `xhttp_host` = `''`
+- **`optStr`**: 5 новых полей — включаются в POST/PUT payload если непусты
+- **Редактирование**: спред `props.initial` автоматически заполняет поля из существующего сервера
+
 ## [2.1.2] — 2026-05-12
 
 ### Added (MTU в backend + Delete server кнопка)
