@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.1.7] — 2026-05-12
+
+### Added (Proxy Group Edit Modal)
+
+**Backend (`core/src/http_server.c`):**
+
+- **`GET /proxies`** — добавлены поля `interval`, `tolerance`, `testUrl`, `filter` для URLTest/Fallback/LoadBalance групп
+- **`PATCH /api/groups/{name}`** — изменить url/interval/tolerance_ms/filter proxy-group; UCI uci_set + commit + reload_daemon
+- **URL-decode в `route_api_groups_patch`** — `%20` → ` ` (пробелы в именах групп)
+- **`uci_find_provider_section`** — убрана проверка `uci_name_safe` (заменена на strlen): группы с пробелами теперь находятся
+
+**Dashboard (`dashboard-src/src/`):**
+
+- **`components/proxies/ProxyGroupEditModal.vue`** — новый модал: поля Healthcheck URL / Интервал / Tolerance / Filter, tooltips, `updateProxyGroupAPI`
+- **`components/proxies/ProxyGroup.vue`** — кнопка ✏️ (`PencilSquareIcon`) только для URLTest/Fallback/LoadBalance + `<ProxyGroupEditModal>`
+- **`api/index.ts`** — `updateProxyGroupAPI(name, data)` → `PATCH /api/groups/{name}`
+- **`types/index.d.ts`** — `Proxy` + `testUrl?/interval?/tolerance?/filter?`
+- **`i18n/ru.ts` + `en.ts`** — ключи `editProxyGroup`
+
+**Gotchas:**
+
+- `scp -O` прямо в `/usr/sbin/4eburnetd` при запущенном демоне молча не обновляет файл (inode держится). Правильный путь: scp → `/tmp/` → `cp` → `chmod +x` → restart
+- Сборки OpenWrt SDK детерминированные: одинаковый код → одинаковый md5 бинарника
+- `uci_name_safe` запрещает пробелы → имена групп типа "ARZA Auto" не проходили
+
+---
+
 ## [2.1.6] — 2026-05-12
 
 ### Added (Provider Edit Modal)
