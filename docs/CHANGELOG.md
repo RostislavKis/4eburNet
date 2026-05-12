@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.7] — 2026-05-12
+
+### Added (OR-правила + DOMAIN-REGEX + JA3/JA4 в connections + per-device traffic stats)
+
+- **[core/include/config.h]** `RULE_TYPE_OR = 11`, `RULE_TYPE_REGEX = 12`; `TrafficRule` расширен `sub_rules`/`sub_count` (heap) и `compiled_re` (regex_t*, heap)
+- **[core/include/proxy/dispatcher.h]** `ja4[72]` в `relay_conn_t`
+- **[core/src/config.c]** Парсинг `type=OR`/`REGEX`, UCI list `or_condition`, финализирующий pass: calloc sub_rules + regcomp; config_free loop для cleanup
+- **[core/src/proxy/rules_engine.c]** `case RULE_TYPE_OR` (short-circuit по sub_rules) и `case RULE_TYPE_REGEX` (regexec)
+- **[core/src/http_server.c]** `ja3`/`ja4` поля в JSON для GET /connections
+- **[tools/sub_convert.py]** Парсинг Clash `OR((...))` и `DOMAIN-REGEX` правил → UCI `type=OR`/`REGEX` + `list or_condition`
+- **[core/tests/test_or_regex.c]** 4×REGEX + 3×OR standalone тесты (7/7 PASS)
+- **[dashboard-src]** RuleFormModal: опции OR/REGEX + подсказки; DevicesConfig: колонки tx/rx/conn_count; ConnectionTable: колонка JA3; i18n ключ `ja3`
+
 ## [2.0.6] — 2026-05-12
 
 ### Added (P3 UX — TUIC BBR profile + active_relay_count)
