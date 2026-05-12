@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.0.4] — 2026-05-12
+
+### Added (P1 — Dashboard: Rules CRUD + Rule Test UI)
+
+- **[dashboard/api/index.ts]** Rules API:
+  - `createRuleAPI(data)` — POST /api/rules
+  - `updateRuleAPI(id, data)` — PATCH /api/rules/{id}
+  - `deleteRuleAPI(id)` — DELETE /api/rules/{id}
+  - `testRuleAPI(target)` — POST /api/rules/test → `{matched, rule, payload, proxy}`
+  - Интерфейсы: `RuleConfig`, `RuleTestResult`
+
+- **[dashboard/components/rules/RuleFormModal.vue]** Форма добавления/редактирования правила:
+  - Все типы: DOMAIN/SUFFIX/KEYWORD, IP-CIDR/v6, GEOIP, GEOSITE, RULE-SET, DST-PORT, SRC-PORT, NETWORK, MATCH
+  - Динамический placeholder для значения по типу
+  - Выбор политики: DIRECT/PROXY/REJECT + список proxy-групп
+  - Опция no-resolve для IP-CIDR
+  - Tooltips через `useTooltip` на типах правил
+
+- **[dashboard/components/rules/RuleTestModal.vue]** Тестер правил:
+  - Ввод домена/IP → результат: правило, payload, proxy с цветовой индикацией
+  - История последних 10 тестов с повторным запуском по клику
+
+- **[dashboard/views/RulesPage.vue]** Кнопки "Добавить правило" и "Тест правил"
+  в обоих режимах (normal + VirtualScroller); модальные окна RuleFormModal × 2 + RuleTestModal
+
+- **[dashboard/i18n/en.ts + ru.ts]** Новые ключи: `addRule`, `editRule`, `testRules`
+
+- EC330 deploy 2026-05-12 ✓
+
+---
+
 ## [2.0.3] — 2026-05-12
 
 ### Added (P1 — Dashboard: Servers CRUD + Import подписки)
