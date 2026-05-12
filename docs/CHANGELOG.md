@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.1.5] — 2026-05-12
+
+### Added (AWG расширенные поля в ServerFormModal)
+
+**Backend (`core/src/http_server.c`):**
+
+- **`route_api_servers_post`** — парсинг 9 новых AWG полей: `awg_h1-h4`, `awg_psk`, `awg_dns`, `awg_reserved`, `awg_keepalive`, `awg_mtu`; буферы `sd0-sd8` + `SRV_SET_OPT` для каждого
+- **`route_api_servers_put`** — добавлены те же 9 полей в массив `flds[]`
+- **`server_config_to_uci_anon`** — изменений не требовалось (уже имел UCI_SET для всех AWG полей)
+
+**Dashboard (`dashboard-src/src/components/proxies/ServerFormModal.vue`):**
+
+- **AWG блок** — подсекция «Обфускация заголовков»: H1/H2/H3/H4 (числовые, 2×2 grid, tooltips)
+- **AWG блок** — подсекция «Дополнительные параметры»: PSK (base64), Keepalive (сек), MTU, DNS, Reserved (base64/массив)
+- **form ref** — 9 новых полей с дефолтами (awg_h1-h4=0, awg_keepalive=0, awg_mtu=0, awg_psk/dns/reserved='')
+- **optStr** — добавлены `awg_psk`, `awg_dns`, `awg_reserved`
+- **optNum** — добавлены `awg_h1-h4`, `awg_keepalive`, `awg_mtu`
+- Tooltips на каждом новом поле
+
 ## [2.1.4] — 2026-05-12
 
 ### Added (Reality fp + HY2 obfs + ShadowTLS поля в ServerFormModal)
