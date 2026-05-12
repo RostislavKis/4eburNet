@@ -7,7 +7,7 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/версия-v1.5.179-brightgreen?style=flat-square" alt="version">
+    <img src="https://img.shields.io/badge/версия-v2.0.0-brightgreen?style=flat-square" alt="version">
     <img src="https://img.shields.io/badge/OpenWrt-23.05%20%2F%2024.10%20%2F%2025.12-blue?style=flat-square" alt="OpenWrt">
     <img src="https://img.shields.io/badge/arch-mipsel%20%7C%20aarch64%20%7C%20armv7%20%7C%20x86__64-green?style=flat-square" alt="arch">
     <img src="https://img.shields.io/badge/бинарник-3.1%20МБ-orange?style=flat-square" alt="size">
@@ -82,12 +82,14 @@ TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno
 
 | Протокол | Транспорты | Особенности |
 |----------|-----------|-------------|
-| **VLESS** | TCP, gRPC, WebSocket, XHTTP, HTTPUpgrade | Reality (custom TLS 1.3 stack), Vision (XTLS-rprx-vision), x25519, JA3 fingerprint |
+| **VLESS** | TCP, gRPC, WebSocket, XHTTP, HTTPUpgrade, Mux.Cool | Reality (custom TLS 1.3 stack), Vision (XTLS-rprx-vision), x25519, JA3 fingerprint |
+| **VMess** | TCP, gRPC, WebSocket | AEAD шифрование заголовка (KDF13B + AES-128-GCM), UUID auth |
 | **Trojan** | TCP, gRPC | Маскировка под HTTPS |
+| **Shadowsocks 2022** | TCP, UDP | BLAKE3 + AES-128-GCM / AES-256-GCM / ChaCha20-Poly1305 |
 | **AmneziaWireGuard** | UDP | Jc/Jmin/Jmax, H1-H4, S1-S4, i1-i5, MTU/DNS/reserved |
 | **Hysteria2** | QUIC | Brutal CC, Salamander XOR, URI парсер, UDP relay |
 | **AnyTLS** | TLS | Adaptive padding scheme, single-RTT, idle pool, SHA256 auth |
-| **TUIC v5** | QUIC | TLS-Exporter auth, NewReno CC, DATAGRAM RFC 9221, stream pool |
+| **TUIC v5** | QUIC | TLS-Exporter auth, CUBIC/BBR v1/BBR v2 CC, DATAGRAM RFC 9221 |
 | **ShadowTLS v3** | TCP | SessionID=HMAC, HMAC chain per AppData frame |
 
 ---
@@ -132,18 +134,26 @@ TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno
 ## Веб-дашборд
 
 Встроенный HTTP-сервер на порту `:8080`. Открывается с любого устройства в сети.
+Совместим с zashboard / Yacd / Metacubex (Clash API).
 
-| Раздел | Что показывает |
-|--------|----------------|
-| **Статус** | Uptime, соединения, DNS-запросы, dispatcher tick, geo статус |
-| **Прокси** | Серверы, группы, latency тесты, ручной выбор сервера |
-| **Сеть** | Flow Offload, TC Fast Path ON/OFF |
-| **DPI** | Adaptive DPI ON/OFF, кэш стратегий, счётчик попаданий |
-| **TLS** | JA3-хэш, определение браузера, ожидаемый хэш |
-| **DNS** | Статистика, Fake-IP, разбивка блокировок по категориям |
-| **GEO** | Загруженные базы, размеры, статус Bloom filter |
-| **Устройства** | ARP + DHCP + политики по MAC |
-| **Логи** | Живые логи с фильтрацией, цветовая разметка |
+```text
+http://<IP роутера>:8080/          — полный дашборд
+http://<IP роутера>:8080/monitor   — минималистичный realtime монитор
+```
+
+| Раздел | Функции |
+|--------|---------|
+| **Overview**     | Realtime трафик, память, CPU, активные соединения, topology chart |
+| **Proxies**      | Серверы и группы, latency тесты, ручной выбор, drag-and-drop |
+| **Connections**  | Live таблица соединений с фильтром, закрытие по одному/все |
+| **Rules**        | Список правил с hit counter, управление rule-providers |
+| **DNS**          | Статистика, Fake-IP, DoH upstream, adblock статус |
+| **Logs**         | Live лог с фильтром по уровню и компоненту |
+| **SSH**          | Встроенный pty терминал — прямой root shell роутера в браузере |
+| **Settings**     | 30+ тем DaisyUI, i18n (RU/EN/ZH/JA), keyboard shortcuts |
+| **Setup**        | Диагностика всех модулей, API status, CRUD |
+
+Локализация: русский (по умолчанию), English, 中文, 日本語 и другие.
 
 ---
 
