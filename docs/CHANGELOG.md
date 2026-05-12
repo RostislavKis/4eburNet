@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.6] — 2026-05-12
+
+### Added (P3 UX — TUIC BBR profile + active_relay_count)
+
+- **[dashboard/components/proxies/ServerFormModal.vue]** BBR профиль для TUIC:
+  - Поле `tuic_cc_profile` (conservative/standard/aggressive)
+  - Показывается только при `tuic_cc === 'bbr1'` или `bbr2`
+  - Включается в submit payload
+
+- **[dashboard/api/index.ts]** `getStatusAPI()` → `GET /api/status`
+
+- **[dashboard/components/overview/ChartsCard.vue]** Карточка `active_relay_count`:
+  - Polling `/api/status` каждые 5 секунд
+  - Показывается только если `active_relay_count > 0`
+
+- **[dashboard/i18n]** Ключ `activeConnections`
+
 ## [2.0.5] — 2026-05-12
 
 ### Added (P1 Providers CRUD + P2 Расширенные настройки)
