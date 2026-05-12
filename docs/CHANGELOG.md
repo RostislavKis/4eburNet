@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.1.6] — 2026-05-12
+
+### Added (Provider Edit Modal)
+
+**Backend (`core/src/http_server.c`):**
+
+- **`PATCH /api/providers/proxies/{name}`** — изменить url/interval/max_servers; поддержка именованных и анонимных UCI секций через итерацию `uci get @proxy_provider[N].name`
+- **`PATCH /api/providers/rules/{name}`** — изменить url/interval/behavior
+- **`GET /providers/proxies`** — добавлены поля `url` и `interval` в JSON ответ
+- **`GET /providers/rules`** — добавлены поля `url` и `interval` в JSON ответ
+- **`uci_find_provider_section`** — расширена: поддержка анонимных секций (`@proxy_provider[N]`) через цикл `uci get`, не только именованных
+
+**Dashboard (`dashboard-src/src/`):**
+
+- **`components/providers/ProviderEditModal.vue`** — новый модал: поля url/interval/behavior(rule)/max_servers(proxy), tooltips, `updateProviderConfigAPI`
+- **`components/proxies/ProxyProvider.vue`** — кнопка ✏️ (`PencilSquareIcon`) + `<ProviderEditModal>`
+- **`components/rules/RuleProvider.vue`** — кнопка ✏️ + `<ProviderEditModal>`
+- **`api/index.ts`** — `updateProviderConfigAPI(kind, name, data)` → PATCH
+- **`types/index.d.ts`** — `ProxyProvider` + `url?/interval?`, `RuleProvider` + `url?/interval?`
+- **`i18n/ru.ts` + `en.ts`** — ключи `editProxyProvider`, `editRuleProvider`
+
+**Диагностика / gotchas:**
+
+- `uci_name_safe` проверяет только [a-zA-Z0-9_-] — провайдеры из sub_convert.py хранятся как `@proxy_provider[N]`, не как именованные секции
+- `http_json_get_str` не читает числа без кавычек → для `interval` использован `http_json_get_val`
+- `make -f Makefile.dev cross-mipsel` — правильная команда полной пересборки; `make mipsel` использует SDK Makefile и не инкрементально пересобирает при изменениях
+
+---
+
 ## [2.1.5] — 2026-05-12
 
 ### Added (AWG расширенные поля в ServerFormModal)
