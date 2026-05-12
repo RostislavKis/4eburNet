@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.8] — 2026-05-12
+
+### Added (SRC-PORT + PROCESS-NAME + DPI whitelist/blacklist + DNS stale-while-revalidate)
+
+- **[core/include/config.h]** `RULE_TYPE_SRC_PORT=13`, `RULE_TYPE_PROCESS_NAME=14`; `DpiDomainList` (64 записи × 128 байт); поля `dpi_whitelist`/`dpi_blacklist` в `EburNetConfig`; поля `stale_while_revalidate`/`stale_grace_seconds` в `DnsConfig`
+- **[core/include/proxy/dispatcher.h]** `src_port: uint16_t` и `proc_name[64]` в `relay_conn_t`; флаг `has_process_name_rules` в `dispatcher_state_t`
+- **[core/include/proxy/rules_engine.h]** Добавлены параметры `sport`, `proc_name` в `rules_engine_match` и `rules_engine_get_server`
+- **[core/include/dns/dns_cache.h]** `grace_seconds: uint32_t` и `stale_enabled: bool` в `dns_cache_t`
+- **[core/src/proxy/rules_engine.c]** `RULE_TYPE_SRC_PORT` (port_min/max), `RULE_TYPE_PROCESS_NAME` (strcasecmp + strcasestr)
+- **[core/src/proxy/dispatcher.c]** `dpi_list_match()` helper; `get_proc_name_by_src_port()` (/proc/net/tcp→inode→pid→comm); `conn_sport`/`conn_proc_name` extraction; DPI whitelist/blacklist override; `has_process_name_rules` в `dispatcher_set_context`; заполнение `r->src_port`/`r->proc_name`; обновлены все вызовы `rules_engine_match`/`rules_engine_get_server`
+- **[core/src/config.c]** Парсинг `SRC-PORT`/`PROCESS-NAME` типов правил; парсинг UCI list `dpi_whitelist`/`dpi_blacklist`; парсинг `dns_stale_while_revalidate`/`dns_stale_grace_seconds`; defaults: `stale_while_revalidate=true`, `stale_grace_seconds=3600`
+- **[core/src/dns/dns_cache.c]** `stale_enabled` guard для stale path; configurable `grace_seconds`
+- **[core/src/dns/dns_server.c]** Init `cache.stale_enabled` и `cache.grace_seconds` из `cfg->dns`
+- **[core/src/ipc.c]** `IPC_CMD_DPI_GET` включает `whitelist`/`blacklist` JSON-массивы
+- **[core/src/http_server.c]** `route_api_dpi_get` буфер 16KB; `route_api_dpi_patch` UCI add_list для whitelist/blacklist; `write_dns_cache` + `dns_map` для SWR полей
+- **[tools/sub_convert.py]** `SRC-PORT` → `src_port` UCI; `PROCESS-NAME` → `process_name` UCI
+- **[core/tests/test_rules_sport.c]** 7 standalone тестов: SRC-PORT ×4 + PROCESS-NAME ×3 (7/7 PASS)
+- **[dashboard-src]** `RuleFormModal`: опция PROCESS-NAME + placeholder; `DPIConfig`: whitelist/blacklist таблицы; `DNSFullConfig`: SWR toggle + grace period; `useTooltip`: 5 новых записей
+
 ## [2.0.7] — 2026-05-12
 
 ### Added (OR-правила + DOMAIN-REGEX + JA3/JA4 в connections + per-device traffic stats)
