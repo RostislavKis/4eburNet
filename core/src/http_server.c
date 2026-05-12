@@ -1733,8 +1733,12 @@ static void route_clash_configs(HttpConn *conn, int epoll_fd)
         else                                          mode = "rule";
     }
 
-    /* статически в BSS — 768B > MIPS stack limit 512B */
-    static char body[768];
+    char esc_uname[128] = "";
+    if (s_cfg && s_cfg->inbound_username[0])
+        json_escape_str(s_cfg->inbound_username, esc_uname, sizeof(esc_uname));
+
+    /* статически в BSS — 896B > MIPS stack limit 512B */
+    static char body[896];
     int n = snprintf(body, sizeof(body),
         "{\"port\":0,"
          "\"socks-port\":0,"
@@ -1748,9 +1752,13 @@ static void route_clash_configs(HttpConn *conn, int epoll_fd)
          "\"log-level\":\"%s\","
          "\"ipv6\":false,"
          "\"secret\":\"\","
-         "\"tun\":{\"enable\":false}}",
+         "\"tun\":{\"enable\":false},"
+         "\"inbound_auth\":%s,"
+         "\"inbound_username\":\"%s\"}",
         /* WHY: NFT_TPROXY_PORT из nftables.h — единственный source of truth для порта TPROXY. */
-        (unsigned)NFT_TPROXY_PORT, mode, loglvl);
+        (unsigned)NFT_TPROXY_PORT, mode, loglvl,
+        (s_cfg && s_cfg->inbound_auth) ? "true" : "false",
+        esc_uname);
     http_send(conn, epoll_fd, 200, "application/json; charset=utf-8",
               body, (size_t)n);
 }
@@ -1809,6 +1817,47 @@ static void route_clash_configs_patch(HttpConn *conn, int epoll_fd)
                          sizeof(s_cfg->log_level), "%s", uci_lvl);
             changed = true;
         }
+    }
+
+    char auth_val[8] = {0};
+    http_json_get_val(body, "inbound_auth", auth_val, sizeof(auth_val));
+    if (auth_val[0]) {
+        bool enable = (!strcmp(auth_val, "true") || !strcmp(auth_val, "1"));
+        const char *uci_v = enable ? "4eburnet.main.inbound_auth=1"
+                                   : "4eburnet.main.inbound_auth=0";
+        const char *set_argv[]    = {"uci", "set", uci_v, NULL};
+        const char *commit_argv[] = {"uci", "commit", "4eburnet", NULL};
+        exec_cmd_safe(set_argv, NULL, 0);
+        exec_cmd_safe(commit_argv, NULL, 0);
+        /* WHY: не SIGHUP — перепривязка :53 в SIGHUP handler вызывает краш.
+         * Флаг обновляется live в s_cfg, действует для новых соединений. */
+        if (s_cfg) ((EburNetConfig *)s_cfg)->inbound_auth = enable;
+    }
+
+    char sd_u[64] = {0};
+    if (json_extract_str(body, "inbound_username", sd_u, sizeof(sd_u)) == 0
+        && sd_u[0]) {
+        char uci_arg[80];
+        snprintf(uci_arg, sizeof(uci_arg), "4eburnet.main.inbound_username=%s", sd_u);
+        const char *set_argv[]    = {"uci", "set", uci_arg, NULL};
+        const char *commit_argv[] = {"uci", "commit", "4eburnet", NULL};
+        exec_cmd_safe(set_argv, NULL, 0);
+        exec_cmd_safe(commit_argv, NULL, 0);
+        if (s_cfg) strncpy(((EburNetConfig *)s_cfg)->inbound_username, sd_u,
+                           sizeof(s_cfg->inbound_username) - 1);
+    }
+
+    char sd_p[64] = {0};
+    if (json_extract_str(body, "inbound_password", sd_p, sizeof(sd_p)) == 0
+        && sd_p[0]) {
+        char uci_arg[80];
+        snprintf(uci_arg, sizeof(uci_arg), "4eburnet.main.inbound_password=%s", sd_p);
+        const char *set_argv[]    = {"uci", "set", uci_arg, NULL};
+        const char *commit_argv[] = {"uci", "commit", "4eburnet", NULL};
+        exec_cmd_safe(set_argv, NULL, 0);
+        exec_cmd_safe(commit_argv, NULL, 0);
+        if (s_cfg) strncpy(((EburNetConfig *)s_cfg)->inbound_password, sd_p,
+                           sizeof(s_cfg->inbound_password) - 1);
     }
 
     if (changed)
