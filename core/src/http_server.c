@@ -89,6 +89,9 @@ static void route_api_dns_policies_delete(HttpConn *conn, int epoll_fd, const ch
 static void route_api_dns_policies_reorder(HttpConn *conn, int epoll_fd);
 static void route_api_network_get(HttpConn *conn, int epoll_fd);
 static void route_api_network_patch(HttpConn *conn, int epoll_fd);
+static void route_api_cdn_get(HttpConn *conn, int epoll_fd);
+static void route_api_cdn_patch(HttpConn *conn, int epoll_fd);
+static void route_api_logs_download(HttpConn *conn, int epoll_fd);
 static void route_api_geo_update(HttpConn *conn, int epoll_fd);
 static void route_api_servers_post(HttpConn *conn, int epoll_fd);
 static void route_api_servers_put(HttpConn *conn, int epoll_fd, const char *name);
@@ -2797,9 +2800,17 @@ static char *build_connections_json(void)
             if (r->ja3[0]) json_escape_str(r->ja3, ja3_e, sizeof(ja3_e));
             if (r->ja4[0]) json_escape_str(r->ja4, ja4_e, sizeof(ja4_e));
 
+            char src_alias_e[130] = "";
+            if (s_dm && r->client_mac[0]) {
+                const device_config_t *dev =
+                    device_policy_find(s_dm, r->client_mac);
+                if (dev && dev->alias[0])
+                    json_escape_str(dev->alias, src_alias_e, sizeof(src_alias_e));
+            }
+
             const char *net = r->is_udp ? "udp" : "tcp";
 
-            char entry[1600];
+            char entry[1760];
             int elen = snprintf(entry, sizeof(entry),
                 "%s{"
                 "\"id\":\"%d\","
@@ -2808,6 +2819,7 @@ static char *build_connections_json(void)
                   "\"type\":\"TPROXY\","
                   "\"sourceIP\":\"\","
                   "\"sourcePort\":\"0\","
+                  "\"sourceAlias\":\"%s\","
                   "\"destinationIP\":\"%s\","
                   "\"destinationPort\":\"%u\","
                   "\"host\":\"%s\","
@@ -2825,7 +2837,7 @@ static char *build_connections_json(void)
                 "}",
                 first ? "" : ",",
                 i, net,
-                dst_ip, dst_port, host_e,
+                src_alias_e, dst_ip, dst_port, host_e,
                 (unsigned long long)r->bytes_out,
                 (unsigned long long)r->bytes_in,
                 start_str, chains,
@@ -3389,6 +3401,12 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
         return;
     }
 
+    /* GET /api/logs/download → скачать лог-файл как attachment */
+    if (strcmp(p, "/api/logs/download") == 0 && !conn->is_post) {
+        route_api_logs_download(conn, epoll_fd);
+        return;
+    }
+
     /* GET /api/logs → лог-файл */
     if (strncmp(p, "/api/logs", 9) == 0 && !conn->is_post) {
         route_api_logs(conn, epoll_fd);
@@ -3544,6 +3562,14 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
     /* PATCH /api/network */
     if (strcmp(p, "/api/network") == 0 && conn->is_patch) {
         route_api_network_patch(conn, epoll_fd); return;
+    }
+    /* GET /api/cdn */
+    if (strcmp(p, "/api/cdn") == 0 && !conn->is_post && !conn->is_patch) {
+        route_api_cdn_get(conn, epoll_fd); return;
+    }
+    /* PATCH /api/cdn */
+    if (strcmp(p, "/api/cdn") == 0 && conn->is_patch) {
+        route_api_cdn_patch(conn, epoll_fd); return;
     }
     /* POST /api/geo/update — async geo update (перед /api/geo GET) */
     if (strcmp(p, "/api/geo/update") == 0 && conn->is_post) {
@@ -6402,6 +6428,99 @@ static void route_api_network_patch(HttpConn *conn, int epoll_fd)
     http_send(conn, epoll_fd, 204, "application/json", "", 0);
 }
 
+/* ── GET /api/cdn — CDN настройки из s_cfg ───────────────────────── */
+static void route_api_cdn_get(HttpConn *conn, int epoll_fd)
+{
+    /* MIPS: static buf в BSS. 6 строк × ~270B = ~1620B → buf[1792] */
+    static char buf[1792];
+    int n = snprintf(buf, sizeof(buf),
+        "{"
+        "\"cdn_update_interval_days\":%d,"
+        "\"cdn_cf_v4_url\":\"%s\","
+        "\"cdn_cf_v6_url\":\"%s\","
+        "\"cdn_fastly_url\":\"%s\","
+        "\"opencck_url\":\"%s\","
+        "\"opencck_update_interval_s\":%u"
+        "}",
+        s_cfg ? s_cfg->cdn_update_interval_days : 7,
+        s_cfg ? s_cfg->cdn_cf_v4_url            : "",
+        s_cfg ? s_cfg->cdn_cf_v6_url            : "",
+        s_cfg ? s_cfg->cdn_fastly_url           : "",
+        s_cfg ? s_cfg->opencck_url              : "",
+        (unsigned)(s_cfg ? s_cfg->opencck_update_interval_s : 86400));
+    http_send(conn, epoll_fd, 200, "application/json", buf, (size_t)n);
+}
+
+/* ── PATCH /api/cdn — сохранить CDN настройки в UCI + reload ─────── */
+static void route_api_cdn_patch(HttpConn *conn, int epoll_fd)
+{
+    const char *hdr_end = strstr(conn->buf, "\r\n\r\n");
+    const char *body    = hdr_end ? hdr_end + 4 : "{}";
+    bool changed = false;
+
+    /* Числовые поля */
+    static char numval[16];
+    static char numkv[64];
+    numval[0] = '\0';
+    http_json_get_val(body, "cdn_update_interval_days", numval, sizeof(numval));
+    if (numval[0]) {
+        int days = (int)strtol(numval, NULL, 10);
+        if (days >= 0 && days <= 365) {
+            snprintf(numkv, sizeof(numkv),
+                     "4eburnet.main.cdn_update_interval_days=%d", days);
+            const char *const av[] = {"uci","set",numkv,NULL};
+            exec_cmd_safe(av,NULL,0);
+            changed = true;
+        }
+    }
+    numval[0] = '\0';
+    http_json_get_val(body, "opencck_update_interval_s", numval, sizeof(numval));
+    if (numval[0]) {
+        uint32_t secs = (uint32_t)strtoul(numval, NULL, 10);
+        if (secs <= 604800) {
+            snprintf(numkv, sizeof(numkv),
+                     "4eburnet.main.opencck_update_interval_s=%u", (unsigned)secs);
+            const char *const av[] = {"uci","set",numkv,NULL};
+            exec_cmd_safe(av,NULL,0);
+            changed = true;
+        }
+    }
+
+    /* Строковые URL поля — статический буфер 256B переиспользуется */
+    static const struct { const char *jkey; const char *ukey; } cdn_map[] = {
+        {"cdn_cf_v4_url",  "main.cdn_cf_v4_url"},
+        {"cdn_cf_v6_url",  "main.cdn_cf_v6_url"},
+        {"cdn_fastly_url", "main.cdn_fastly_url"},
+        {"opencck_url",    "main.opencck_url"},
+        {NULL, NULL}
+    };
+    static char urlval[256];
+    static char urlkv[320];
+    for (int i = 0; cdn_map[i].jkey; i++) {
+        urlval[0] = '\0';
+        if (http_json_get_str(body, cdn_map[i].jkey,
+                              urlval, sizeof(urlval)) <= 0 || !urlval[0])
+            continue;
+        /* Принимаем пустую строку (сброс на default) или https:// URL */
+        if (urlval[0] != '\0' &&
+            strncmp(urlval, "https://", 8) != 0)
+            continue;
+        snprintf(urlkv, sizeof(urlkv), "4eburnet.%s=%s",
+                 cdn_map[i].ukey, urlval);
+        const char *const av[] = {"uci","set",urlkv,NULL};
+        exec_cmd_safe(av,NULL,0);
+        changed = true;
+    }
+
+    if (changed) {
+        const char *const vc[] = {"uci","commit","4eburnet",NULL};
+        exec_cmd_safe(vc,NULL,0);
+        reload_daemon();
+    }
+    static const char ok[] = "{\"ok\":true}";
+    http_send(conn, epoll_fd, 200, "application/json", ok, sizeof(ok) - 1);
+}
+
 /* ── POST /api/geo/update — запустить обновление geo баз async ──── */
 static void route_api_geo_update(HttpConn *conn, int epoll_fd)
 {
@@ -6447,11 +6566,19 @@ static void route_api_devices_patch(HttpConn *conn, int epoll_fd, const char *ma
 
     const char *hdr_end = strstr(conn->buf, "\r\n\r\n");
     const char *body = hdr_end ? hdr_end + 4 : "{}";
-    static char policy[32], grp[64];
-    http_json_get_str(body, "policy", policy, sizeof(policy));
-    http_json_get_str(body, "group",  grp,    sizeof(grp));
-    if (!policy[0]) { http_send(conn, epoll_fd, 400, "application/json",
-                                "{\"error\":\"missing policy\"}", 26); return; }
+    static char policy[32], grp[64], s_alias[128], s_comment[256];
+    static char s_enabled[8], s_priority[16];
+    http_json_get_str(body, "policy",   policy,     sizeof(policy));
+    http_json_get_str(body, "group",    grp,        sizeof(grp));
+    http_json_get_str(body, "alias",    s_alias,    sizeof(s_alias));
+    http_json_get_str(body, "comment",  s_comment,  sizeof(s_comment));
+    http_json_get_val(body, "enabled",  s_enabled,  sizeof(s_enabled));
+    http_json_get_val(body, "priority", s_priority, sizeof(s_priority));
+    if (!policy[0] && !grp[0] && !s_alias[0] && !s_comment[0]
+        && !s_enabled[0] && !s_priority[0]) {
+        http_send(conn, epoll_fd, 400, "application/json",
+                  "{\"error\":\"no fields to update\"}", 31); return;
+    }
 
     /* Нормализовать MAC → имя UCI секции */
     static char sec_name[32];
@@ -6463,23 +6590,50 @@ static void route_api_devices_patch(HttpConn *conn, int epoll_fd, const char *ma
     sec_name[sn] = '\0';
 
     static char us[64], up[64], um[64], ug[64];
-    snprintf(us, sizeof(us), "4eburnet.%s=device_config", sec_name);
-    snprintf(up, sizeof(up), "4eburnet.%s.policy=%s",     sec_name, policy);
+    static char ua[196], uc[320], ue[64], upr[64];
+    snprintf(us, sizeof(us), "4eburnet.%s=device_policy", sec_name);
     snprintf(um, sizeof(um), "4eburnet.%s.mac=%s",        sec_name, mac);
     const char *const av0[]={"uci","set",us,NULL};
-    const char *const av1[]={"uci","set",up,NULL};
     const char *const av2[]={"uci","set",um,NULL};
     const char *const avc[]={"uci","commit","4eburnet",NULL};
-    exec_cmd_safe(av0,NULL,0); exec_cmd_safe(av1,NULL,0);
+    exec_cmd_safe(av0,NULL,0);
     exec_cmd_safe(av2,NULL,0);
+    if (policy[0]) {
+        snprintf(up, sizeof(up), "4eburnet.%s.policy=%s", sec_name, policy);
+        const char *const av1[]={"uci","set",up,NULL};
+        exec_cmd_safe(av1,NULL,0);
+    }
     if (grp[0]) {
         snprintf(ug, sizeof(ug), "4eburnet.%s.proxy_group=%s", sec_name, grp);
         const char *const av3[]={"uci","set",ug,NULL};
         exec_cmd_safe(av3,NULL,0);
     }
+    if (s_alias[0]) {
+        snprintf(ua, sizeof(ua), "4eburnet.%s.alias=%s", sec_name, s_alias);
+        const char *const av4[]={"uci","set",ua,NULL};
+        exec_cmd_safe(av4,NULL,0);
+    }
+    if (s_comment[0]) {
+        snprintf(uc, sizeof(uc), "4eburnet.%s.comment=%s", sec_name, s_comment);
+        const char *const av5[]={"uci","set",uc,NULL};
+        exec_cmd_safe(av5,NULL,0);
+    }
+    if (s_enabled[0]) {
+        bool en = (!strcmp(s_enabled, "true") || !strcmp(s_enabled, "1"));
+        snprintf(ue, sizeof(ue), "4eburnet.%s.enabled=%d", sec_name, en ? 1 : 0);
+        const char *const av6[]={"uci","set",ue,NULL};
+        exec_cmd_safe(av6,NULL,0);
+    }
+    if (s_priority[0]) {
+        snprintf(upr, sizeof(upr), "4eburnet.%s.priority=%s", sec_name, s_priority);
+        const char *const av7[]={"uci","set",upr,NULL};
+        exec_cmd_safe(av7,NULL,0);
+    }
     exec_cmd_safe(avc,NULL,0);
     reload_daemon();
-    http_send(conn, epoll_fd, 204, "application/json", "", 0);
+    static const char ok_resp[] = "{\"ok\":true}";
+    http_send(conn, epoll_fd, 200, "application/json",
+              ok_resp, sizeof(ok_resp) - 1);
 }
 
 /* Найти geo_category_t по имени файла (без расширения) в s_geo.
@@ -6646,6 +6800,68 @@ static void route_api_logs(HttpConn *conn, int epoll_fd)
               s_logs_buf, (size_t)(pos > 0 ? pos : 0));
 }
 
+/* ── GET /api/logs/download — отдать /tmp/4eburnet.log как attachment ── */
+static void route_api_logs_download(HttpConn *conn, int epoll_fd)
+{
+    struct stat st;
+    if (stat(EBURNET_LOG_FILE, &st) != 0 || st.st_size <= 0) {
+        static const char err404[] = "{\"error\":\"log file not found\"}";
+        http_send(conn, epoll_fd, 404, "application/json",
+                  err404, sizeof(err404) - 1);
+        return;
+    }
+
+    FILE *f = fopen(EBURNET_LOG_FILE, "rb");
+    if (!f) {
+        static const char err404[] = "{\"error\":\"log file not found\"}";
+        http_send(conn, epoll_fd, 404, "application/json",
+                  err404, sizeof(err404) - 1);
+        return;
+    }
+
+    /* MIPS: static буферы в BSS — не стек */
+    static char dl_cors[384];
+    cors_origin_hdr(conn->buf, dl_cors, sizeof(dl_cors));
+    static char dl_hdr[896];
+    int hlen = snprintf(dl_hdr, sizeof(dl_hdr),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n"
+        "Content-Length: %lld\r\n"
+        "Content-Disposition: attachment; filename=\"4eburnet.log\"\r\n"
+        "Cache-Control: no-store\r\n"
+        "Connection: close\r\n"
+        "%s"
+        "\r\n",
+        (long long)st.st_size, dl_cors);
+
+    if (hlen <= 0 || hlen >= (int)sizeof(dl_hdr)) {
+        fclose(f);
+        conn_close(conn, epoll_fd);
+        return;
+    }
+    if (send(conn->fd, dl_hdr, (size_t)hlen, MSG_NOSIGNAL) < 0) {
+        fclose(f);
+        conn_close(conn, epoll_fd);
+        return;
+    }
+
+    conn->send_file      = f;
+    conn->send_offset    = 0;
+    conn->send_remaining = st.st_size;
+
+    int rc = http_send_file_continue(conn);
+    if (rc == 1) {
+        conn_close(conn, epoll_fd);
+    } else if (rc == 0) {
+        struct epoll_event ev;
+        ev.events  = EPOLLIN | EPOLLOUT | EPOLLRDHUP;
+        ev.data.fd = conn->fd;
+        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, conn->fd, &ev);
+    } else {
+        conn_close(conn, epoll_fd);
+    }
+}
+
 /* ── /api/devices — ARP + DHCP + UCI политики ────────────────────── */
 static void route_api_devices(HttpConn *conn, int epoll_fd)
 {
@@ -6661,8 +6877,10 @@ static void route_api_devices(HttpConn *conn, int epoll_fd)
     };
     static struct arp_entry   arp[64];
     static struct lease_entry leases[64];
-    static char               out[8192];
+    static char               out[65536];
     static char               esc_name[128];
+    static char               esc_alias[128];
+    static char               esc_comment[256];
     static char               esc_iface[32];
     static char               esc_mac[64];
     static char               esc_ip[32];
@@ -6724,7 +6942,11 @@ static void route_api_devices(HttpConn *conn, int epoll_fd)
             }
         }
 
-        const char *policy = "default";
+        const char *policy    = "default";
+        bool        dev_enabled  = true;
+        int         dev_priority = 0;
+        esc_alias[0]   = '\0';
+        esc_comment[0] = '\0';
         if (s_dm) {
             const device_config_t *dev =
                 device_policy_find(s_dm, arp[i].mac);
@@ -6736,7 +6958,13 @@ static void route_api_devices(HttpConn *conn, int epoll_fd)
                 default:                   policy = "default"; break;
                 }
                 /* UCI name имеет приоритет над DHCP hostname */
-                if (dev->name[0]) name = dev->name;
+                if (dev->name[0])    name = dev->name;
+                dev_enabled  = dev->enabled;
+                dev_priority = dev->priority;
+                if (dev->alias[0])
+                    json_escape_str(dev->alias,   esc_alias,   sizeof(esc_alias));
+                if (dev->comment[0])
+                    json_escape_str(dev->comment, esc_comment, sizeof(esc_comment));
             }
         }
 
@@ -6754,10 +6982,12 @@ static void route_api_devices(HttpConn *conn, int epoll_fd)
 
         pos += snprintf(out + pos, (size_t)(cap - pos),
             "%s{\"mac\":\"%s\",\"ip\":\"%s\","
-            "\"name\":\"%s\",\"policy\":\"%s\",\"iface\":\"%s\","
+            "\"name\":\"%s\",\"alias\":\"%s\",\"policy\":\"%s\",\"iface\":\"%s\","
+            "\"enabled\":%s,\"priority\":%d,\"comment\":\"%s\","
             "\"tx_bytes\":%llu,\"rx_bytes\":%llu,\"conn_count\":%llu}",
             i > 0 ? "," : "",
-            esc_mac, esc_ip, esc_name, policy, esc_iface,
+            esc_mac, esc_ip, esc_name, esc_alias, policy, esc_iface,
+            dev_enabled ? "true" : "false", dev_priority, esc_comment,
             (unsigned long long)tr->tx_bytes,
             (unsigned long long)tr->rx_bytes,
             (unsigned long long)tr->conn_count);
