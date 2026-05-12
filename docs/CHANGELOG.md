@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.1] — 2026-05-12
+
+### Changed (Tooltips в 4 компонентах настроек)
+
+- **[dashboard-src/src/components/settings/DNSFullConfig.vue]** `v-tooltip` на 9 полях: upstream/bypass/DoH/DoT/Fake-IP/Adblock/Trackers/Threats/SWR
+- **[dashboard-src/src/components/settings/DPIConfig.vue]** `v-tooltip` на 5 полях: Fragment/FakeTTL/Disorder/Whitelist/Blacklist; inline title на enabled toggle
+- **[dashboard-src/src/components/settings/NetworkConfig.vue]** `v-tooltip` на Flow Offload/TC Fast Path; inline title на BBR/MTU
+- **[dashboard-src/src/components/providers/AddProviderModal.vue]** inline title на URL/Behavior/Интервал
+
 ## [2.1.0] — 2026-05-12
 
 ### Added (T1-11 Geo hot-reload + полный dashboard UI)
