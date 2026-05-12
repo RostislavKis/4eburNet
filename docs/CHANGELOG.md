@@ -1,5 +1,86 @@
 # Changelog
 
+## [2.0.1] — 2026-05-12
+
+### Added (P2 Sniffer — TLS SNI + HTTP Host + Dashboard интеграция)
+
+- **[NEW/proxy/sniffer.c]** `sniffer_parse_http_host()` — парсер HTTP Host заголовка:
+  - CONNECT метод: `host:port` из первой строки запроса
+  - GET/POST/PUT/etc.: case-insensitive поиск `Host:` заголовка
+  - Автоматическое отрезание порта (`:port` → только hostname)
+  - Отклонение IP-адресов: IPv4 (all-digits+dots) и IPv6 (`[`) → -1
+  - Ref: mihomo `component/sniffer/http_sniffer.go`
+
+- **[NEW/proxy/sniffer.c]** `sniffer_peek_unified()` — единая точка снифинга:
+  - TLS (0x16) → `sniffer_peek_sni()` → SNI
+  - Остальное → `sniffer_parse_http_host()` → Host
+  - Статический буфер `s_sniff_buf[512]` в BSS (MIPS stack safety)
+
+- **[NEW/proxy/sniffer.c]** `sniffer_in_bypass()` — проверка bypass списка:
+  - Wildcard: `*.suffix.com` → host оканчивается на `.suffix.com`
+  - Exact match: прямое сравнение строк
+
+- **[NEW/proxy/sniffer.h]** `sniff_result_t` + `sniff_type_t` (NONE/TLS/HTTP/QUIC):
+  - `sniff_result_t { char host[256]; sniff_type_t type; }`
+  - Декларации `sniffer_parse_http_host`, `sniffer_peek_unified`, `sniffer_in_bypass`
+
+- **[NEW/config.h + config.c]** `SnifferConfig` структура:
+  - `tls_sni` (default: true), `http_host` (default: false), `quic_sni` (false)
+  - `override_dest` (default: true) — заменять Fake-IP hostname в роутинге
+  - `bypass_domains[32][128]` + `bypass_count` (default: `["*.local"]`)
+  - Парсинг UCI ключей: `sniffer_tls`, `sniffer_http`, `sniffer_bypass`, `sniffer_override_dest`
+
+- **[proxy/dispatcher.c]** HTTP Host снифинг интегрирован рядом с TLS SNI:
+  - `cfg->sniffer.http_host` flag контролирует HTTP снифинг
+  - bypass проверка через `sniffer_in_bypass()` — при bypass `sniffer_bypassed++`
+  - Статический `s_http_sniff_buf[512]` в BSS
+
+- **[proxy/dispatcher.h + dispatcher.c]** Счётчики снифинга:
+  - `sniffer_total`, `sniffer_tls`, `sniffer_http`, `sniffer_bypassed` в `dispatcher_state_t`
+  - `dispatcher_get_sniffer_stats()` getter для http_server.c
+
+- **[http_server.c]** Sniffer API расширен:
+  - `GET /api/sniffer` — читает реальные значения из UCI + строит `bypass_domains` JSON массив
+  - `PATCH /api/sniffer` — поддержка `bypass_domains` (uci del + add_list), `override_dest`
+  - `GET /api/sniffer/stats` — новый endpoint: `{total, tls, http, bypassed}`
+
+- **[tests/test_sniffer.c]** 5 новых тестов (T8–T12), итого 12 тестов:
+  - T8: `GET / HTTP/1.1\r\nHost: example.com` → host="example.com"
+  - T9: `CONNECT example.com:443 HTTP/1.1` → host="example.com" (порт отрезан)
+  - T10: `Host: example.com:8080` → host="example.com"
+  - T11: TLS байты → -1 (не HTTP)
+  - T12: `sniffer_in_bypass` — wildcard + exact match + negative; все PASS
+
+- **[dashboard-src]** `SnifferSection.vue` — новый компонент настроек снифера:
+  - TLS SNI / HTTP Host / QUIC SNI (disabled) / Override dest toggles
+  - Bypass list: теги с удалением + input + кнопка Add
+  - Stats: total / TLS / HTTP / bypassed (DaisyUI `stats` блок)
+  - Загрузка из `GET /api/sniffer` + `GET /api/sniffer/stats` при mount
+
+- **[dashboard-src]** `BackendSettings.vue` — `SnifferSection` встроен после DnsUpstream
+
+- **[dashboard-src/api/index.ts]** Sniffer API клиент:
+  - `SnifferConfig`, `SnifferStats` типы
+  - `getSnifferAPI`, `patchSnifferAPI`, `getSnifferStatsAPI`
+
+- **[dashboard-src/i18n/en.ts + ru.ts]** Ключи локализации: `snifferTitle`, `snifferTlsSni`, `snifferHttpHost`, `snifferQuicSni`, `snifferOverrideDest`, `snifferBypassList`, `snifferTotal`, `snifferBypassed`, `comingSoon`, `add`
+
+### Build
+
+- Бинарник mipsel: 3.1MB ✅
+- 12/12 тестов PASS ✅
+- EC330 (192.168.2.1) deploy 2026-05-12 ✅
+- `GET /api/sniffer` → `{"tls_sni":true,"http_host":false,"quic_sni":false,"override_dest":true,"bypass_domains":["*.local"]}` ✅
+- `GET /api/sniffer/stats` → `{"total":0,"tls":0,"http":0,"bypassed":0}` ✅
+
+## [2.0.0] — 2026-05-12
+
+### Added (Dashboard v2 — production release)
+
+- Vite production build интегрирован в сборку
+- DaisyUI компоненты финализированы
+- README обновлён
+
 ## [1.5.196] — 2026-05-12
 
 ### Added (Dashboard Фаза 4 — SSH Console + Monitor окно)
