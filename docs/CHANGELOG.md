@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.9] — 2026-05-12
+
+### Added (Clash YAML парсер в демоне — /api/subscribe/import + /api/subscribe/parse)
+
+- **[core/include/sub_parser/clash_yaml.h]** Новый публичный заголовок: `clash_yaml_parse_proxies`, `ClashRule`, `ClashGroup`, `ClashProvider`, `ClashConfig`, `clash_yaml_parse_full`, `clash_config_free`
+- **[core/src/sub_parser/clash_yaml.c]** Новый модуль: вынесен `parse_clash_yaml_proxies` из `proxy_provider.c` + расширен `clash_yaml_parse_full` (rules/proxy-groups/rule-providers/proxy-providers/dns/mixed-port/mode); `vbcopy` helper (нет `-Wformat-truncation`); fix двойной flush при break; fix DNS список с `://` URL
+- **[core/src/proxy/proxy_provider.c]** Удалён P1 блок (~314 строк), добавлен `#include "sub_parser/clash_yaml.h"`, вызов переименован в `clash_yaml_parse_proxies`
+- **[core/src/http_server.c]** `server_config_to_uci_anon()` helper (анонимные UCI секции для всех полей ServerConfig); YAML ветка в `route_api_subscribe_parse` (`proxies:` → preview JSON); YAML ветка в `route_api_subscribe_import` (`proxies:` → UCI import); `net_http_fetch` вместо wget fork; fix `http_json_get_str`: `\n`/`\r`/`\t`/`\b`/`\f` JSON escape → реальные символы
+- **[core/Makefile.dev]** Добавлен `sub_parser/clash_yaml.c` в SOURCES; добавлен `test-clash-yaml` таргет
+- **[core/tests/test_clash_yaml.c]** 8 тестов: T1 минимальный прокси, T2 VLESS+Reality, T3 Shadowsocks, T4 rules, T5 proxy-groups, T6 MATCH, T7 полный конфиг, T8 пустой ввод (8/8 PASS)
+
 ## [2.0.8] — 2026-05-12
 
 ### Added (SRC-PORT + PROCESS-NAME + DPI whitelist/blacklist + DNS stale-while-revalidate)
