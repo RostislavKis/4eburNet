@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.2] — 2026-05-12
+
+### Added (MTU в backend + Delete server кнопка)
+
+**Backend:**
+
+- **[core/include/config.h]** `EburNetConfig.mtu` (uint16_t, 0 = не менять, диапазон 576-9000)
+- **[core/src/config.c]** UCI парсинг `mtu`: валидация диапазона + default `cfg->mtu = 0`
+- **[core/src/http_server.c]** GET `/api/network`: `mtu` из реального `s_cfg->mtu` (fallback 1500 если 0 / нет конфига); PATCH: числовая обработка `mtu` (0 = убрать UCI, 576-9000 = сохранить)
+- **[core/src/main.c]** `#include "net_utils.h"` добавлен; `ip link set dev <lan_iface> mtu <val>` при старте если `mtu > 0`; то же при SIGHUP reload
+
+**Dashboard:**
+
+- **[dashboard-src/src/components/proxies/ProxyNodeCard.vue]** проп `deletable?: boolean`; кнопка ✕ (`opacity-0 group-hover:opacity-100`, позиционирована в top-right); `handleDelete` — confirm + `deleteServerAPI` + `emit('deleted', name)` + `fetchProxies()`; `group` класс на корневом div
+
 ## [2.1.1] — 2026-05-12
 
 ### Changed (Tooltips в 4 компонентах настроек)
