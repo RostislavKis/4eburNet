@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.2.1] — 2026-05-13
+
+### Added (Logs download + log_level runtime + CDN config)
+
+**Backend (`core/`):**
+- `Makefile.dev` — версия 2.2.1
+- `http_server.c` — `GET /api/logs/download`: отдаёт `/tmp/4eburnet.log` как file attachment
+  (`Content-Disposition: attachment; filename="4eburnet.log"`); async chunked через
+  `http_send_file_continue`; 404 JSON если файл не найден
+- `http_server.c` — `PATCH /configs`: поле `"log-level"` уже принималось; `changed=true` →
+  `kill(SIGHUP)` → `config_load` читает новый `log_level` из UCI — без перезапуска демона
+- `http_server.c` — `GET /api/cdn`: возвращает все 6 CDN полей из `s_cfg`
+  (`cdn_update_interval_days`, `cdn_cf_v4_url`, `cdn_cf_v6_url`, `cdn_fastly_url`,
+  `opencck_url`, `opencck_update_interval_s`)
+- `http_server.c` — `PATCH /api/cdn`: принимает JSON, обновляет UCI поля `main` секции,
+  `uci commit` + `reload_daemon()`; строковые URL поля валидируются (пусто или `https://`)
+
+**Dashboard (`dashboard-src/src/`):**
+- `components/controls/LogsCtrl.tsx` — кнопка `DocumentArrowDownIcon`: скачивает полный
+  `/tmp/4eburnet.log` через `fetch()` + `Blob` + Bearer header (token не попадает в URL)
+- `components/controls/LogsCtrl.tsx` — `onChange` levelSelect: `PATCH /configs {"log-level"}`
+  → 500ms → `initLogs()` (WS переподключается уже с новым уровнем); `onMounted` синхронизирует
+  `logLevel` из `GET /configs`
+- `components/settings/CDNConfig.vue` — новый компонент: 6 полей CDN настроек с tooltips,
+  `@change` автосохранение через `PATCH /api/cdn`
+- `components/settings/backend/BackendSettings.vue` — встроена секция CDN Auto-Update
+- `api/index.ts` — `getCDNConfigAPI()` + `patchCDNConfigAPI()`
+- `i18n/ru.ts` + `en.ts` — 7 новых ключей: `logs_log_level_runtime`, `adv_cdn_interval`,
+  `adv_opencck_url`, `adv_opencck_interval`, `downloadMemLogs`, `downloadFullLog`
+
+**Верификация EC330 (2026-05-13):**
+- `GET /api/logs/download` → 507744 байт полного лога ✓
+- `PATCH /configs {"log-level":"debug"}` → SIGHUP → PID жив ✓
+- `GET /api/cdn` → все 6 полей JSON ✓
+- `PATCH /api/cdn` → `cdn_update_interval_days='7'` + `opencck_update_interval_s='86400'` в UCI ✓
+
+---
+
 ## [2.2.0.1] — 2026-05-12
 
 ### Fixed (SIGHUP DNS rebind crash-loop)
