@@ -1,5 +1,51 @@
 # Changelog
 
+## [2.2.2] — 2026-05-13
+
+### Added (Device CRUD: alias / comment / enabled / priority)
+
+**Backend (`core/`):**
+
+- `Makefile.dev` — версия 2.2.2
+- `http_server.c` — `GET /api/devices`: возвращает все устройства из `device_state` в формате JSON
+  (`mac`, `alias`, `comment`, `policy`, `group`, `enabled`, `priority`)
+- `http_server.c` — `PATCH /api/devices/{mac}`: принимает любое подмножество полей
+  (`alias`, `comment`, `policy`, `group`, `enabled`, `priority`), обновляет UCI секцию
+  типа `device_policy`, вызывает `reload_daemon()`
+
+**Dashboard (`dashboard-src/src/`):**
+
+- `components/settings/DevicesConfig.vue` — таблица устройств: 12 колонок, инлайн-редактирование
+  `alias`, `comment`, `policy`, `group`, `enabled`, `priority`; ARP-lookup; `PATCH` on blur/change
+- `api/index.ts` — `getDevicesAPI()`, расширенный `patchDeviceAPI` с полями alias/comment/enabled/priority
+- `types/index.d.ts` — `sourceAlias: string` в `ConnectionRawMessage.metadata`
+- `components/connections/ConnectionTable.vue` — колонка `Source`: показывает `sourceAlias` если задан,
+  иначе `sourceIP`
+- `i18n/ru.ts` + `en.ts` — 5 новых ключей: `dev_alias`, `dev_comment`, `dev_enabled`,
+  `dev_priority`, `dev_policy`
+
+### Fixed
+
+**Backend (`core/`):**
+
+- `main.c` — `device_policy_init` теперь вызывается при `device_count > 0`
+  без требования `lan_interface` (WHY: без этого device_state.count=0,
+  alias/priority никогда не загружались — корневая причина пустого alias в GET /api/devices)
+- `main.c` — SIGHUP reload handler: аналогичное исправление — init выполняется всегда,
+  `device_policy_apply` — только если `lan_interface` задан
+- `http_server.c` — тип UCI секции исправлен с `device_config` на `device_policy`
+  (WHY: config.c распознаёт только `device_policy`; старый тип → секции
+  не читались при перезагрузке демона)
+- `config.c` — добавлен `devices: %d` в лог "Конфиг загружен" (диагностика)
+
+**Верификация EC330 (2026-05-13):**
+
+- `GET /api/devices` → `"alias":"iPhone","priority":1` ✓
+- `PATCH /api/devices/e8:80:88:77:4c:b0` `{"alias":"iPhone"}` → UCI сохранён ✓
+- Лог: "Устройства загружены: 1" при старте и SIGHUP ✓
+
+---
+
 ## [2.2.1] — 2026-05-13
 
 ### Added (Logs download + log_level runtime + CDN config)

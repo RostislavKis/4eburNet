@@ -1725,8 +1725,8 @@ int config_load(const char *path, EburNetConfig *cfg)
     free(pg_tmp); free(pp_tmp); free(rp_tmp); free(tr_tmp);
 
     log_msg(LOG_INFO,
-            "Конфиг загружен: %s (серверов: %d, групп: %d, правил: %d, policy: %d)",
-            path, srv_count, pg_count, tr_count, dp_count);
+            "Конфиг загружен: %s (серверов: %d, групп: %d, правил: %d, policy: %d, devices: %d)",
+            path, srv_count, pg_count, tr_count, dp_count, dev_count);
     return 0;
 
 cleanup_fail:
