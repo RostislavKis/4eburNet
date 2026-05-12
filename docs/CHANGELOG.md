@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.1.0] — 2026-05-12
+
+### Added (T1-11 Geo hot-reload + полный dashboard UI)
+
+**Backend:**
+
+- **[core/include/geo/geo_loader.h]** `geo_manager_t`: новые поля `last_reload_time`, `reload_count`, `last_reload_ok`; объявлены `geo_files_changed()` и `geo_hot_reload()`
+- **[core/src/geo/geo_loader.c]** `geo_files_changed()`: stat().st_mtime vs loaded_at, O(n) по категориям; `geo_hot_reload()`: итерирует `geo_reload_category()` для каждой категории + обновляет метрики; fix `c->path` обновляется на реальный `.gbin` путь при `.lst`→`.gbin` fallback
+- **[core/src/main.c]** Блок `if (state.reload)` — geo hot-reload с проверкой `geo_files_changed()` (пропускает reload если файлы не изменились); обновление счётчиков `last_reload_time/count/ok`; вызовы `http_server_set_geo_manager()` при первом старте и при reload
+- **[core/src/ipc.c]** `IPC_CMD_GEO_STATUS`: добавлены поля `reload_count`, `last_reload` (unix ts), `last_reload_ok`, `hot_reload_supported:true` в JSON ответ
+- **[core/include/http_server.h]** `http_server_set_geo_manager(const geo_manager_t *gm)` — прямой доступ без IPC (IPC deadlock в single-threaded epoll)
+- **[core/src/http_server.c]** `route_api_geo` полностью переработан: прямой доступ через `s_geo`, `geo_find_cat_by_filename()` с 4-шаговым поиском (точное → без-prefix → suffix→ prefix); ответ содержит `profile`, `reload_count`, `last_reload`, `last_reload_ok`, `hot_reload_supported`, `loaded`, `entries` для каждого файла
+
+**Dashboard (полное управление geo):**
+
+- **[dashboard-src/src/components/settings/GeoConfig.vue]** Badge статуса (OK/ERROR) с tooltip; профили с border highlight + tooltip ⓘ; кнопка обновления с tooltip ⓘ; `doUpdate()` с updateStep прогрессом (3 шага: скачиваем → ожидаем → проверяем); hot-reload счётчик (N×) + `formatRelTime()`; автообновление каждые 30 сек через `setInterval`; очистка interval в `onUnmounted`
+
 ## [2.0.9] — 2026-05-12
 
 ### Added (Clash YAML парсер в демоне — /api/subscribe/import + /api/subscribe/parse)
