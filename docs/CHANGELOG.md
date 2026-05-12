@@ -1,5 +1,44 @@
 # Changelog
 
+## [2.0.2] — 2026-05-12
+
+### Fixed (P0 — Dashboard: connections + traffic counters)
+
+- **[proxy/dispatcher.h]** `relay_conn_t` — добавлены 6 полей для Clash API:
+  - `rule_type[32]`, `rule_payload[128]` — тип и значение сработавшего правила
+  - `proxy_chain[2][64]`, `proxy_chain_len` — цепочка прокси (group+server или DIRECT)
+  - `is_udp` — флаг UDP relay для поля "network" в Clash JSON
+  - `close_requested` — soft-close через `/connections/{id}` DELETE
+  - `dispatcher_close_relay()` — публичный wrapper над `relay_free()` для HTTP сервера
+
+- **[proxy/dispatcher.c]** 8 пропущенных вызовов `stats_traffic_up/down()`:
+  - Reality HS: bytes_in (upload) → `stats_traffic_up()`
+  - XUDP client→upstream: `stats_traffic_up()`
+  - XUDP upstream→client: `stats_traffic_down()`
+  - XUDP TCP upstream→client: `stats_traffic_down()`
+  - AnyTLS client→upstream: `stats_traffic_up()`
+  - AnyTLS upstream→client: `stats_traffic_down()`
+  - TUIC client→upstream: `stats_traffic_up()`
+  - TUIC upstream→client: `stats_traffic_down()`
+
+- **[proxy/dispatcher.c]** `pending_rule_type`/`pending_rule_payload` — сохранение
+  результата `rules_engine_match()` до аллокации relay; копирование в `relay_conn_t`
+  при создании GROUP и DIRECT relay. `is_udp = 1` для XUDP/TUIC UDP relay.
+
+- **[http_server.c]** `build_connections_json()` — Clash-совместимый JSON из relay pool:
+  - `s_ds->conns[]` итерация, пропуск RELAY_DONE
+  - metadata: network(tcp/udp), type(TPROXY), destinationIP/Port, host, dnsMode
+  - upload/download (bytes_in/bytes_out), start (ISO 8601), chains, rule, rulePayload
+  - Используется в `GET /connections` и WS `/connections`
+
+- **[http_server.c]** `DELETE /connections/{id}` — вызывает `dispatcher_close_relay()`
+
+- **[main.c]** `http_server_set_dispatcher(&dispatcher_state)` — связь HTTP сервера
+  с диспетчером; без этого `s_ds == NULL` и connections всегда пустые
+
+- **Deploy:** EC330 (192.168.2.1) — 4.4MB mipsel, `/connections` возвращает
+  `{downloadTotal, uploadTotal, connections:[...]}` ✓
+
 ## [2.0.1] — 2026-05-12
 
 ### Added (P2 Sniffer — TLS SNI + HTTP Host + Dashboard интеграция)
