@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.0.3] — 2026-05-12
+
+### Added (P1 — Dashboard: Servers CRUD + Import подписки)
+
+- **[dashboard/api/index.ts]** API функции для серверов:
+  - `createServerAPI(config)` — POST /api/servers
+  - `updateServerAPI(name, config)` — PUT /api/servers/{name}
+  - `deleteServerAPI(name)` — DELETE /api/servers/{name}
+  - `parseSubscribeAPI(payload)` — POST /api/subscribe/parse
+  - `importSubscribeAPI(payload)` — POST /api/subscribe/import
+  - Типы: `ServerConfig`, `ParsedServer`
+
+- **[dashboard/components/proxies/ServerFormModal.vue]** Динамическая форма сервера:
+  - Поддержка всех протоколов: VLESS+Reality, VMess, Trojan, SS2022, HY2, AnyTLS, TUIC v5, AWG, ShadowTLS v3
+  - Динамические секции: UUID/password/cipher/transport/SNI/pbk+sid+flow (Reality)/TUIC CC/AWG Jc-Jmin-Jmax/HY2 bandwidth
+  - Tooltips через `useTooltip` на всех технических полях
+  - POST (создание) и PUT (редактирование) через единый компонент
+
+- **[dashboard/components/proxies/ImportSubModal.vue]** 3-шаговый импорт подписки:
+  - Шаг 1: URL или raw URI-list (vless://... trojan://... ss://...)
+  - Шаг 2: таблица preview с checkbox-выбором, целевая группа
+  - Шаг 3: результат (добавлено/ошибок)
+  - POST /api/subscribe/parse → POST /api/subscribe/import
+
+- **[dashboard/views/ProxiesPage.vue]** Кнопки "Добавить сервер" и "Импорт подписки"
+  в верхней панели страницы Прокси; модальные окна ServerFormModal × 2 + ImportSubModal
+
+- **[dashboard/i18n/en.ts + ru.ts]** Новые ключи:
+  `addServer`, `editServer`, `importSub`, `parsePreview`, `serverAddress`, `serverName`
+
+- EC330 deploy 2026-05-12 ✓
+
+---
+
 ## [2.0.2] — 2026-05-12
 
 ### Fixed (P0 — Dashboard: connections + traffic counters)
