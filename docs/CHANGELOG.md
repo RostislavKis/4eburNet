@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.2.0] — 2026-05-12
+
+### Added (JA4 column + Status summary card + Inbound auth)
+
+**Backend (`core/`):**
+- `Makefile.dev` — версия 2.2.0
+- `http_server.c` — `GET /configs`: добавлены поля `inbound_auth` (bool) и `inbound_username` в ответ; буфер 768→896 байт
+- `http_server.c` — `PATCH /configs`: обработка `inbound_auth` (via `http_json_get_val`, unquoted bool), `inbound_username`, `inbound_password`; UCI commit + live s_cfg update без SIGHUP (избегает race на bind :53)
+- `http_server.c` — `GET /connections`: поле `ja4` присутствовало, подтверждено
+
+**Dashboard (`dashboard-src/src/`):**
+- `constant/index.ts` — `CONNECTIONS_TABLE_ACCESSOR_KEY.JA4 = 'ja4'`; `OVERVIEW_CARD.StatusSummaryCard`
+- `components/connections/ConnectionTable.vue` — колонка JA4 (hidden-by-default, как JA3); entry в columnWidthMap
+- `components/overview/StatusSummaryCard.vue` — новый компонент: 4 tiles (conn_active + uptime + upload + download); polling `/api/status` каждые 5s; clearInterval в onUnmounted; upload/download из `store/connections`
+- `components/overview/ChartsCard.vue` — исправлен баг: `active_relay_count` → `conn_active`
+- `views/OverviewPage.vue` — импорт + регистрация StatusSummaryCard в cardComponents
+- `store/settings.ts` — StatusSummaryCard первой в defaultOverviewCardOrder
+- `components/settings/backend/BackendSettings.vue` — секция Inbound Auth: toggle + v-if поля username/password; `useTooltip` + tooltips на каждом элементе
+- `types/index.d.ts` — `Config.inbound_auth?: boolean`, `Config.inbound_username?: string`
+- `store/config.ts` — defaults: `inbound_auth: false, inbound_username: ''`
+- `i18n/ru.ts` + `en.ts` — 11 новых ключей: `ja4`, `uptime`, `statusSummaryCard` + 8 tooltip ключей (`conn_ja4`, `overview_*`, `settings_inbound_*`)
+
+---
+
 ## [2.1.7] — 2026-05-12
 
 ### Added (Proxy Group Edit Modal)
