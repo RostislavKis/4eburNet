@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.11] — 2026-05-14
+
+### Fixed (audit_v49 §9)
+
+**fix(geo): OOB access в geo_match_domain_cat — bloom_nbits → suffix_bloom_nbits**
+
+- `geo_loader.c:956` (функция `geo_match_domain_cat`) — `bloom_check` для суффиксного
+  bloom передавал `c->bloom_nbits` (размер domain bloom) вместо `c->suffix_bloom_nbits`.
+  WHY: если `bloom_domain_size > bloom_suffix_size` в .gbin заголовке — bits[] индекс
+  выходит за границы суффиксного bloom массива → OOB read.
+  Эталон: `geo_match_domain()` строка 907 — правильно использовала `suffix_bloom_nbits`.
+  Также: при синхронизации WSL обнаружено отставание `geo_loader.h` — добавлены
+  поля `reload_count`, `last_reload_time`, `last_reload_ok` в `geo_manager_t`.
+
 ## [2.3.10] — 2026-05-14
 
 ### Fixed (audit_v49 §8)
