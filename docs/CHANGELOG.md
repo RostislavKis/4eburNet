@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.3.3] — 2026-05-13
+
+### Fixed (restart race bind(:53) — P1)
+
+**`luci-app-4eburnet/files/4eburnet.init`:**
+
+- `port_wait(port, max_iter)` — новый helper: опрашивает `/proc/net/udp[6]` каждые 1с
+  (busybox sleep не поддерживает дробные секунды). При таймауте — `logger` daemon.warn.
+- `tcp_port_wait(port, max_iter)` — аналог для TCP через `/proc/net/tcp[6]`.
+- `stop_service()` — убран `kill -TERM` и `sleep 1`. Только cleanup: dhcp_option 6,
+  nft table, ip rule. Сигнал не отправляем: preemptive kill вызывал procd respawn
+  (procd расценивал смерть как crash) → orphan процесс захватывал :53 раньше нового.
+- `start_service()` — pre-flight проверка: если `:dns_port` занят (UDP или TCP) →
+  `port_wait` + `tcp_port_wait` с диагностическим логом. Страховка на случай задержки
+  ядра при освобождении сокета.
+- `restart()` — новый override rc.common restart():
+  1. `stop_service` (cleanup без сигнала)
+  2. `ubus call service delete` — halt=true в procd, respawn отключён
+  3. `pgrep 4eburnetd` poll max 15с — ждём завершения ВСЕХ экземпляров включая orphan
+  4. `killall -9 4eburnetd` если процессы ещё живы после 15с
+  5. `port_wait` + `tcp_port_wait` (страховка сокетов)
+  6. `start` — создаёт новый procd instance
+  WHY: `procd_kill` в rc.common `stop()` асинхронный; `start()` вызывается до реального
+  завершения процесса → два экземпляра конкурируют за :53. `ubus delete` + pgrep-wait
+  гарантирует что порт свободен до `start`.
+
+**Верификация EC330 (2026-05-13):**
+
+- restart × 5 (sleep 1): ровно 1 процесс на каждый перезапуск ✓
+- Ни одной ошибки `bind(TCP :53): Address in use` ✓
+- reload (SIGHUP): PID не меняется ✓
+
 ## [2.3.2] — 2026-05-13
 
 ### Added (PWA + мобильная адаптация)
