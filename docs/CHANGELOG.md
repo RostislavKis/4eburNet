@@ -1,5 +1,36 @@
 # Changelog
 
+## [2.2.3] — 2026-05-13
+
+### Added (OR builder + Rule hit counter)
+
+**Backend (`core/`):**
+
+- `config.h` — `TrafficRule.value[256]` → `value[1024]` (OR conditions при 256 ограничивались ~3-5 условиями)
+- `config.h` — `_Atomic uint32_t hit_count` в `TrafficRule` (thread-safe счётчик срабатываний, сбрасывается при reload)
+- `config.h` — `#include <stdatomic.h>`
+- `rules_engine.h` / `rules_engine.c` — `atomic_fetch_add(&tr->hit_count, 1)` при каждом match; `tr` стал non-const для записи счётчика
+- `http_server.h` — `http_server_set_re(rules_engine_t *re)` — передача указателя на rules_engine для hit_count в GET /rules
+- `http_server.c` — `s_re` глобальный указатель на `rules_engine_t`
+- `http_server.c` — `rule_type_to_str()` — добавлены case для `IP-CIDR6`, `SRC-PORT`, `PROCESS-NAME`, `AND`, `OR`, `REGEX` (ранее возвращали `"UNKNOWN"`)
+- `http_server.c` — `route_clash_rules()` — добавлены `sub_conditions` (для OR) и `extra.hitCount/hitAt/missAt/missCount/disabled` для каждого правила; буфер 32KB → 128KB (399 правил × ~200 байт)
+- `http_server.c` — `route_api_rules_post()` — добавлены `OR`, `REGEX`, `PROCESS-NAME` в valid_rtypes; парсинг JSON массива `or_conditions[]` → UCI `add_list or_condition`
+- `http_server.c` — `route_api_rules_patch()` — парсинг `or_conditions[]` → удаление старого UCI list + добавление нового
+- `main.c` — `http_server_set_re(&re_state)` при старте и при SIGHUP reload
+
+**Dashboard (`dashboard-src/src/`):**
+
+- `components/rules/RuleFormModal.vue` — динамический OR builder: строки `select(type) + input(value) + ✕`, кнопка "+ Добавить условие"; при открытии OR правила на редактирование заполняется из `rule.sub_conditions`; тип OR больше не требует поля value
+- `views/RulesPage.vue` — polling `fetchRules()` каждые 10 секунд через `setInterval/clearInterval` (для обновления hit_count в badge)
+- `api/index.ts` — `OrCondition` interface + `or_conditions?: OrCondition[]` в `RuleConfig`
+- `i18n/ru.ts` + `en.ts` — 2 ключа: `rule_add_or_condition`, `rule_hits`
+
+### Fixed (v2.2.3)
+
+- `rule_type_to_str()` возвращал `"UNKNOWN"` для OR/AND/REGEX/SRC-PORT/PROCESS-NAME — dashboard показывал неправильный тип правила
+
+---
+
 ## [2.2.2] — 2026-05-13
 
 ### Added (Device CRUD: alias / comment / enabled / priority)

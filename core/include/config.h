@@ -3,6 +3,7 @@
 
 #include "4eburnet.h"
 #include <stddef.h>
+#include <stdatomic.h>
 
 /* Описание прокси-сервера из UCI конфига */
 typedef struct {
@@ -281,7 +282,8 @@ typedef enum {
 
 typedef struct TrafficRule {
     rule_type_t type;
-    char        value[256];
+    char        value[1024];   /* WHY 1024: OR conditions накапливаются через '\n',
+                                * 256 хватало только ~3-5 условий (сжато). */
     char        target[64];    /* имя group, DIRECT, REJECT */
     int         priority;
     uint16_t    port_min;      /* 0 = не задан */
@@ -296,6 +298,9 @@ typedef struct TrafficRule {
      * WHY: compile один раз при загрузке — regexec() при каждом матче дорог.
      * Освобождается через regfree() + free() в config_free(). */
     void               *compiled_re;
+    /* Счётчик срабатываний (атомарный, сбрасывается при reload).
+     * WHY: инкремент без лока — множество потоков disp + dns. */
+    _Atomic uint32_t    hit_count;
 } TrafficRule;
 
 /* Sniffer настройки — MSG_PEEK извлечение hostname из трафика */
