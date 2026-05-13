@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.3.2] — 2026-05-13
+
+### Added (PWA + мобильная адаптация)
+
+**Dashboard (`dashboard-src/`):**
+- `vite.config.ts` — VitePWA manifest: `name="4eburNet Dashboard"`, `short_name="4eburNet"`,
+  `theme_color="#1d232a"`, `background_color="#1d232a"`, `display="standalone"`,
+  `orientation="portrait"`, `start_url="/"`;
+  Workbox: `globPatterns` кеш статики (js/css/html/ico/png/svg/woff2),
+  `NetworkOnly` для `/api|proxies|connections|rules|providers|configs|traffic|logs` и `/ws/`
+  (предотвращает кеширование API-ответов при установке PWA),
+  `cleanupOutdatedCaches: true`.
+- `index.html` — мета-теги PWA: `mobile-web-app-capable`, `apple-mobile-web-app-capable`,
+  `apple-mobile-web-app-status-bar-style: black-translucent`,
+  `apple-mobile-web-app-title: 4eburNet`, `theme-color: #1d232a`.
+- `dist/` — `manifest.webmanifest`, `sw.js`, `workbox-*.js`, иконки
+  `pwa-192x192.png` / `pwa-512x512.png` / `pwa-maskable-*.png` (все уже были в `public/`).
+
+*Примечание: мобильная навигация (bottom dock bar при max-width:768px, sidebar скрыт,
+safe-area-inset-bottom, swipe-жесты) уже реализована в апстриме zashboard.*
+
 ## [2.3.1] — 2026-05-13
 
 ### Added (5 типов прокси-групп + load_balance strategy + fastest-whitelist)
