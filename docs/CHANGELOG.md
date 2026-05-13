@@ -1,5 +1,46 @@
 # Changelog
 
+## [2.3.8] — 2026-05-13
+
+### Fixed (audit_v49 §4)
+
+**Производительность: atomics → memory_order_relaxed**
+
+- 25 вызовов `atomic_*` без явного `memory_order` → `_explicit(..., memory_order_relaxed)`
+  в `http_server.c`, `ipc.c`, `main.c`, `rules_engine.c` (`g_stats.*`, `hit_count`).
+  WHY: seq_cst по умолчанию добавляет лишние memory barrier на MIPS, избыточные
+  для счётчиков статистики, где нет зависимости порядка между потоками.
+
+**Корректность: hit_count saturation guard**
+
+- `rules_engine.c:603` — guard против wrap-around `hit_count` при UINT32_MAX.
+  WHY: без насыщения счётчик оборачивается в 0 → dashboard показывает 0 для
+  активно срабатывающего правила с 4B+ совпадениями.
+
+**Корректность: monotonic timeout в http_server_tick**
+
+- `connected_at`: `time_t` → `uint64_t connected_at_ms` + `CLOCK_MONOTONIC`
+  (`http_server.h:39`, `http_server.c`).
+  WHY: NTP-прыжок назад сбрасывал elapsed → отрицательное время → соединения
+  никогда не тайм-аутили; CLOCK_MONOTONIC устойчив к корректировкам системного времени.
+
+**Корректность: proxy_group selected_idx sentinel 0 → -1**
+
+- `proxy_group.c`: sentinel `selected_idx = 0` заменён на `-1`; guard `> 0` → `!= -1`.
+  WHY: 0 — валидный индекс первого сервера; `calloc` инициализировал поле в 0,
+  маскируя отсутствие выбора при первом сервере в группе.
+
+**`core/Makefile.dev`:**
+
+- `EBURNET_VERSION := 2.3.8`.
+
+**Верификация EC330 (192.168.2.1, mipsel_24kc, 3.1MB):**
+
+- `version: 2.3.8`, uptime 26s, нет FAIL/panic в логах.
+- proxy_group начальный выбор `[0]` → корректен (sentinel -1 скрыт внутри, [0] — реальный выбор).
+
+---
+
 ## [2.3.6] — 2026-05-13
 
 ### Fixed (T0-02 XTLS Vision Block 1 — P3 закрыт)
