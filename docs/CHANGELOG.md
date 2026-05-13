@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.10] — 2026-05-14
+
+### Fixed (audit_v49 §8)
+
+**fix(package): убраны +kmod-nft-tproxy и +kmod-nft-fib из DEPENDS**
+
+- `Makefile:39` — удалены `+kmod-nft-tproxy` и `+kmod-nft-fib`; добавлен `+kmod-nft-nat`.
+  WHY: демон использует mark-based TPROXY (ip rule fwmark 0x01 → table 100 + SO_ORIGINAL_DST),
+  `nft tproxy` statement не встречается нигде в nftables.c;
+  `fib` expression также не используется.
+  `kmod-nft-nat` добавлен явно: `type nat hook prerouting + redirect to :%u`
+  используется в `nft_dnat_setup()` для DNAT fake-IP CIDRs.
+  `kmod-nft-ct` не добавлен в прямые зависимости: ct-правила активируются только
+  в flow offload path (условный, `has_flowtable=true`), kmod-nft-offload транзитивно
+  предоставляет ct поддержку при необходимости.
+
 ## [2.3.9] — 2026-05-14
 
 ### Fixed (audit_v49 §7)
