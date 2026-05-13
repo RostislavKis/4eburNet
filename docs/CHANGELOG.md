@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.2.8] — 2026-05-13
+
+### Fixed + Added (Rule tester + Subscription import preview)
+
+**Backend (`core/src/http_server.c`):**
+- `route_api_rules_test()` — полностью переписан через `rules_engine_match()`:
+  поддержка всех типов правил (DOMAIN, IP-CIDR, GEOIP, GEOSITE, RULE-SET,
+  AND/OR, REGEX, SRC/DST-PORT, PROCESS-NAME); определение домен vs IP через
+  `inet_pton`; ответ расширен: `rule_type` + `payload` + `selected_server` +
+  `latency_ms` (UINT32_MAX → 0 guard для непроверенных серверов).
+  Удалён UCI-парсинг-костыль (131KB буфер, поддержка только 4 типов).
+- `route_api_subscribe_parse()` — добавлен URL-download: если `data` пустой,
+  скачивает подписку по `url` через `net_http_fetch()` в `/tmp/`; YAML-ветка:
+  исправлено поле `"server"` → `"address"` (несоответствие с ParsedServer type).
+- `config.h` / `config.c` — поле `vmess_security` в `ServerConfig` + парсинг
+  в `apply_server_option()` (из v2.2.7, не попало в предыдущий коммит).
+
+**Dashboard (`dashboard-src/src/`):**
+- `api/index.ts` — `RuleTestResult`: `rule` → `rule_type`, добавлены
+  `selected_server: string | null` и `latency_ms: number`.
+- `components/rules/RuleTestModal.vue` — показывает `rule_type + payload`,
+  сервер + latency badge; история тестов обновлена под новый формат.
+
+**Пакет (`luci-app-4eburnet/Makefile`):**
+- `postinst` — при установке: переводит dnsmasq с :53 на :5353 (idempotent),
+  запускает 4eburnetd и добавляет в автозагрузку; путь UCI исправлен:
+  `dhcp.@dnsmasq[0].port` (не `dnsmasq.@dnsmasq[0].port`).
+- `prerm` — при удалении: останавливает демон, возвращает dnsmasq на :53.
+
 ## [2.2.6] — 2026-05-13
 
 ### Added (Latency sparklines + Topology placeholder)

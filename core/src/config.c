@@ -430,6 +430,9 @@ static int apply_server_option(ServerConfig *srv, const char *key, const char *v
     } else if (strcmp(key, "ss_method") == 0) {
         strncpy(srv->ss_method, value, sizeof(srv->ss_method) - 1);
         srv->ss_method[sizeof(srv->ss_method) - 1] = '\0';
+    } else if (strcmp(key, "vmess_security") == 0) {
+        strncpy(srv->vmess_security, value, sizeof(srv->vmess_security) - 1);
+        srv->vmess_security[sizeof(srv->vmess_security) - 1] = '\0';
     } else if (strcmp(key, "transport") == 0) {
         strncpy(srv->transport, value, sizeof(srv->transport) - 1);
         srv->transport[sizeof(srv->transport) - 1] = '\0';
