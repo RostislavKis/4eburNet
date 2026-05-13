@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.3.9] — 2026-05-14
+
+### Fixed (audit_v49 §7)
+
+**fix(epoll): DIRECT relay upstream — убран EPOLLOUT из начального EPOLL_CTL_ADD**
+
+- `dispatcher.c:2513-2528` — убран флаг `EPOLLOUT` из `EPOLL_CTL_ADD` при создании relay.
+  WHY: upstream уже подключён при переходе в `RELAY_ACTIVE` → `EPOLLOUT` в `ADD`
+  вызывал spurious event сразу, до появления данных для записи.
+  `EPOLL_CTL_MOD` с `EPOLLOUT` добавляется теперь только при получении `EAGAIN` от `write()`.
+
+**fix(epoll): DIRECT relay — добавлен EPOLLRDHUP на client_fd и upstream_fd**
+
+- `dispatcher.c` — флаг `EPOLLRDHUP` добавлен в маску для обоих fd при `RELAY_ACTIVE`.
+  WHY: без `EPOLLRDHUP` half-close детектируется только через `recv()=0`,
+  что требует ожидания следующего read-события; `EPOLLRDHUP` позволяет
+  немедленно закрыть соединение при TCP FIN от peer.
+
+**fix(vision): удалён raw_fd splice dead code из vision.c/vision.h**
+
+- `vision.c`, `vision.h` — удалён параметр `raw_fd` из `vision_raw_send()`,
+  обновлены 4 call-site в dispatcher.c.
+  WHY: dispatcher всегда передавал `raw_fd=-1`, код splice-пути никогда
+  не активировался, создавал ложное ощущение поддержки zero-copy.
+
 ## [2.3.8] — 2026-05-13
 
 ### Fixed (audit_v49 §4)
