@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.2.6] — 2026-05-13
+
+### Added (Latency sparklines + Topology placeholder)
+
+**Backend (`core/`):**
+
+- `proxy_group.h` — `group_server_state_t`: поля `latency_ring[20]` (uint16_t,
+  кольцевой буфер последних 20 HC результатов) и `latency_ring_pos` (uint8_t,
+  позиция следующей записи). 0 = таймаут/неизвестно. 41 байт на сервер.
+- `proxy_group.c` — `proxy_group_handle_hc_event()`: запись в ring buffer при
+  каждом HC результате — success → latency_ms, fail → 0.
+- `proxy_group.c` — `proxy_group_update_result()`: аналогичная запись для
+  дополнительного пути обновления latency.
+- `http_server.c` — добавлена `pgm_server_state()`: возвращает первую
+  `group_server_state_t` для сервера с непустым ring buffer.
+- `http_server.c` — `route_clash_proxies()`: поле `"history"` для серверов
+  теперь содержит до 20 точек из ring buffer с приближёнными таймштампами
+  (шаг 30с). Заменяет прежнюю единственную точку.
+
+**Dashboard (`dashboard-src/src/`):**
+
+- `components/proxies/LatencySparkline.vue` — новый компонент: SVG polyline
+  60×20px из `proxy.history[]`; цвет по последней задержке (≤200ms зелёный,
+  ≤500ms жёлтый, >500ms/таймаут красный); tooltip с последними 5 значениями.
+  Скрывается при `proxyCardSize === SMALL` и когда history < 2 точек.
+- `components/proxies/ProxyNodeCard.vue` — встроен `LatencySparkline` слева
+  от `LatencyTag` в строке с typeDescription; обёрнут в flex-gap контейнер.
+- `components/overview/TopologyCharts.vue` — placeholder при отсутствии
+  соединений заменён на информативный: заголовок "Нет активных соединений" +
+  подсказка "Схема появится при наличии трафика через прокси".
+- `components/overview/TopologyCharts.vue` — Sankey узлы источника используют
+  `sourceAlias` (alias устройства из device policy) вместо всегда-пустого
+  `sourceIP`.
+- `i18n/ru.ts` + `en.ts` — 3 новых ключа: `topologyNoDataTitle`,
+  `topologyNoDataHint`, `unknownDevice`.
+
 ## [2.2.5] — 2026-05-13
 
 ### Fixed (gRPC CLOSE-WAIT накопление)
