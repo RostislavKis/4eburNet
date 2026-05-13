@@ -18,6 +18,7 @@ typedef struct {
     uint16_t port;
     char     uuid[64];        /* для vless/vmess */
     char     password[512];   /* для trojan/shadowsocks/hysteria2 */
+    char     vmess_security[16]; /* VMess AEAD: "auto"/"aes-128-gcm"/"chacha20-poly1305"/"none" */
     char     ss_method[32];   /* SS cipher: "2022-blake3-chacha20-poly1305" и т.д. */
     char     transport[16];   /* "raw" (default) или "xhttp" */
     /* AWG параметры */

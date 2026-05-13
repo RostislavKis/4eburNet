@@ -1916,6 +1916,27 @@ static bool pgm_server_alive(const proxy_group_manager_t *pgm, int srv_idx)
     return !seen_in_group;
 }
 
+/* Возвращает состояние сервера в первой группе где есть HC данные.
+ * Предпочитаем запись с непустым ring buffer (ring_pos > 0).
+ * WHY: нужен для генерации history[] с latency sparkline в GET /proxies. */
+static const group_server_state_t *pgm_server_state(const proxy_group_manager_t *pgm,
+                                                     int srv_idx)
+{
+    if (!pgm) return NULL;
+    const group_server_state_t *fallback = NULL;
+    for (int g = 0; g < pgm->count; g++) {
+        const proxy_group_state_t *gs = &pgm->groups[g];
+        for (int i = 0; i < gs->server_count; i++) {
+            if (gs->servers[i].server_idx != srv_idx) continue;
+            if (gs->servers[i].latency_ring_pos > 0)
+                return &gs->servers[i];
+            if (!fallback)
+                fallback = &gs->servers[i];
+        }
+    }
+    return fallback;
+}
+
 /* Группа "alive" если selected_idx валиден и хотя бы один сервер available */
 static bool pgm_group_alive(const proxy_group_state_t *gs)
 {
@@ -2029,7 +2050,6 @@ static void route_clash_proxies(HttpConn *conn, int epoll_fd)
         pos = json_append_str(buf, pos, max, sc->name);
         pos += snprintf(buf + pos, (size_t)(max - pos), ":{\"name\":");
         pos = json_append_str(buf, pos, max, sc->name);
-        uint32_t lat = pgm_server_latency(s_pgm, i);
         bool alive  = pgm_server_alive(s_pgm, i);
         const char *net = transport_to_clash_network(sc->transport);
         /* Mihomo Clash API: отдельное поле "xudp":true для серверов с
@@ -2047,26 +2067,37 @@ static void route_clash_proxies(HttpConn *conn, int epoll_fd)
         const char *awg_kv    = (strcmp(sc->protocol, "awg") == 0 ||
                                  strcmp(sc->protocol, "wg") == 0)
                                 ? ",\"awg\":true" : "";
-        /* Валидное окно [1..9999] совпадает с hc_clamp_ms.
-         * lat==0 или lat==UINT32_MAX — сервер не тестировался или провалил HC:
-         * оба значения означают "неизвестно", не показываем в дашборде. */
-        if (lat > 0 && lat <= 9999) {
-            char ts[28];
-            time_t now = time(NULL);
-            struct tm *tm = gmtime(&now);
-            strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", tm);
-            pos += snprintf(buf + pos, (size_t)(max - pos),
-                ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s%s,\"alive\":%s"
-                ",\"history\":[{\"time\":\"%s\",\"delay\":%u}]}",
-                uci_type_to_clash(sc->protocol), net, xudp_kv, anytls_kv, tuic_kv,
-                awg_kv, alive ? "true" : "false", ts, lat);
-        } else {
-            pos += snprintf(buf + pos, (size_t)(max - pos),
-                ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s%s,\"alive\":%s"
-                ",\"history\":[]}",
-                uci_type_to_clash(sc->protocol), net, xudp_kv, anytls_kv, tuic_kv,
-                awg_kv, alive ? "true" : "false");
+        /* Генерируем history[] из ring buffer (до 20 точек для sparkline).
+         * lat==0 или lat==UINT32_MAX → сервер не тестировался или провалил HC. */
+        const group_server_state_t *srv_st = pgm_server_state(s_pgm, i);
+        int filled = srv_st ? (int)(srv_st->latency_ring_pos < 20
+                                   ? (int)srv_st->latency_ring_pos : 20) : 0;
+        pos += snprintf(buf + pos, (size_t)(max - pos),
+            ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s%s,\"alive\":%s,\"history\":[",
+            uci_type_to_clash(sc->protocol), net, xudp_kv, anytls_kv, tuic_kv,
+            awg_kv, alive ? "true" : "false");
+        if (filled > 0 && srv_st) {
+            time_t now_ts = time(NULL);
+            /* Начальная позиция кольца: если заполнен полностью — от ring_pos,
+             * иначе — от 0. Элементы от старых к новым. */
+            int ring_start = (srv_st->latency_ring_pos < 20)
+                             ? 0 : (int)(srv_st->latency_ring_pos % 20);
+            int hist_first = 1;
+            for (int hi = 0; hi < filled && pos < max - 72; hi++) {
+                int ring_idx = (ring_start + hi) % 20;
+                uint16_t delay = srv_st->latency_ring[ring_idx];
+                /* Приближённое время: 30с между HC (зазор между точками) */
+                time_t pts = now_ts - (time_t)((filled - 1 - hi) * 30);
+                char tsbuf[28];
+                struct tm *ptm = gmtime(&pts);
+                strftime(tsbuf, sizeof(tsbuf), "%Y-%m-%dT%H:%M:%SZ", ptm);
+                pos += snprintf(buf + pos, (size_t)(max - pos),
+                    "%s{\"time\":\"%s\",\"delay\":%u}",
+                    hist_first ? "" : ",", tsbuf, (unsigned)delay);
+                hist_first = 0;
+            }
         }
+        if (pos + 2 < max) { buf[pos++] = ']'; buf[pos++] = '}'; }
     }
 
     /* ── DIRECT ── */
@@ -4744,6 +4775,7 @@ static void route_api_servers_post(HttpConn *conn, int epoll_fd)
     static char hy2_obfs_password[512];
     static char hy2_obfs_enabled_s[4], hy2_insecure_s[4];
     static char stls_password[256], stls_sni[256];
+    static char ss_method_s[32], vmess_security_s[16];
     static char awg_h1_s[32], awg_h2_s[32], awg_h3_s[32], awg_h4_s[32];
     static char awg_psk_s[64], awg_dns_s[64], awg_reserved_s[64];
     static char awg_keepalive_s[16], awg_mtu_s[16];
@@ -4770,6 +4802,8 @@ static void route_api_servers_post(HttpConn *conn, int epoll_fd)
     http_json_get_str(body, "hy2_insecure",        hy2_insecure_s,      sizeof(hy2_insecure_s));
     http_json_get_str(body, "stls_password",       stls_password,       sizeof(stls_password));
     http_json_get_str(body, "stls_sni",            stls_sni,            sizeof(stls_sni));
+    http_json_get_str(body, "ss_method",           ss_method_s,         sizeof(ss_method_s));
+    http_json_get_str(body, "vmess_security",      vmess_security_s,    sizeof(vmess_security_s));
     http_json_get_str(body, "awg_h1",        awg_h1_s,        sizeof(awg_h1_s));
     http_json_get_str(body, "awg_h2",        awg_h2_s,        sizeof(awg_h2_s));
     http_json_get_str(body, "awg_h3",        awg_h3_s,        sizeof(awg_h3_s));
@@ -4843,6 +4877,9 @@ static void route_api_servers_post(HttpConn *conn, int epoll_fd)
     SRV_SET_OPT(sc3, "hy2_insecure",        hy2_insecure_s);
     SRV_SET_OPT(sc4, "stls_password",       stls_password);
     SRV_SET_OPT(sc5, "stls_sni",            stls_sni);
+    static char se0[112], se1[80];
+    SRV_SET_OPT(se0, "ss_method",           ss_method_s);
+    SRV_SET_OPT(se1, "vmess_security",      vmess_security_s);
     static char sd0[116], sd1[116], sd2[116], sd3[116];
     static char sd4[148], sd5[148], sd6[152], sd7[96], sd8[96];
     SRV_SET_OPT(sd0, "awg_h1",       awg_h1_s);
@@ -4891,6 +4928,7 @@ static void route_api_servers_put(HttpConn *conn, int epoll_fd, const char *name
         "ws_path","ws_host","xhttp_path","xhttp_host","grpc_service_name",
         "reality_fingerprint","hy2_obfs_enabled","hy2_obfs_password",
         "hy2_insecure","stls_password","stls_sni",
+        "ss_method","vmess_security",
         "awg_h1","awg_h2","awg_h3","awg_h4",
         "awg_psk","awg_dns","awg_reserved","awg_keepalive","awg_mtu", NULL };
     static char kv[512];
@@ -5030,10 +5068,24 @@ static void route_api_subscribe_parse(HttpConn *conn, int epoll_fd)
                               "{\"error\":\"no body\"}", 19); return; }
     const char *body = hdr_end + 4;
 
-    static char data[8192];
+    static char data[8192], url_sub[512];
     http_json_get_str(body, "data", data, sizeof(data));
-    if (!data[0]) { http_send(conn, epoll_fd, 400, "application/json",
-                              "{\"error\":\"missing data\"}", 24); return; }
+    if (!data[0]) {
+        http_json_get_str(body, "url", url_sub, sizeof(url_sub));
+        if (!url_sub[0]) { http_send(conn, epoll_fd, 400, "application/json",
+                                     "{\"error\":\"missing data or url\"}", 31); return; }
+        if (net_http_fetch(url_sub, "/tmp/4eburnet_sub_parse.tmp") < 0) {
+            http_send(conn, epoll_fd, 502, "application/json",
+                      "{\"error\":\"download failed\"}", 26); return;
+        }
+        FILE *fp = fopen("/tmp/4eburnet_sub_parse.tmp", "r");
+        if (fp) {
+            size_t n = fread(data, 1, sizeof(data) - 1, fp);
+            fclose(fp); data[n] = '\0';
+        }
+        if (!data[0]) { http_send(conn, epoll_fd, 502, "application/json",
+                                  "{\"error\":\"empty response\"}", 25); return; }
+    }
 
     /* Clash YAML — вернуть preview список серверов */
     if (strstr(data, "proxies:")) {
@@ -5050,7 +5102,7 @@ static void route_api_subscribe_parse(HttpConn *conn, int epoll_fd)
             json_escape_str(srvs[i].address, esc_addr, sizeof(esc_addr));
             int written = snprintf(result2 + rpos2, sizeof(result2) - (size_t)rpos2,
                 "%s{\"name\":\"%s\",\"protocol\":\"%s\","
-                "\"server\":\"%s\",\"port\":%u}",
+                "\"address\":\"%s\",\"port\":%u}",
                 i == 0 ? "" : ",",
                 esc_name, srvs[i].protocol, esc_addr, srvs[i].port);
             if (written > 0) rpos2 += written;
@@ -5413,7 +5465,7 @@ static void route_api_rules_delete(HttpConn *conn, int epoll_fd, const char *sec
     http_send(conn, epoll_fd, 204, "application/json", "", 0);
 }
 
-/* ── POST /api/rules/test — тестировать правило по домену/IP ──────── */
+/* ── POST /api/rules/test — матчинг правила через rules_engine_match ─ */
 static void route_api_rules_test(HttpConn *conn, int epoll_fd)
 {
     const char *hdr_end = strstr(conn->buf, "\r\n\r\n");
@@ -5424,97 +5476,98 @@ static void route_api_rules_test(HttpConn *conn, int epoll_fd)
     if (!target[0]) { http_send(conn, epoll_fd, 400, "application/json",
                                 "{\"error\":\"missing target\"}", 26); return; }
 
-    /* shell pipe для захвата полного UCI вывода (>100KB) */
-    static char uci_buf[131072];
-    const char *const argv[] = {"/bin/sh","-c","uci show 4eburnet",NULL};
-    memset(uci_buf, 0, sizeof(uci_buf));
-    exec_cmd_safe(argv, uci_buf, sizeof(uci_buf) - 1);
+    if (!s_re) { http_send(conn, epoll_fd, 503, "application/json",
+                           "{\"error\":\"rules engine not ready\"}", 34); return; }
 
-    /* Проверяем DOMAIN-SUFFIX совпадения (упрощённо) */
-    static char rule_type[32], rule_val[256], rule_tgt[64];
-    rule_type[0] = rule_val[0] = rule_tgt[0] = '\0';
-    bool matched = false;
+    /* Определяем: IPv4 / IPv6 / домен */
+    struct sockaddr_storage dst;
+    memset(&dst, 0, sizeof(dst));
+    const char *domain = NULL;
+    const struct sockaddr_storage *dst_ptr = NULL;
 
-    const char *p = uci_buf;
-    while ((p = strstr(p, "=traffic_rule")) != NULL) {
-        const char *bol = p;
-        while (bol > uci_buf && *(bol-1) != '\n') bol--;
-        /* Найти section name */
-        if (strncmp(bol, "4eburnet.", 9) != 0) { p++; continue; }
-        const char *sec_s = bol + 9, *sec_e = p;
-        bool has_dot = false;
-        for (const char *q = sec_s; q < sec_e; q++) if (*q == '.') { has_dot = true; break; }
-        if (has_dot) { p++; continue; }
-        static char tsec[32]; int tsn = (int)(sec_e - sec_s);
-        if (tsn <= 0 || tsn >= (int)sizeof(tsec)) { p++; continue; }
-        memcpy(tsec, sec_s, (size_t)tsn); tsec[tsn] = '\0';
-
-        static char tpat[80], vpat[512], gpat[128];
-        snprintf(tpat, sizeof(tpat), "4eburnet.%s.type='", tsec);
-        snprintf(vpat, sizeof(vpat), "4eburnet.%s.value='", tsec);
-        snprintf(gpat, sizeof(gpat), "4eburnet.%s.target='", tsec);
-
-        const char *tp = strstr(uci_buf, tpat);
-        const char *vp_str = strstr(uci_buf, vpat);
-        const char *gp = strstr(uci_buf, gpat);
-        if (!tp || !gp) { p++; continue; }
-
-        /* Извлечь type и value */
-        tp += strlen(tpat);
-        const char *tp_end = strchr(tp, '\'');
-        if (!tp_end) { p++; continue; }
-        int tlen = (int)(tp_end - tp);
-        if (tlen <= 0 || tlen >= (int)sizeof(rule_type)) { p++; continue; }
-        memcpy(rule_type, tp, (size_t)tlen); rule_type[tlen] = '\0';
-
-        rule_val[0] = '\0';
-        if (vp_str) {
-            vp_str += strlen(vpat);
-            const char *ve = strchr(vp_str, '\'');
-            if (ve) { int vl = (int)(ve - vp_str);
-                      if (vl > 0 && vl < (int)sizeof(rule_val))
-                          { memcpy(rule_val, vp_str, (size_t)vl); rule_val[vl] = '\0'; } }
-        }
-
-        /* Простая проверка MATCH и DOMAIN-SUFFIX */
-        bool hit = false;
-        if (strcmp(rule_type, "MATCH") == 0) hit = true;
-        else if (strcmp(rule_type, "DOMAIN") == 0 && strcmp(rule_val, target) == 0) hit = true;
-        else if (strcmp(rule_type, "DOMAIN-SUFFIX") == 0 && rule_val[0]) {
-            size_t tl = strlen(target), vl = strlen(rule_val);
-            if (tl >= vl &&
-                strcmp(target + tl - vl, rule_val) == 0 &&
-                (tl == vl || target[tl - vl - 1] == '.'))
-                hit = true;
-        } else if (strcmp(rule_type, "DOMAIN-KEYWORD") == 0 && rule_val[0]) {
-            if (strstr(target, rule_val)) hit = true;
-        }
-
-        if (hit) {
-            gp += strlen(gpat);
-            const char *ge = strchr(gp, '\'');
-            if (ge) { int gl = (int)(ge - gp);
-                      if (gl > 0 && gl < (int)sizeof(rule_tgt))
-                          { memcpy(rule_tgt, gp, (size_t)gl); rule_tgt[gl] = '\0'; } }
-            matched = true;
-            break;
-        }
-        p++;
+    struct in_addr  a4;
+    struct in6_addr a6;
+    if (inet_pton(AF_INET6, target, &a6) == 1) {
+        struct sockaddr_in6 *s6 = (struct sockaddr_in6 *)&dst;
+        s6->sin6_family = AF_INET6;
+        s6->sin6_addr   = a6;
+        s6->sin6_port   = htons(443);
+        dst_ptr = &dst;
+    } else if (inet_pton(AF_INET, target, &a4) == 1) {
+        struct sockaddr_in *s4 = (struct sockaddr_in *)&dst;
+        s4->sin_family = AF_INET;
+        s4->sin_addr   = a4;
+        s4->sin_port   = htons(443);
+        dst_ptr = &dst;
+    } else {
+        domain = target;
     }
 
-    static char esc_target[512], esc_rule_val[512];
-    json_escape_str(target,   esc_target,   sizeof(esc_target));
-    json_escape_str(rule_val, esc_rule_val, sizeof(esc_rule_val));
+    rule_match_result_t res = rules_engine_match(
+        s_re, domain, dst_ptr, IPPROTO_TCP, 443, 0, NULL);
 
-    static char resp[512];
-    snprintf(resp, sizeof(resp),
-        "{\"matched\":%s,\"target\":\"%s\","
-        "\"rule\":\"%s\",\"payload\":\"%s\",\"proxy\":\"%s\"}",
-        matched ? "true" : "false", esc_target,
-        matched ? rule_type : "MATCH",
-        matched ? esc_rule_val : "",
-        matched && rule_tgt[0] ? rule_tgt : "PROXY");
-    http_send(conn, epoll_fd, 200, "application/json", resp, strlen(resp));
+    /* Строка proxy: DIRECT / REJECT / имя группы */
+    static char proxy_str[64];
+    switch (res.type) {
+    case RULE_TARGET_DIRECT: memcpy(proxy_str, "DIRECT", 7); break;
+    case RULE_TARGET_REJECT: memcpy(proxy_str, "REJECT", 7); break;
+    default:
+        if (res.group_name[0])
+            snprintf(proxy_str, sizeof(proxy_str), "%s", res.group_name);
+        else
+            memcpy(proxy_str, "PROXY", 6);
+        break;
+    }
+
+    /* selected_server и latency из pgm */
+    static char selected_server[128];
+    uint32_t latency_ms = 0;
+    selected_server[0] = '\0';
+    if (res.type == RULE_TARGET_GROUP && res.group_name[0] && s_pgm && s_cfg) {
+        proxy_group_state_t *gs = proxy_group_find(s_pgm, res.group_name);
+        if (gs) {
+            const char *srv_name = proxy_group_get_current(gs, s_cfg);
+            if (srv_name && srv_name[0])
+                snprintf(selected_server, sizeof(selected_server), "%s", srv_name);
+            latency_ms = pgm_server_latency(s_pgm, gs->selected_idx);
+            /* UINT32_MAX — сервер ещё не проверялся HC (init-значение) */
+            if (latency_ms == UINT32_MAX) latency_ms = 0;
+        }
+    }
+
+    bool matched = (res.matched_rule_type >= 0);
+    const char *rt_str = matched
+        ? rule_type_to_str((rule_type_t)res.matched_rule_type) : "MATCH";
+
+    static char esc_target[512], esc_payload[256], esc_srv[256];
+    json_escape_str(target,              esc_target,  sizeof(esc_target));
+    json_escape_str(res.matched_payload, esc_payload, sizeof(esc_payload));
+    json_escape_str(selected_server,     esc_srv,     sizeof(esc_srv));
+
+    static char resp[768];
+    int rlen;
+    if (esc_srv[0]) {
+        rlen = snprintf(resp, sizeof(resp),
+            "{\"matched\":%s,\"target\":\"%s\","
+            "\"rule_type\":\"%s\",\"payload\":\"%s\","
+            "\"proxy\":\"%s\","
+            "\"selected_server\":\"%s\","
+            "\"latency_ms\":%u}",
+            matched ? "true" : "false", esc_target,
+            rt_str, esc_payload, proxy_str,
+            esc_srv, latency_ms);
+    } else {
+        rlen = snprintf(resp, sizeof(resp),
+            "{\"matched\":%s,\"target\":\"%s\","
+            "\"rule_type\":\"%s\",\"payload\":\"%s\","
+            "\"proxy\":\"%s\","
+            "\"selected_server\":null,"
+            "\"latency_ms\":%u}",
+            matched ? "true" : "false", esc_target,
+            rt_str, esc_payload, proxy_str,
+            latency_ms);
+    }
+    http_send(conn, epoll_fd, 200, "application/json", resp, (size_t)rlen);
 }
 
 /* ── PATCH /api/providers/proxies/{name} — изменить proxy provider ── */
