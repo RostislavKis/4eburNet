@@ -1,5 +1,43 @@
 # Changelog
 
+## [2.3.1] — 2026-05-13
+
+### Added (5 типов прокси-групп + load_balance strategy + fastest-whitelist)
+
+**Backend (`core/`):**
+- `include/config.h` — `PROXY_GROUP_FASTEST_WHITELIST = 4` в `proxy_group_type_t`;
+  поле `load_balance_strategy[32]` в `ProxyGroupConfig`.
+- `include/proxy/proxy_group.h` — `load_balance_strategy[32]` в `proxy_group_state_t`
+  для O(1) доступа при выборе сервера без обращения к массиву конфигов.
+- `src/config.c` — парсинг типов `"fastest-whitelist"` / `"fastest_whitelist"`;
+  парсинг поля `load_balance_strategy` с обрезкой до 31 символа.
+- `src/proxy/proxy_group.c`:
+  - `is_cdn_server()` — эвристика по SNI/address (cloudflare.com, fastly.net, akamai.net,
+    akamaiedge.net, edgekey.net, edgesuite.net, cloudfront.net, googlevideo.com);
+    не требует резолвинга IP, мгновенная проверка.
+  - `PROXY_GROUP_FASTEST_WHITELIST` в `proxy_group_select_server()`: из доступных серверов
+    выбирает CDN-сервер с наименьшей задержкой; fallback — лучший из всех серверов.
+  - HC stagger, `proxy_group_restore_all_selections`, все три failover функции,
+    HC spawn condition обновлены: `FASTEST_WHITELIST` трактуется как `URL_TEST`.
+  - `proxy_group_init`: копирование `load_balance_strategy` из конфига в состояние.
+- `src/http_server.c`:
+  - `uci_group_to_clash()` — `case 4` → `"fastest-whitelist"`.
+  - GET `/proxies` — поле `"strategy"` в JSON для `LOAD_BALANCE` групп.
+  - PATCH `/api/groups/{name}` — приём полей `"type"` (kebab-case → UCI маппинг:
+    select/url-test/fallback/load-balance/fastest-whitelist) и `"load_balance_strategy"`.
+
+**Dashboard (`dashboard-src/src/`):**
+- `components/proxies/ProxyGroupEditModal.vue` — переписан: `<select>` из 5 типов;
+  условные поля URL/interval/tolerance/filter/strategy в зависимости от типа;
+  inline-описание каждого типа; `v-tooltip` на всех полях; `clashToFormType()` маппинг
+  Clash API типов → form-значения; `showUrlField`, `showIntervalField`,
+  `showToleranceField`, `showStrategyField` computed-свойства.
+- `components/proxies/ProxyGroup.vue` — кнопка Edit расширена на все 5 типов
+  (включая Selector и fastest-whitelist); в `initial` переданы `type` и `strategy`.
+- `i18n/ru.ts` + `i18n/en.ts` — 6 новых tooltip-ключей в секции `tooltips`:
+  `proxy_group_type`, `proxy_group_strategy`, `proxy_group_edit_url`,
+  `proxy_group_edit_interval`, `proxy_group_edit_tolerance`, `proxy_group_edit_filter`.
+
 ## [2.2.9] — 2026-05-13
 
 ### Added (Events WebSocket stream + Toast notifications)
