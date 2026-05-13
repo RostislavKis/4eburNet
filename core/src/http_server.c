@@ -1597,6 +1597,7 @@ static const char *uci_group_to_clash(int type)
         case 1: return "URLTest";
         case 2: return "Fallback";
         case 3: return "LoadBalance";
+        case 4: return "fastest-whitelist";
         default: return "Selector";
     }
 }
@@ -2055,6 +2056,13 @@ static void route_clash_proxies(HttpConn *conn, int epoll_fd)
         if (grp->filter[0]) {
             pos += snprintf(buf + pos, (size_t)(max - pos), ",\"filter\":");
             pos = json_append_str(buf, pos, max, grp->filter);
+        }
+        /* strategy возвращается только для load-balance групп */
+        if (grp->type == PROXY_GROUP_LOAD_BALANCE) {
+            const char *strat = grp->load_balance_strategy[0]
+                                ? grp->load_balance_strategy : "round-robin";
+            pos += snprintf(buf + pos, (size_t)(max - pos), ",\"strategy\":");
+            pos = json_append_str(buf, pos, max, strat);
         }
         pos += snprintf(buf + pos, (size_t)(max - pos), ",\"now\":");
 
@@ -5712,7 +5720,7 @@ static void route_api_providers_rules_patch(HttpConn *conn, int epoll_fd,
 }
 
 /* ── PATCH /api/groups/{name} — изменить параметры proxy-group ──── */
-/* Поля: url (healthcheck), interval (сек), tolerance_ms (мс), filter (regex).
+/* Поля: type, url, interval, tolerance_ms, filter, load_balance_strategy.
  * UCI: анонимные секции @proxy_group[N] — переиспользуем uci_find_provider_section. */
 static void route_api_groups_patch(HttpConn *conn, int epoll_fd, const char *name)
 {
@@ -5735,9 +5743,11 @@ static void route_api_groups_patch(HttpConn *conn, int epoll_fd, const char *nam
     if (!hdr_end) { http_send(conn, epoll_fd, 400, "application/json",
                               "{\"error\":\"no body\"}", 19); return; }
     const char *body = hdr_end + 4;
-    static char url[512], filter[512], intv_s[16], tol_s[16];
-    http_json_get_str(body, "url",          url,    sizeof(url));
-    http_json_get_str(body, "filter",       filter, sizeof(filter));
+    static char url[512], filter[512], intv_s[16], tol_s[16], type_s[32], strategy_s[32];
+    http_json_get_str(body, "url",                    url,        sizeof(url));
+    http_json_get_str(body, "filter",                 filter,     sizeof(filter));
+    http_json_get_str(body, "type",                   type_s,     sizeof(type_s));
+    http_json_get_str(body, "load_balance_strategy",  strategy_s, sizeof(strategy_s));
     /* interval и tolerance_ms — числа без кавычек → http_json_get_val */
     http_json_get_val(body, "interval",     intv_s, sizeof(intv_s));
     http_json_get_val(body, "tolerance_ms", tol_s,  sizeof(tol_s));
@@ -5760,6 +5770,26 @@ static void route_api_groups_patch(HttpConn *conn, int epoll_fd, const char *nam
     }
     if (tol_s[0]) {
         snprintf(kv, sizeof(kv), "%s.tolerance_ms=%s", section, tol_s);
+        const char *const v[] = {"uci", "set", kv, NULL};
+        exec_cmd_safe(v, NULL, 0); changed = true;
+    }
+    /* "type": kebab-case → UCI (underscore).
+     * WHY: форма использует kebab (select/url-test/etc.), UCI требует underscore. */
+    if (type_s[0]) {
+        const char *uci_type = NULL;
+        if      (strcmp(type_s, "select")            == 0) uci_type = "select";
+        else if (strcmp(type_s, "url-test")          == 0) uci_type = "url_test";
+        else if (strcmp(type_s, "fallback")          == 0) uci_type = "fallback";
+        else if (strcmp(type_s, "load-balance")      == 0) uci_type = "load_balance";
+        else if (strcmp(type_s, "fastest-whitelist") == 0) uci_type = "fastest_whitelist";
+        if (uci_type) {
+            snprintf(kv, sizeof(kv), "%s.type=%s", section, uci_type);
+            const char *const v[] = {"uci", "set", kv, NULL};
+            exec_cmd_safe(v, NULL, 0); changed = true;
+        }
+    }
+    if (strategy_s[0]) {
+        snprintf(kv, sizeof(kv), "%s.load_balance_strategy=%s", section, strategy_s);
         const char *const v[] = {"uci", "set", kv, NULL};
         exec_cmd_safe(v, NULL, 0); changed = true;
     }
