@@ -133,6 +133,13 @@ static char s_log_ring[LOG_RING_SIZE][LOG_LINE_MAX];  /* BSS ~128KB */
 static int  s_log_ring_head  = 0;   /* следующая позиция записи */
 static int  s_log_ring_count = 0;   /* всего записано (насыщается на LOG_RING_SIZE) */
 
+/* ── WS /ws/events: кольцевой буфер последних 10 событий ─────────── */
+#define EVENTS_RING_COUNT 10
+#define EVENTS_ENTRY_MAX  256
+static char s_events_ring[EVENTS_RING_COUNT][EVENTS_ENTRY_MAX];
+static int  s_events_ring_head  = 0;
+static int  s_events_ring_count = 0;
+
 /* Указатели на HttpServer и epoll_fd для хука из log_msg */
 static HttpServer *s_ws_srv      = NULL;
 static int         s_ws_epoll_fd = -1;
@@ -276,6 +283,49 @@ static void ws_logs_send_history(HttpConn *conn, int epoll_fd)
             }
         }
     }
+}
+
+/* ── WS /ws/events: broadcast + history + emit ──────────────────────
+ * broadcast: разослать json всем подключённым /ws/events клиентам */
+static void ws_events_broadcast(const char *json, int n)
+{
+    if (!s_ws_srv || s_ws_epoll_fd < 0) return;
+    for (int i = 0; i < HTTP_MAX_CONN; i++) {
+        HttpConn *c = &s_ws_srv->conns[i];
+        if (c->fd < 0 || !c->is_websocket) continue;
+        if (c->ws_route != WS_ROUTE_EVENTS) continue;
+        if (ws_send_text(c, s_ws_epoll_fd, json, (size_t)n) < 0)
+            conn_close(c, s_ws_epoll_fd);
+    }
+}
+
+/* Отправить историю событий новому /ws/events подписчику (хронологически) */
+static void ws_events_send_history(HttpConn *conn, int epoll_fd)
+{
+    if (s_events_ring_count == 0) return;
+    int start = (s_events_ring_count < EVENTS_RING_COUNT)
+                ? 0
+                : s_events_ring_head;
+    for (int i = 0; i < s_events_ring_count; i++) {
+        int idx = (start + i) % EVENTS_RING_COUNT;
+        const char *ev = s_events_ring[idx];
+        if (!ev[0]) continue;
+        if (ws_send_text(conn, epoll_fd, ev, strlen(ev)) < 0) {
+            conn_close(conn, epoll_fd);
+            return;
+        }
+    }
+}
+
+/* Публичный API: записать событие в ring buffer и разослать подписчикам */
+void http_server_emit_event(const char *json_event)
+{
+    if (!json_event || !json_event[0]) return;
+    strncpy(s_events_ring[s_events_ring_head], json_event, EVENTS_ENTRY_MAX - 1);
+    s_events_ring[s_events_ring_head][EVENTS_ENTRY_MAX - 1] = '\0';
+    s_events_ring_head = (s_events_ring_head + 1) % EVENTS_RING_COUNT;
+    if (s_events_ring_count < EVENTS_RING_COUNT) s_events_ring_count++;
+    ws_events_broadcast(json_event, (int)strlen(json_event));
 }
 
 /* hex4 — 4 hex ASCII символа → unsigned long */
@@ -3103,8 +3153,9 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
             int is_conns   = (plen == 12 && strncmp(p, "/connections",   12) == 0)
                           || (plen == 15 && strncmp(p, "/ws/connections", 15) == 0);
             int is_ssh     = (plen == 4  && strncmp(p, "/ssh",           4) == 0);
+            int is_events  = (plen == 10 && strncmp(p, "/ws/events",    10) == 0);
 
-            if (!is_echo && !is_memory && !is_traffic && !is_logs && !is_conns && !is_ssh) {
+            if (!is_echo && !is_memory && !is_traffic && !is_logs && !is_conns && !is_ssh && !is_events) {
                 http_send(conn, epoll_fd, 404, "text/plain",
                           "WebSocket path not found", 24);
                 return;
@@ -3126,12 +3177,16 @@ static void http_dispatch(HttpConn *conn, int epoll_fd)
                            : is_logs    ? WS_ROUTE_LOGS
                            : is_conns   ? WS_ROUTE_CONNECTIONS
                            : is_ssh     ? WS_ROUTE_SSH
+                           : is_events  ? WS_ROUTE_EVENTS
                            :              WS_ROUTE_ECHO;
             conn->buf_len = 0;
             conn->headers_done = 0;
             /* /logs: отправить историю сразу после handshake */
             if (is_logs)
                 ws_logs_send_history(conn, epoll_fd);
+            /* /ws/events: отправить историю последних 10 событий */
+            if (is_events)
+                ws_events_send_history(conn, epoll_fd);
             /* /ssh: LAN-only guard + запуск pty сеанса */
             if (is_ssh) {
                 if (!ssh_is_lan_client(&conn->peer_addr)) {

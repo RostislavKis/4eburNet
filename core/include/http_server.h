@@ -153,4 +153,9 @@ void http_server_reload_token(void);
 /* Записать кэш DNS-конфига в /tmp/4eburnet-dns.json (без блокировки). */
 void http_server_write_dns_cache(void);
 
+/* Опубликовать JSON-событие всем подписчикам /ws/events и сохранить в ring buffer.
+ * json_event — нуль-терминированная строка ≤255 байт. Thread-safe не требуется:
+ * вызывается только из main epoll loop. */
+void http_server_emit_event(const char *json_event);
+
 #endif /* HTTP_SERVER_H */
