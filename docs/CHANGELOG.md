@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.3.12] — 2026-05-14
+
+### Added (audit_v49 §10)
+
+**feat(api): реализован DELETE /connections — dispatcher_close_all_relays()**
+
+- `dispatcher.c:~1789` — новая функция `dispatcher_close_all_relays()`: итерирует все
+  relay-слоты `[0, conns_max)`, пропускает `RELAY_DONE` (=0, свободные), вызывает
+  `relay_free()` для всех активных relay включая UDP.
+- `dispatcher.h:402` — добавлено публичное объявление.
+- `http_server.c:~3497` — заглушка (204 без действия) заменена реальным вызовом.
+
+**feat(http): HTTP/1.1 keep-alive для REST эндпоинтов**
+
+- `http_server.h` — константы `HTTP_KEEPALIVE_TIMEOUT_S=15`, `HTTP_KEEPALIVE_MAX_REQS=100`;
+  поля `HttpConn`: `keepalive`, `req_count`, `keepalive_idle_ms`.
+- `http_server.c` — `conn_reset_request(conn, epoll_fd)`: сбрасывает request-поля,
+  убирает EPOLLOUT через `epoll_ctl MOD`, записывает `keepalive_idle_ms`.
+- `http_dispatch()` — парсинг `Connection:` header; HTTP/1.1 keep-alive по умолчанию;
+  инкремент `req_count`.
+- `http_send()` — при keepalive: `HTTP/1.1` + `Connection: keep-alive` +
+  `Keep-Alive: timeout=15, max=N`; после sync flush → `conn_reset_request()`.
+- EPOLLOUT handler — при async flush завершении: keepalive → reset, иначе → close.
+- `http_server_tick()` — idle timeout 15с для keepalive соединений; WS исключены.
+- `http_send()` — добавлен `case 204: "No Content"` (ранее возвращалось "Error").
+
+**EC330 deploy 2026-05-14:** version 2.3.12, 3.1MB ✅
+
 ## [2.3.11] — 2026-05-14
 
 ### Fixed (audit_v49 §9)
