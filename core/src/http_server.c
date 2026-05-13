@@ -13,6 +13,7 @@
 #include "dpi/cdn_updater.h"
 #endif
 #include "proxy/dispatcher.h"
+#include "proxy/rules_engine.h"
 #include "proxy/hc_vless.h"
 #include "sub_parser/clash_yaml.h"
 
@@ -170,6 +171,10 @@ void http_server_set_dispatcher(dispatcher_state_t *ds) { s_ds = ds; }
 
 void http_server_set_geo_loaded(bool loaded) { s_geo_loaded = loaded; }
 void http_server_set_geo_manager(const geo_manager_t *gm) { s_geo = gm; }
+
+/* ── rules_engine для hit_count в GET /rules ──────────────────────── */
+static rules_engine_t *s_re = NULL;
+void http_server_set_re(rules_engine_t *re) { s_re = re; }
 
 /* WHY: api_token читается из UCI при старте и при SIGHUP reload.
  * Без обновления смена токена в UCI требует полного рестарта демона. */
@@ -2114,18 +2119,26 @@ static const char *rule_type_to_str(rule_type_t t)
     case RULE_TYPE_DOMAIN_SUFFIX:  return "DOMAIN-SUFFIX";
     case RULE_TYPE_DOMAIN_KEYWORD: return "DOMAIN-KEYWORD";
     case RULE_TYPE_IP_CIDR:        return "IP-CIDR";
+    case RULE_TYPE_IP_CIDR6:       return "IP-CIDR6";
     case RULE_TYPE_RULE_SET:       return "RULE-SET";
     case RULE_TYPE_MATCH:          return "MATCH";
     case RULE_TYPE_GEOIP:          return "GEOIP";
     case RULE_TYPE_GEOSITE:        return "GEOSITE";
     case RULE_TYPE_DST_PORT:       return "DST-PORT";
+    case RULE_TYPE_SRC_PORT:       return "SRC-PORT";
+    case RULE_TYPE_PROCESS_NAME:   return "PROCESS-NAME";
+    case RULE_TYPE_AND:            return "AND";
+    case RULE_TYPE_OR:             return "OR";
+    case RULE_TYPE_REGEX:          return "REGEX";
     default:                       return "UNKNOWN";
     }
 }
 
 static void route_clash_rules(HttpConn *conn, int epoll_fd)
 {
-    static char buf[32768];
+    /* WHY 131072: 399 правил × ~200 байт (extra + sub_conditions) ≈ 80KB;
+     * старые 32KB обрезали список на 227/399. */
+    static char buf[131072];
     int pos = 0, max = (int)sizeof(buf);
 
     if (!s_cfg || s_cfg->traffic_rule_count == 0) {
@@ -2136,15 +2149,67 @@ static void route_clash_rules(HttpConn *conn, int epoll_fd)
     }
 
     pos += snprintf(buf + pos, (size_t)(max - pos), "{\"rules\":[");
-    for (int i = 0; i < s_cfg->traffic_rule_count && pos < max - 128; i++) {
+    for (int i = 0; i < s_cfg->traffic_rule_count && pos < max - 256; i++) {
         const TrafficRule *r = &s_cfg->traffic_rules[i];
         if (i > 0 && pos + 1 < max) buf[pos++] = ',';
+
+        /* payload: для OR — строим из sub_rules; иначе — r->value */
         pos += snprintf(buf + pos, (size_t)(max - pos),
                         "{\"type\":\"%s\",\"payload\":",
                         rule_type_to_str(r->type));
-        pos = json_append_str(buf, pos, max, r->value);
+        if (r->type == RULE_TYPE_OR && r->sub_rules && r->sub_count > 0) {
+            /* OR payload = "TYPE1:VALUE1,TYPE2:VALUE2,..." */
+            static char or_payload[512];
+            int pp = 0;
+            for (uint8_t si = 0; si < r->sub_count && pp < (int)sizeof(or_payload) - 64; si++) {
+                const TrafficRule *sub = &r->sub_rules[si];
+                if (si > 0) or_payload[pp++] = ',';
+                pp += snprintf(or_payload + pp, sizeof(or_payload) - (size_t)pp,
+                               "%s:%s", rule_type_to_str(sub->type), sub->value);
+            }
+            or_payload[pp] = '\0';
+            pos = json_append_str(buf, pos, max, or_payload);
+        } else {
+            pos = json_append_str(buf, pos, max, r->value);
+        }
         pos += snprintf(buf + pos, (size_t)(max - pos), ",\"proxy\":");
         pos = json_append_str(buf, pos, max, r->target);
+
+        /* sub_conditions для OR — для редактирования в dashboard */
+        if (r->type == RULE_TYPE_OR && r->sub_rules && r->sub_count > 0) {
+            pos += snprintf(buf + pos, (size_t)(max - pos), ",\"sub_conditions\":[");
+            for (uint8_t si = 0; si < r->sub_count && pos < max - 128; si++) {
+                const TrafficRule *sub = &r->sub_rules[si];
+                if (si > 0 && pos + 1 < max) buf[pos++] = ',';
+                pos += snprintf(buf + pos, (size_t)(max - pos),
+                                "{\"type\":\"%s\",\"value\":",
+                                rule_type_to_str(sub->type));
+                pos = json_append_str(buf, pos, max, sub->value);
+                if (pos + 1 < max) buf[pos++] = '}';
+            }
+            if (pos + 1 < max) buf[pos++] = ']';
+        }
+
+        /* hit_count из sorted_rules (с атомарным счётчиком) */
+        uint32_t hits = 0;
+        if (s_re && s_re->sorted_rules) {
+            /* sorted_rules — копия с индексами в другом порядке;
+             * ищем по type+target для совпадения с текущим правилом cfg */
+            for (int j = 0; j < s_re->rule_count; j++) {
+                const TrafficRule *sr = &s_re->sorted_rules[j];
+                if (sr->type == r->type &&
+                    strcmp(sr->target, r->target) == 0 &&
+                    strcmp(sr->value,  r->value)  == 0) {
+                    hits = (uint32_t)atomic_load(&sr->hit_count);
+                    break;
+                }
+            }
+        }
+        pos += snprintf(buf + pos, (size_t)(max - pos),
+                        ",\"extra\":{\"hitCount\":%u,\"hitAt\":\"\","
+                        "\"missAt\":\"\",\"missCount\":0,\"disabled\":false}",
+                        hits);
+
         if (pos + 1 < max) buf[pos++] = '}';
     }
     if (pos + 2 < max) { buf[pos++] = ']'; buf[pos++] = '}'; }
@@ -5179,11 +5244,14 @@ static void route_api_rules_post(HttpConn *conn, int epoll_fd)
 
     static const char *const valid_rtypes[] = {
         "DOMAIN","DOMAIN-SUFFIX","DOMAIN-KEYWORD","IP-CIDR","IP-CIDR6",
-        "RULE-SET","MATCH","GEOIP","GEOSITE","DST-PORT","SRC-PORT", NULL};
+        "RULE-SET","MATCH","GEOIP","GEOSITE","DST-PORT","SRC-PORT",
+        "PROCESS-NAME","REGEX","OR", NULL};
     bool rtype_ok = false;
     for (int k = 0; valid_rtypes[k]; k++)
         if (strcmp(rtype, valid_rtypes[k]) == 0) { rtype_ok = true; break; }
-    if (!rtype_ok || !rtgt[0]) {
+    /* OR не требует value — sub_conditions заменяет */
+    bool need_value = (strcmp(rtype, "OR") != 0 && strcmp(rtype, "MATCH") != 0);
+    if (!rtype_ok || !rtgt[0] || (need_value && !rval[0])) {
         http_send(conn, epoll_fd, 400, "application/json",
                   "{\"error\":\"invalid params\"}", 26); return;
     }
@@ -5200,8 +5268,37 @@ static void route_api_rules_post(HttpConn *conn, int epoll_fd)
     const char *const rrp[] = {"uci","set",rc5,NULL};
     const char *const rrc[] = {"uci","commit","4eburnet",NULL};
     exec_cmd_safe(rra,NULL,0); exec_cmd_safe(rrt,NULL,0);
-    exec_cmd_safe(rrv,NULL,0); exec_cmd_safe(rrg,NULL,0);
-    exec_cmd_safe(rrp,NULL,0); exec_cmd_safe(rrc,NULL,0);
+    if (rval[0]) exec_cmd_safe(rrv,NULL,0);
+    exec_cmd_safe(rrg,NULL,0); exec_cmd_safe(rrp,NULL,0);
+
+    /* OR: добавить UCI list or_condition для каждого sub-условия.
+     * Формат JSON: "or_conditions":[{"type":"DOMAIN-SUFFIX","value":".google.com"},...] */
+    if (strcmp(rtype, "OR") == 0) {
+        const char *oc = strstr(body, "\"or_conditions\"");
+        if (oc) {
+            oc = strchr(oc, '[');
+            while (oc && *oc) {
+                oc = strchr(oc, '{');
+                if (!oc) break;
+                static char oc_type[32], oc_val[256];
+                oc_type[0] = oc_val[0] = '\0';
+                http_json_get_str(oc, "type",  oc_type, sizeof(oc_type));
+                http_json_get_str(oc, "value", oc_val,  sizeof(oc_val));
+                if (oc_type[0] && oc_val[0]) {
+                    static char oc_uci[512];
+                    snprintf(oc_uci, sizeof(oc_uci),
+                             "4eburnet.@traffic_rule[-1].or_condition=%s,%s",
+                             oc_type, oc_val);
+                    const char *const oа[] = {"uci","add_list",oc_uci,NULL};
+                    exec_cmd_safe(oа,NULL,0);
+                }
+                oc = strchr(oc, '}');
+                if (oc) oc++;
+            }
+        }
+    }
+
+    exec_cmd_safe(rrc,NULL,0);
     reload_daemon();
     http_send(conn, epoll_fd, 201, "application/json", "{\"ok\":true}", 11);
 }
@@ -5244,6 +5341,42 @@ static void route_api_rules_patch(HttpConn *conn, int epoll_fd, const char *sec_
             exec_cmd_safe(av,NULL,0);
         }
     }
+
+    /* OR: заменить UCI list or_condition.
+     * Сначала удаляем старый список, затем добавляем новые элементы. */
+    {
+        static char new_rtype[32]; new_rtype[0] = '\0';
+        http_json_get_str(body, "type", new_rtype, sizeof(new_rtype));
+        const char *oc = strstr(body, "\"or_conditions\"");
+        if (oc && (new_rtype[0] == '\0' || strcmp(new_rtype, "OR") == 0)) {
+            /* Удалить старый список */
+            static char del_key[80];
+            snprintf(del_key, sizeof(del_key), "4eburnet.%s.or_condition", sec);
+            const char *const da[] = {"uci","del_list",del_key,NULL};
+            exec_cmd_safe(da,NULL,0);
+
+            oc = strchr(oc, '[');
+            while (oc && *oc) {
+                oc = strchr(oc, '{');
+                if (!oc) break;
+                static char oc_type[32], oc_val[256];
+                oc_type[0] = oc_val[0] = '\0';
+                http_json_get_str(oc, "type",  oc_type, sizeof(oc_type));
+                http_json_get_str(oc, "value", oc_val,  sizeof(oc_val));
+                if (oc_type[0] && oc_val[0]) {
+                    static char oc_uci[512];
+                    snprintf(oc_uci, sizeof(oc_uci),
+                             "4eburnet.%s.or_condition=%s,%s",
+                             sec, oc_type, oc_val);
+                    const char *const oа[] = {"uci","add_list",oc_uci,NULL};
+                    exec_cmd_safe(oа,NULL,0);
+                }
+                oc = strchr(oc, '}');
+                if (oc) oc++;
+            }
+        }
+    }
+
     const char *const vc[] = {"uci","commit","4eburnet",NULL};
     exec_cmd_safe(vc,NULL,0);
     reload_daemon();
