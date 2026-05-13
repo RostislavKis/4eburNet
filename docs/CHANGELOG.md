@@ -3615,3 +3615,12 @@ TLS record) уходил в `continue` — бесконечный busy-wait. Sin
 
 - 239 тестов в 9 суитах (ALL PASS)
 - 7 devil audits (v17-v23), 0 открытых проблем
+
+### v2.3.7 (2026-05-13) — audit_v49 §3
+
+- fix(MIPS): `static char entry[1760]` в route_api_connections — превышение лимита 512Б локального буфера на стеке (http_server.c:2978)
+- fix(security): snprintf truncation check в route_api_status — при n >= sizeof(s_ipc_buf) возвращает HTTP 500 вместо over-read (http_server.c:1155)
+- fix(security): централизованный rate_limit_check для всех /api/* без Bearer токена (http_server.c:3056/3170); удалён дублирующий вызов из route_api_control
+- fix(security): Bearer pointer bug — strstr возвращал начало заголовка, а не значение токена; исправлено `auth += strlen("Authorization: Bearer ")` (http_server.c:3157)
+- docs: IPC_SCHEMA.md — добавлены dpi-get (cmd 40), dpi-set (cmd 41), таблица HTTP-only эндпоинтов
+- docs: user_context.md — исправлена устаревшая запись 4eb_token → setup/api-list[].password
