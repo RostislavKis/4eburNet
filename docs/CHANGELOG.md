@@ -1,5 +1,54 @@
 # Changelog
 
+## [2.2.5] — 2026-05-13
+
+### Fixed (gRPC CLOSE-WAIT накопление)
+
+**Backend (`core/`):**
+
+- `grpc.c` — добавлена `grpc_tls_drain(WOLFSSL *ssl, int tcp_fd)`: вызывает
+  `wolfSSL_shutdown` (отправляет TLS close_notify), затем drain loop
+  (SO_RCVTIMEO=2с, лимит 16 итераций, static drain_buf[512]).
+  WHY: без drain удалённый сервер продолжает слать данные после close_notify
+  → ядро не может завершить TCP → CLOSE-WAIT накапливается при долгой работе.
+- `grpc.c` — `grpc_pool_tick` (idle timeout teardown): вызов `grpc_tls_drain`
+  перед `wolfSSL_free` + `close(tcp_fd)`.
+- `grpc.c` — `grpc_pool_free` (полное освобождение пула): аналогичный вызов
+  `grpc_tls_drain` для консистентности teardown обоих путей.
+- `grpc.c` — добавлены `#include <sys/socket.h>` и `#include <sys/time.h>`
+  для `setsockopt` + `struct timeval`.
+
+### Added (SS2022/VMess/ShadowTLS в ServerFormModal)
+
+**Backend (`core/`):**
+
+- `config.h` — `vmess_security[16]` в `ServerConfig`
+  (VMess AEAD security: "auto"/"aes-128-gcm"/"chacha20-poly1305"/"none").
+- `config.c` — чтение UCI ключа `vmess_security` в `ServerConfig`.
+- `http_server.c` — `route_api_servers_post`: добавлены чтение и UCI set
+  для `ss_method` и `vmess_security`.
+- `http_server.c` — `route_api_servers_put` (flds[]): добавлены
+  `"ss_method"` и `"vmess_security"`.
+
+**Dashboard (`dashboard-src/src/`):**
+
+- `ServerFormModal.vue` — тип `ss` (Shadowsocks): поле `cipher` переименовано
+  в `ss_method`; добавлена группа Legacy (aes-128-gcm, aes-256-gcm,
+  chacha20-ietf-poly1305) рядом с SS2022; tooltip `server_ss_method`.
+- `ServerFormModal.vue` — тип `vmess`: добавлен badge "Alter ID: 0 (VMess AEAD)"
+  с tooltip и select `vmess_security` (auto/aes-128-gcm/chacha20-poly1305/none).
+- `ServerFormModal.vue` — тип `shadowtls`: замена `title=""` на
+  `v-tooltip="tip('server_stls_*')"` для обоих полей.
+- `i18n/ru.ts` + `en.ts` — 5 новых ключей: `server_ss_method`,
+  `server_vmess_alter_id`, `server_vmess_security`,
+  `server_stls_password`, `server_stls_sni`.
+
+**Верификация EC330 (2026-05-13):**
+
+- Демон жив после деплоя ✓
+- CLOSE-WAIT = 0 сразу после рестарта ✓
+- Требуется проверка в браузере (:8080 → Proxies → Add Server)
+
 ## [2.2.4] — 2026-05-13
 
 ### Fixed (/proxies buffer overflow + AWG serialization)
