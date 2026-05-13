@@ -1938,7 +1938,7 @@ static bool pgm_group_alive(const proxy_group_state_t *gs)
  * Buffer — static 64KB. Покрывает конфиги с 64+ provider серверами. */
 static void route_clash_proxies(HttpConn *conn, int epoll_fd)
 {
-    static char buf[65536];
+    static char buf[262144];
     int pos = 0, max = (int)sizeof(buf);
     int first = 1;
 
@@ -2037,13 +2037,16 @@ static void route_clash_proxies(HttpConn *conn, int epoll_fd)
         const char *xudp_kv = (sc->packet_encoding[0] &&
                                strcmp(sc->packet_encoding, "xudp") == 0)
                               ? ",\"xudp\":true" : "";
-        /* WHY: zashboard распознаёт "anytls":true и "tuic":true как теги протокола
-         * (аналогично xudp). Транспорты реализованы в v1.5.169 и v1.5.173. */
+        /* WHY: zashboard распознаёт "anytls":true, "tuic":true и "awg":true как теги
+         * протокола (аналогично xudp). */
         const char *anytls_kv = (strcmp(sc->protocol, "anytls") == 0)
                                 ? ",\"anytls\":true" : "";
         const char *tuic_kv   = (strcmp(sc->protocol, "tuic") == 0 ||
                                  strcmp(sc->protocol, "tuic5") == 0)
                                 ? ",\"tuic\":true" : "";
+        const char *awg_kv    = (strcmp(sc->protocol, "awg") == 0 ||
+                                 strcmp(sc->protocol, "wg") == 0)
+                                ? ",\"awg\":true" : "";
         /* Валидное окно [1..9999] совпадает с hc_clamp_ms.
          * lat==0 или lat==UINT32_MAX — сервер не тестировался или провалил HC:
          * оба значения означают "неизвестно", не показываем в дашборде. */
@@ -2053,16 +2056,16 @@ static void route_clash_proxies(HttpConn *conn, int epoll_fd)
             struct tm *tm = gmtime(&now);
             strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", tm);
             pos += snprintf(buf + pos, (size_t)(max - pos),
-                ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s,\"alive\":%s"
+                ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s%s,\"alive\":%s"
                 ",\"history\":[{\"time\":\"%s\",\"delay\":%u}]}",
                 uci_type_to_clash(sc->protocol), net, xudp_kv, anytls_kv, tuic_kv,
-                alive ? "true" : "false", ts, lat);
+                awg_kv, alive ? "true" : "false", ts, lat);
         } else {
             pos += snprintf(buf + pos, (size_t)(max - pos),
-                ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s,\"alive\":%s"
+                ",\"type\":\"%s\",\"network\":\"%s\",\"udp\":true%s%s%s%s,\"alive\":%s"
                 ",\"history\":[]}",
                 uci_type_to_clash(sc->protocol), net, xudp_kv, anytls_kv, tuic_kv,
-                alive ? "true" : "false");
+                awg_kv, alive ? "true" : "false");
         }
     }
 

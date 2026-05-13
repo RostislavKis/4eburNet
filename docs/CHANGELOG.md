@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.2.4] — 2026-05-13
+
+### Fixed (/proxies buffer overflow + AWG serialization)
+
+**Backend (`core/`):**
+
+- `http_server.c` — `route_clash_proxies`: `static char buf[65536]` → `buf[262144]`.
+  WHY: при >~150 серверах (провайдеры + статика) `pos >= max-256` молча обрезало
+  оставшиеся серверы — в дашборде пропадали десятки серверов.
+- `http_server.c` — `route_clash_proxies`: добавлен `awg_kv = ",\"awg\":true"` для
+  серверов с `protocol="awg"/"wg"` по паттерну `tuic_kv`/`anytls_kv`.
+  WHY: zashboard распознаёт `"awg":true` как тег протокола (аналогично xudp/tuic).
+
+**Верификация EC330 (2026-05-13):**
+- GET /proxies: 116 прокси (10 групп + 104 сервера) — все видны ✓
+- AWG: 5 серверов (WARP-IPv4, AWG 1.5 ×2 и др.) отображаются с `"awg":true` ✓
+
 ## [2.2.3] — 2026-05-13
 
 ### Added (OR builder + Rule hit counter)
