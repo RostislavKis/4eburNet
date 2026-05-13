@@ -1311,6 +1311,13 @@ int main(int argc, char *argv[])
                                 log_msg(LOG_INFO,
                                     "Geo hot-reload #%u: %d категорий",
                                     geo_state.reload_count, geo_state.count);
+                                {
+                                    static char ev_geo[128];
+                                    snprintf(ev_geo, sizeof(ev_geo),
+                                        "{\"type\":\"geo_reloaded\",\"categories\":%d,\"count\":%u}",
+                                        geo_state.count, geo_state.reload_count);
+                                    http_server_emit_event(ev_geo);
+                                }
                             } else {
                                 log_msg(LOG_WARN,
                                     "Geo: ни одна категория не загружена — сохраняем старые данные");
@@ -1365,6 +1372,7 @@ int main(int argc, char *argv[])
                 http_server_set_config(cfg_ptr);
                 http_server_set_pgm(&pgm_state);
                 log_msg(LOG_INFO, "Конфигурация обновлена");
+                http_server_emit_event("{\"type\":\"daemon_reload\",\"reason\":\"sighup\"}");
             } else {
                 if (new_cfg_ptr) free(new_cfg_ptr);
                 log_msg(LOG_ERROR, "Ошибка загрузки конфига, сохраняем текущий");

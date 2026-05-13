@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.2.9] — 2026-05-13
+
+### Added (Events WebSocket stream + Toast notifications)
+
+**Backend (`core/`):**
+- `include/ws.h` — `WS_ROUTE_EVENTS = 7` для нового `/ws/events` маршрута.
+- `include/http_server.h` — публичный API `http_server_emit_event(json)`.
+- `src/http_server.c` — статический ring buffer `s_events_ring[10][256]`;
+  `ws_events_broadcast()`, `ws_events_send_history()`, `http_server_emit_event()`;
+  `/ws/events` WS upgrade routing; при подключении клиент получает историю 10 событий.
+- `src/proxy/proxy_group.c` — 6 точек emit:
+  `server_down`/`server_up` в `proxy_group_update_result`, `proxy_group_handle_hc_event`,
+  `proxy_group_mark_server_fail`, `proxy_group_mark_server_fail_immediate`,
+  `proxy_group_mark_server_fail_for_group`; guard `was_available != available` исключает
+  спам при каждом HC раунде; `proxy_switched` (reason: url-test / failover) в
+  `handle_hc_event` round-complete и немедленных failover точках.
+- `src/proxy/proxy_provider.c` — emit `provider_updated` с `total/added/removed`
+  счётчиками (old_cnt из `ps->server_count` до парсинга).
+- `src/main.c` — emit `geo_reloaded` (categories, count) и `daemon_reload` (reason: sighup).
+
+**Dashboard (`dashboard-src/src/`):**
+- `api/index.ts` — `fetchEventsAPI<T>()` через `createWebSocket<T>('ws/events')`.
+- `composables/useEventStream.ts` — синглтон-composable; глобальный `eventLog` ref
+  (до 50 событий); toast через `showNotification` с i18n; вызывается один раз из App.vue.
+- `i18n/ru.ts` + `i18n/en.ts` — 8 новых ключей: `events_log`, `events_empty`,
+  `evt_server_down/up`, `evt_provider_updated`, `evt_geo_reloaded`,
+  `evt_daemon_reload`, `evt_proxy_switched`.
+- `constant/index.ts` — `EventsLog = 'EventsLog'` в `OVERVIEW_CARD` enum.
+- `components/overview/EventsLog.vue` — карточка Overview: иконка + цвет по типу
+  события, `formatEvent()` через i18n с параметрами, max-h-48 scroll.
+- `views/OverviewPage.vue` — импорт и регистрация `EventsLog` в `cardComponents`.
+- `App.vue` — `useEventStream()` при старте приложения.
+
 ## [2.2.8] — 2026-05-13
 
 ### Fixed + Added (Rule tester + Subscription import preview)
