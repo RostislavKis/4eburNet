@@ -1,5 +1,42 @@
 # Changelog
 
+## [2.3.6] — 2026-05-13
+
+### Fixed (T0-02 XTLS Vision Block 1 — P3 закрыт)
+
+**`core/src/proxy/dispatcher.c`:**
+
+- `wolfssl_vless_drain_client()` — аналог `reality_vless_drain_client()` для
+  wolfSSL TLS path. Форвардит client→server (inner TLS ClientHello) через
+  `vision_write()` пока сервер не ответит VLESS response.
+  WHY: xray с xtls-rprx-vision ждёт inner TLS ClientHello перед VLESS response.
+  Без drain — deadlock: сервер ждёт ClientHello, dispatcher ждёт VLESS response.
+- Forward declaration `wolfssl_vless_drain_client` перед `relay_handle_tls`
+  (определение ниже в файле рядом с `reality_vless_drain_client`).
+- `RELAY_VLESS_SHAKE` handler — при `ep->is_client && r->vision && (ev & EPOLLIN)`
+  вызывает drain (вместо безусловного `return` как раньше).
+- Explicit drain после установки `r->state = RELAY_VLESS_SHAKE` (EPOLLET edge
+  на client_fd мог быть consumed во время TLS handshake фазы).
+- `#if CONFIG_VISION_ENABLED` guard на новые функции и точки вызова.
+
+**`core/Makefile.dev`:**
+
+- `-DCONFIG_VISION_ENABLED=1` добавлен в профили `normal` И `full`.
+  WHY: `cross-mipsel` target использует `PROFILE=normal` (L717),
+  предыдущий v2.3.5 binary собирался без Vision из-за этого.
+- `EBURNET_VERSION ?= 2.3.6`.
+
+**Верификация EC330 (82.202.197.2:52006, Germany #71, VLESS+TLS+Vision без Reality):**
+
+- curl → HTTP/1.1 200 OK + полный HTML Example Domain
+- logread:
+  - `VLESS: Vision flow активирован (xtls-rprx-vision)` — Block 1 init
+  - `TLS_SHAKE→VLESS_SHAKE` → `VLESS handshake завершён` → `VLESS_SHAKE→ACTIVE`
+  - `vup_entry: len=1184 cr=0 pr=0 hl=0 fi=1 b[0..7]=75807638 6f190bb8`
+    — UUID server prefix совпадает с user_uuid в state
+- `relay закрыт Vision: in=667 out=5659 lifetime=4s eof_up=1 eof_cli=1`
+- Нет `EOF при чтении ответа`, нет `passthrough detected`, нет `invalid cmd`.
+
 ## [2.3.5] — 2026-05-13
 
 ### Fixed (T0-02 XTLS Vision Block 1 hardening — P3)
