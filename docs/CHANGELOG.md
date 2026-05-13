@@ -1,5 +1,46 @@
 # Changelog
 
+## [2.3.13] — 2026-05-14
+
+### Fixed / Added (audit_v49 §11)
+
+**feat(dns): реализован механизм dns_static_hosts**
+
+- `config.h:80–89` — `dns_static_host_t { hostname[256], addr[64], is_ipv6 }` +
+  `#define DNS_STATIC_HOSTS_MAX 20`; поля `static_hosts[20]` + `static_hosts_count` в `DnsConfig`.
+- `config.c` list-блок — добавлена ветка `SECTION_DNS + static_hosts`:
+  парсит `domain=ip` из UCI `list static_hosts`; валидирует `inet_pton`; лимит 20 записей.
+- `dns_server.c:654` — lookup до cache/upstream: A→IPv4 TTL=300, AAAA→IPv6 TTL=300,
+  NODATA для отсутствующего типа; флаг `_sh_answered` + `continue` для skip upstream.
+- **Дефект**: первоначальный код вставлен в `option`-блок парсера; `list`-строки
+  обрабатываются отдельным блоком → исправлено добавлением ветки в `list`-блок (L1581+).
+
+**fix(ipc): ipc_read_full() + ipc_write_full() — EINTR-safe loop**
+
+- `ipc.c:597` — добавлены `static ssize_t ipc_read_full(fd, buf, n)` и
+  `ipc_write_full(fd, buf, n)` с циклом `while (done < n)` и обработкой `EINTR`.
+- Заменены все одиночные `read/write` в `ipc_send_command` и `ipc_send_command_payload`.
+- WHY: SOCK_STREAM не гарантирует доставку за один вызов — short-read мог молча
+  обрезать payload JSON без ошибки.
+
+**fix(dns): дефолт `fake_ip6_range = "fd00::/120"`**
+
+- `config.c:774` — в блоке defaults: `strncpy(cfg->dns.fake_ip6_range, "fd00::/120", ...)`.
+- UCI может переопределить; если нет — IPv6 fake-ip пул готов к включению.
+- EC330 подтверждено: лог `DNAT redirect: 198.18.0.0/16 и fd00::/120 → :7893` ✅
+
+**fix(config): LOG_WARN при наличии устаревших dns_rule секций**
+
+- `config.c:1620` — `log_msg(LOG_WARN, "config: обнаружено %d секций dns_rule — формат устарел…")`.
+- WHY: dns_rule устарел с v1.5.79; без warn пользователь не знает что секции игнорируются.
+
+**EC330 deploy 2026-05-14:** version 2.3.13, 3.1MB ✅
+- `test.local=1.2.3.4` → A 1.2.3.4 ✅
+- `ntc.party=130.255.77.28` → A 130.255.77.28 (из static_hosts, не fake-ip) ✅
+- `jackett=127.0.0.1` → A 127.0.0.1 ✅
+- AAAA для IPv4-only хоста → NODATA ✅
+- fd00::/120 в DNAT redirect ✅
+
 ## [2.3.12] — 2026-05-14
 
 ### Added (audit_v49 §10)
