@@ -184,10 +184,14 @@ typedef struct {
 
 /* Тип proxy-group */
 typedef enum {
-    PROXY_GROUP_SELECT       = 0,
-    PROXY_GROUP_URL_TEST     = 1,
-    PROXY_GROUP_FALLBACK     = 2,
-    PROXY_GROUP_LOAD_BALANCE = 3,
+    PROXY_GROUP_SELECT            = 0,
+    PROXY_GROUP_URL_TEST          = 1,
+    PROXY_GROUP_FALLBACK          = 2,
+    PROXY_GROUP_LOAD_BALANCE      = 3,
+    /* WHY: fastest-whitelist отбирает только CDN-серверы (не блокируются ТСПУ),
+     * из них выбирает с минимальной задержкой.
+     * Fallback: если CDN-серверов нет — берёт просто самый быстрый среди available. */
+    PROXY_GROUP_FASTEST_WHITELIST = 4,
 } proxy_group_type_t;
 
 typedef struct {
@@ -201,6 +205,10 @@ typedef struct {
     int                interval;       /* сек */
     int                timeout_ms;
     int                tolerance_ms;
+    /* WHY: стратегия балансировки нагрузки для PROXY_GROUP_LOAD_BALANCE.
+     * "round-robin" (default), "consistent-hashing", "sticky-sessions".
+     * Хранится в UCI: load_balance_strategy. */
+    char               load_balance_strategy[32];
     bool               enabled;
 } ProxyGroupConfig;
 

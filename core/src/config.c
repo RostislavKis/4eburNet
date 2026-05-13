@@ -1237,6 +1237,13 @@ int config_load(const char *path, EburNetConfig *cfg)
                         else if (strcmp(value, "fallback") == 0) g->type = PROXY_GROUP_FALLBACK;
                         else if (strcmp(value, "load-balance") == 0 ||
                                  strcmp(value, "load_balance") == 0) g->type = PROXY_GROUP_LOAD_BALANCE;
+                        else if (strcmp(value, "fastest-whitelist") == 0 ||
+                                 strcmp(value, "fastest_whitelist") == 0) g->type = PROXY_GROUP_FASTEST_WHITELIST;
+                    } else if (strcmp(key, "load_balance_strategy") == 0) {
+                        int _n = snprintf(g->load_balance_strategy,
+                                          sizeof(g->load_balance_strategy), "%s", value);
+                        if (_n < 0 || (size_t)_n >= sizeof(g->load_balance_strategy))
+                            log_msg(LOG_WARN, "config: обрезано: load_balance_strategy");
                     }
                     else if (strcmp(key, "servers") == 0) {
                         /* option servers 'a b c' → split по пробелу (legacy) */
