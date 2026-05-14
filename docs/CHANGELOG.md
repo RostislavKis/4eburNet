@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.3.42 (2026-05-14) — fix: RuleFormModal 4 hardcoded labels → i18n; docs: T-AND-01 tech debt
+
+- fix(dashboard): RuleFormModal.vue — 4 hardcoded label-text заменены на t()
+  'Тип правила' → t('ruleTypeLabel'), 'Условия OR' → t('ruleOrConditions')
+  'Значение' → t('ruleValueLabel'), 'Направить через' → t('ruleTargetLabel')
+- feat(i18n): 4 новых ключа в ru.ts и en.ts (основная секция)
+  ruleTypeLabel, ruleOrConditions, ruleValueLabel, ruleTargetLabel
+- docs: зафиксирован tech debt T-AND-01 — AND builder требует backend доработки
+  valid_rtypes[] (http_server.c:5530) не содержит "AND" → POST вернёт HTTP 400
+  rules_engine.c:526 поддерживает только NETWORK+DST-PORT, не and_conditions через API
+  Milestone: v2.5.0
+  Файлы: RuleFormModal.vue, ru.ts, en.ts, audit_v50.md; TypeScript 0 ошибок; build ok
+
 ## v2.3.41 (2026-05-14) — fix: SnifferSection QUIC SNI enable + quic stats + saveMessage i18n + bypass tooltip
 
 - fix(dashboard): SnifferSection.vue — QUIC SNI toggle разблокирован (реализован в v2.3.28, RFC 9001 §5)
