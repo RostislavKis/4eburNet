@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.23] — 2026-05-14 — audit_v49 §25
+
+- fix(dispatcher): RELAY_TIMEOUT_CHECK — tick_count % N заменён на CLOCK_MONOTONIC порог
+  WHY: при нагрузке тик = 1041мс → 100 тиков = ~100с вместо ~1с; зависшие соединения
+  обнаруживались с опозданием до 100×; теперь проверка каждые 1000мс реального времени
+  RELAY_TIMEOUT_CHECK_INTERVAL_MS=1000 в constants.h
+  dispatcher_state_t.last_timeout_check_ms инициализируется при старте (CLOCK_MONOTONIC)
+  EC330 ok 2026-05-14
+
 ## [2.3.22] — 2026-05-14 — audit_v49 §23-24
 
 - fix(dispatcher): Trojan + AnyTLS — map_fingerprint(server->reality_fingerprint)
