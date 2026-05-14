@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.22] — 2026-05-14 — audit_v49 §23-24
+
+- fix(dispatcher): Trojan + AnyTLS — map_fingerprint(server->reality_fingerprint)
+  вместо TLS_FP_CHROME120 хардкода (dispatcher.c:1048, 1373)
+  NULL-guard в map_fingerprint: пустая строка → TLS_FP_CHROME120 дефолт
+- feat(dashboard): dns_static_hosts UI — DNSFullConfig.vue секция hostname→IP
+  add/remove строк, PATCH на сохранении, i18n en+ru, tooltips на каждом поле
+- feat(api): GET /api/dns → static_hosts JSON array (write_dns_cache)
+  PATCH /api/dns → UCI delete+add_list+commit+kill -HUP
+- fix(api): убран лишний ,, перед static_hosts блоком в JSON ответе
+- fix(dashboard): tooltips на DPI полях: fake_ttl, whitelist_input, blacklist_input
+
 ## [2.3.20] — 2026-05-14
 
 ### Fixed (audit_v49 §21-22)
