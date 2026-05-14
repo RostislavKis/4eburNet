@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.3.36 (2026-05-14) — fix: DPI i18n quoted-dot keys + device policy values proxy/bypass/block/default
+
+- fix(i18n): DPI tooltip ключи с quoted-dot синтаксом переименованы в underscore
+  'dpi.fake_ttl_value' → dpi_fake_ttl_value; аналогично whitelist_input, blacklist_input
+  normalizeKey() конвертирует tip('dpi.fake_ttl_value') → tooltips.dpi_fake_ttl_value;
+  quoted-dot ключ не находился через Object property access → tooltip был пустым
+- fix(dashboard): DevicesConfig.vue — option values DIRECT/PROXY/REJECT → proxy/bypass/block/default
+  backend device_policy_valid() принимает proxy/bypass/block/default (не mihomo-значения)
+  HTTP 400 на каждый PATCH /api/devices/{mac} устранён
+- fix(dashboard): v-if guard DIRECT/REJECT → default/block (proxy_group input visibility)
+- fix(dashboard): badge colors: default/bypass=success, proxy=primary, block=error, группы=neutral
+- feat(i18n): policyDefault/Proxy/Bypass/Block добавлены в ru.ts и en.ts (основная секция)
+  Файлы: ru.ts, en.ts, DevicesConfig.vue
+
 ## v2.3.35 (2026-05-14) — feat: i18n tooltip keys — Overview/Conn/Rules/Devices/Transport/Settings/DNS (33 ключа)
 
 - feat(i18n): добавлены 33 отсутствующих tooltip-ключа в ru.ts и en.ts
