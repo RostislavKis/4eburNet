@@ -1,5 +1,31 @@
 # Changelog
 
+## v2.3.32 (2026-05-14) — fix: AnyTLS RTT guard + active relay + retry owner_cfg + grpc :status
+
+- fix(anytls): guard rtt_ms > 60000 в anytls_session_update_rtt()
+  Патологическое значение (таймаут HC / overflow uint32) фиксировало EWMA на ~64000ms
+  → padding lo×2 постоянно упирался в cap=1400; инвариант: RTT > 60с невалиден
+- fix(dispatcher): dispatcher_notify_anytls_rtt — обновление активных relay
+  Добавлен цикл по conns[]: relay_conn_t с state != RELAY_DONE и совпадающим server_idx
+  обновляют собственный anytls_session; CHANGELOG v2.3.29 "active relay update" выполнен
+- fix(dispatcher): relay_try_retry — g_config → r->owner_cfg при server lookup
+  Инвариант T1-26 "owner_cfg = snapshot": config_get_server(r->owner_cfg, new_idx) вместо
+  g_config; после SIGHUP g_config меняется в том же тике dispatcher_tick
+- fix(grpc): grpc_header_cb — обработка псевдо-заголовка :status
+  grpc_conn_t + grpc_hdr_cb_ctx_t: поле http_status (int, -1=неизвестен)
+  При :status != 200 (404/502/503) — errno=ECONNRESET, return -1 без ожидания DATA
+  Multiplex path (grpc_stream_t): http_status=NULL — поведение не изменено
+
+## v2.3.31 (2026-05-14) — fix: geo_loader path[264] + WS Bearer auth
+
+- fix(geo): geo_cat_t.path[256] → path[264]
+  bin_path[264] в geo_loader.c; musl-gcc -Werror=format-truncation → FAIL при несовпадении;
+  устраняет падение test-dns-geosite в cross-mipsel сборке
+- fix(http): Bearer auth для /ws/events до WebSocket 101 upgrade
+  s_api_token проверяется через header + ?token= QS; 401 до handshake
+- fix(http): Bearer + LAN double guard для /ws/console (/ssh) до 101 upgrade
+  Bearer check первым; ssh_is_lan_client — вторым; 403 при не-LAN; оба — pre-upgrade
+
 ## v2.3.30 (2026-05-14) — docs: ROADMAP + user_context актуализированы
 
 - docs: ROADMAP.md — T1-26/T1-07/T2-06 → ✅ архив; версия v2.3.29
