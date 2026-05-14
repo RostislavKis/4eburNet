@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.3.37 (2026-05-14) — fix: ServerFormModal 21× title= → v-tooltip + 14 i18n ключей + serverName tooltip
+
+- fix(dashboard): ServerFormModal.vue — все 21 вхождение title= заменены на v-tooltip="tip('ключ')"
+  native title= не поддерживает tippy.js positioning, mobile touch, overflow control
+  httpupgrade <option> title= удалён (tippy к <option> невозможен; Transport label уже имел v-tooltip)
+- fix(dashboard): serverName label span — добавлен v-tooltip="tip('server_name')" (B4 закрыт)
+- feat(i18n): 14 новых tooltip-ключей в ru.ts и en.ts (секция tooltips)
+  Transport: server_grpc_service_name, server_xhttp_path, server_xhttp_host, server_httpupgrade_path
+  AmneziaWG: awg_h1, awg_h2, awg_h3, awg_h4, awg_psk, awg_keepalive, awg_mtu, awg_dns_tunnel,
+             awg_reserved
+  Hysteria2: server_hy2_skip_tls
+  Файлы: ServerFormModal.vue, ru.ts, en.ts; TypeScript 0 ошибок; build ok
+
 ## v2.3.36 (2026-05-14) — fix: DPI i18n quoted-dot keys + device policy values proxy/bypass/block/default
 
 - fix(i18n): DPI tooltip ключи с quoted-dot синтаксом переименованы в underscore
