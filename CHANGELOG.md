@@ -1,5 +1,12 @@
 # 4eburNet — Changelog
 
+## v2.3.19 (2026-05-14) — audit_v49 §20
+
+- fix(api): PATCH /api/devices — валидация policy против enum {proxy|bypass|block|default}
+  произвольная строка записывалась в UCI без проверки; возвращает HTTP 400 при невалидном значении
+- fix(devices): device_traffic_get() — передаётся raw arp[i].mac вместо esc_mac
+  lookup функция ожидает оригинальный ключ, не escaped строку
+
 ## v2.3.18 (2026-05-14) — audit_v49 §17-19
 
 - docs: дополнен CHANGELOG.md записями v2.3.7–v2.3.17
