@@ -1,5 +1,21 @@
 # Changelog
 
+## audit_v49 ЗАКРЫТ — 2026-05-14 — все §1–§43, 0 открытых блокеров
+
+Итог v2.3.7–v2.3.25:
+
+- HPACK decoder RFC 7541 нативный (static+dynamic table, Huffman, 6 форматов)
+- TUIC v5 DATAGRAM recv (frag reassembly, ring-buffer queue, dispatcher drain)
+- DNS TC+EDNS0+SOA NXDOMAIN RFC compliance; dns_static_hosts UCI+API+dashboard
+- WS server Ping keepalive 45s/15s timeout
+- HTTP keep-alive для REST; DELETE /connections; IPC full-read/write loop
+- RELAY_TIMEOUT_CHECK CLOCK_MONOTONIC 1s; DPI_STRAT_DISORDER=4
+- IPv6 fake-ip default fd00::/120; bloom OOB fix geo:956
+- 25 atomics → memory_order_relaxed; hit_count saturation; sentinel selected_idx=-1
+- MIPS stack guards; snprintf truncation; Bearer fix; global rate limit
+- Trojan+AnyTLS map_fingerprint() unhard-coded; grpc-status parsing HEADERS frame
+- Vision cipher filter 0x1301–0x1304; procd restart без дублей; /ws/events ring buffer
+
 ## [2.3.25] — 2026-05-14 — audit_v49 §40
 
 - feat(tuic): TUIC v5 DATAGRAM recv path — UDP relay через QUIC DATAGRAM (RFC 9221)
