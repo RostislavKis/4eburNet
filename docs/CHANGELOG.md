@@ -3789,3 +3789,17 @@ TLS record) уходил в `continue` — бесконечный busy-wait. Sin
 - fix(security): Bearer pointer bug — strstr возвращал начало заголовка, а не значение токена; исправлено `auth += strlen("Authorization: Bearer ")` (http_server.c:3157)
 - docs: IPC_SCHEMA.md — добавлены dpi-get (cmd 40), dpi-set (cmd 41), таблица HTTP-only эндпоинтов
 - docs: user_context.md — исправлена устаревшая запись 4eb_token → setup/api-list[].password
+
+### v2.3.14 (2026-05-14) — audit_v49 §12
+
+- feat(dpi): DPI_STRAT_DISORDER=4 — TTL disorder стратегия (dpi_strategy.c/h)
+  dpi_disorder(): TTL save → low-TTL split → restore → full send
+  WHY: DPI на промежуточном хопе видит первые байты с TTL=1 (не доходят до сервера),
+  сервер получает корректный поток с нормальным TTL
+  disorder_enabled=false (default) / disorder_split=1 / disorder_ttl=1
+- feat(config): UCI поля dpi_disorder_enabled / dpi_disorder_split / dpi_disorder_ttl
+- feat(ipc): IPC_CMD_DPI_GET возвращает disorder поля; IPC_CMD_DPI_SET применяет их
+- feat(http): PATCH /api/dpi — disorder_enabled / disorder_split / disorder_ttl
+- fix(main): dpi-set добавлен в handle_ipc_with_payload map (payload не передавался)
+- docs: user_context.md — sniffer активен по умолчанию (cfg->sniffer.tls_sni=true),
+  disorder зафиксирован в §12
