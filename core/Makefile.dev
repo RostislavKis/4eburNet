@@ -58,7 +58,7 @@ endif
 # CONFIG_VISION_ENABLED=1 — Block 1 включён (v2.3.5 hardening: enableXTLS gate +
 # isCompleteRecord + no-splice). Тестовый сервер: 82.202.197.2:52006 (Germany #71/#82).
 EXTRA_CFLAGS ?=
-EBURNET_VERSION := 2.3.15
+EBURNET_VERSION := 2.3.16
 CFLAGS = -std=gnu2x -Wall -Wextra -Wsign-compare -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
          -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
          -ffunction-sections -fdata-sections \
