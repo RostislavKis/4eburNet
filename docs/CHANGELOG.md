@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.4.3 (2026-05-15) — T-AND-01 AND rules backend + T-LB-01 LB стратегии
+
+- feat(rules): AND правило полностью реализовано — sub_rules механика идентична OR,
+  UCI list `and_condition` → finalizing pass → `sub_rules[]` (ALL MUST MATCH)
+- feat(rules): RULE_TYPE_NETWORK = 15 — новый sub-тип для AND,((NETWORK,TCP),(DST-PORT,443)),TARGET
+- feat(rules): `parse_sub_condition` расширен: DST-PORT + NETWORK как sub-типы
+- feat(api): AND добавлен в valid_rtypes[] POST + PATCH; `need_value` guard учитывает AND
+- feat(api): POST /api/rules — AND block: `and_conditions[]` → UCI `add_list and_condition`
+- feat(api): PATCH /api/rules — AND block: del_list + add_list `and_condition`
+- feat(api): GET /api/rules — `and_conditions` ключ в JSON для AND правил (vs `sub_conditions` для OR)
+- feat(lb): `pg_fnv1a32` — FNV-1a 32-bit inline без зависимостей (proxy_group.h)
+- feat(lb): consistent-hashing — hash(dst_ip4) → детерминированный сервер для одного назначения
+- feat(lb): sticky-sessions — hash(src_ip4) → аффинити per-client; LRU eviction 256 слотов
+- feat(lb): `proxy_group_select_server` принимает src_ip4 + dst_ip4; dispatcher передаёт из conn->src
+- feat(lb): `rules_engine_get_server` принимает src_ip4, извлекает dst_ip4 из sockaddr_storage
+
 ## v2.4.2 (2026-05-15) — T3-01 LuCI Enhanced integration
 
 - feat(luci): Overview вкладка — статус демона (version/uptime/mode/profile), кнопки
