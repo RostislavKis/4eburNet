@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.3.33 (2026-05-14) — fix: hardcoded DNS 1.1.1.1/8.8.8.8 → net_get_fallback_dns1/2() в HC-файлах
+
+- fix(net_utils): добавлены net_get_fallback_dns1/2() — getter'ы статических переменных s_fb_dns1/s_fb_dns2
+  HC-функции принимают только ServerConfig* и не имеют доступа к g_config;
+  getter'ы позволяют получить актуальные UCI-значения без прямой зависимости от config.h
+- fix(hc_anytls, hc_tuic, hc_vmess): net_resolve_host_direct — "1.1.1.1"/"8.8.8.8" → getter'ы
+- fix(hc_vless): net_resolve_host_direct (строки 490-491) → getter'ы;
+  inet_pton строки 158/239 — placeholder IP в протокольном заголовке, сервер игнорирует; не DNS
+- fix(dispatcher): inline "8.8.8.8" в fallback ветке upstream_bypass → net_get_fallback_dns2()
+  Затронутые файлы: net_utils.h, net_utils.c, dispatcher.c, hc_anytls.c, hc_tuic.c, hc_vless.c, hc_vmess.c
+  13 вхождений устранено; 0 hardcoded DNS вне net_utils.c (last-resort дефолт); все тесты ALL PASS; 3.2MB
+
 ## v2.3.32 (2026-05-14) — fix: AnyTLS RTT guard + active relay + retry owner_cfg + grpc :status
 
 - fix(anytls): guard rtt_ms > 60000 в anytls_session_update_rtt()
