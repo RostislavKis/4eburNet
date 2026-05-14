@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.3.38 (2026-05-14) — fix: tooltips DNSFullConfig×7 + GeoConfig×4 + ImportSubModal×4 + DevicesConfig×9 + 18 i18n ключей
+
+- fix(dashboard): DNSFullConfig.vue — 4 кнопки "Тест" (fallback/doh/dot/doq) получили v-tooltip
+  dns_test_fallback/doh/dot/doq; кнопки без tooltip не объясняли тип теста и цель
+- fix(dashboard): DNSFullConfig.vue — 3 label-text без tooltip: Grace период, IPv4/IPv6 диапазон
+  dns_stale_grace, dns_fake_ip_range_v4, dns_fake_ip_range_v6
+- fix(dashboard): GeoConfig.vue — 3 th без tooltip (Файл/Записей/Размер) + Статус title= → v-tooltip
+  geo_file, geo_records, geo_size, geo_status; импорт useTooltip добавлен в script setup
+- fix(dashboard): ImportSubModal.vue — 4 th без tooltip (Имя/Протокол/Адрес/Порт)
+  import_name, import_proto, import_addr, import_port; импорт useTooltip добавлен
+- fix(dashboard): DevicesConfig.vue — кнопка 🔄 + 9 th без tooltip
+  device_reload; device_mac, device_name_ip, device_policy_col, device_proxy_group,
+  device_tx, device_rx, device_conn_count, device_status
+- feat(i18n): 18 новых tooltip-ключей добавлены в ru.ts и en.ts (секция tooltips)
+  Файлы: DNSFullConfig.vue, GeoConfig.vue, ImportSubModal.vue, DevicesConfig.vue, ru.ts, en.ts
+  TypeScript 0 ошибок; build 1.52s ok
+
 ## v2.3.37 (2026-05-14) — fix: ServerFormModal 21× title= → v-tooltip + 14 i18n ключей + serverName tooltip
 
 - fix(dashboard): ServerFormModal.vue — все 21 вхождение title= заменены на v-tooltip="tip('ключ')"
