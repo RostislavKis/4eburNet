@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.0+1 (2026-05-14) — docs: ROADMAP.md актуализирован — v2.4.0, audit_v50 архив, T-AND-01 + T-LB-01
+
+- docs: ROADMAP.md — версия и дата обновлены до v2.4.0 / 2026-05-14
+- docs: Tier 1 помечен закрытым (v2.3.30); добавлена метка "Все задачи Tier 1 закрыты"
+- docs: Tier 3 — добавлена таблица BLOCKED: T-AND-01 (AND builder) + T-LB-01 (lb стратегии)
+- docs: новая секция "Архив закрытых задач" — таблица Audits + Dashboard/API (14 строк, P1–P14)
+- docs: Status log — запись audit_v50 ЗАКРЫТ (14/29/36 → 0/0/0, P1–P14)
+
 ## v2.4.0 / v2.3.44 (2026-05-14) — feat: SSHConsolePage xterm.js — FitAddon + JSON resize + exit/error handling + i18n
 
 - feat(dashboard): SSHConsolePage.vue — полная замена dumb terminal на xterm.js
