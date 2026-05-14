@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.4.0 / v2.3.44 (2026-05-14) — feat: SSHConsolePage xterm.js — FitAddon + JSON resize + exit/error handling + i18n
+
+- feat(dashboard): SSHConsolePage.vue — полная замена dumb terminal на xterm.js
+  Terminal + FitAddon (авто cols/rows) + WebLinksAddon (кликабельные ссылки)
+  ResizeObserver следит за контейнером — FitAddon.fit() + sendResize() при каждом resize
+  onData перехватывает все нажатия (Ctrl+C ETX, Ctrl+D EOT, Tab, стрелки) напрямую
+  theme: #1d232a/e5e7eb/a6e3a1 совместимо с DaisyUI night theme
+- fix(dashboard): JSON resize вместо ANSI escape — backend (http_server.c:567) ожидает
+  {"type":"resize","rows":N,"cols":M}, НЕ \x1b[8;rows;colst
+- fix(dashboard): WS URL через activeBackend + getUrlFromBackend — паттерн как в api/index.ts:517
+  ?token=password, arraybuffer mode, auto-reconnect ×5 с 2с задержкой
+- fix(dashboard): парсинг {"type":"exit"} от backend — корректное завершение без реконнекта
+- fix(dashboard): 2 hardcoded строки ошибок → t('sshError')/t('sshWsError')
+- feat(i18n): 2 новых ключа: sshError, sshWsError в ru.ts и en.ts
+- fix(pwa): vite.config.ts — maximumFileSizeToCacheInBytes 4MB (xterm.js ~400KB overhead)
+  Установлены: @xterm/xterm@6, @xterm/addon-fit, @xterm/addon-web-links
+  TypeScript 0 ошибок; build 1.51s ok
+
 ## v2.3.43 (2026-05-14) — fix: TopologyCharts 14 CN→RU + 4 tooltips; ProxyGroupEditModal rm sticky/consistent-hashing; docs: T-LB-01
 
 - fix(dashboard): TopologyCharts.vue — 14 китайских комментариев переведены на русский
