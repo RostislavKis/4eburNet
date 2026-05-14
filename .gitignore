@@ -1,6 +1,8 @@
-# Публичный репо: только README + лого + CHANGELOG.
+# Публичный репо: только README + лого + docs/CHANGELOG.
 *
 !README.md
-!CHANGELOG.md
 !4eburNet.png
 !.gitignore
+!docs/
+docs/*
+!docs/CHANGELOG.md
