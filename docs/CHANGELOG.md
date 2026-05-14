@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.3.25] — 2026-05-14 — audit_v49 §40
+
+- feat(tuic): TUIC v5 DATAGRAM recv path — UDP relay через QUIC DATAGRAM (RFC 9221)
+  tuic_v5.h: tuic_frag_entry_t +addr_str/frag_port; tuic_udp_pkt_t/tuic_udp_queue_t (ring-8);
+  tuic_conn_t +udp_q; tuic_conn_recv_udp_datagram() API
+  tuic_v5_proto.c: tuic_defrag_add расширен — addr_in/port_in при frag_id==0 сохраняется
+  в entry; addr_out/port_out возвращаются при сборке до reset
+  tuic_v5_conn.c: tuic_addr_fmt() + tuic_udp_queue_push() helpers;
+  tuic_process_incoming() ветка ftype 0x30/0x31 (QUIC DATAGRAM): decode CMD_PACKET,
+  frag_total==1 → прямой push; frag_total>1 → defrag + push; tuic_conn_recv_udp_datagram()
+  dispatcher.c: RELAY_TUIC_ACTIVE else-ветка — drain udp_q после recv_dispatch →
+  write(client_fd) для каждого собранного UDP пакета
+  WHY: ранее ftype 0x30/0x31 → else{break} — все QUIC DATAGRAM frames игнорировались;
+  UDP relay в native mode не работал
+
 ## [2.3.24] — 2026-05-14 — audit_v49 §34
 
 - feat(h2): нативный HPACK decoder RFC 7541 без внешних зависимостей
