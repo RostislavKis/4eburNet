@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.3.30 (2026-05-14) — docs: ROADMAP + user_context актуализированы
+
+- docs: ROADMAP.md — T1-26/T1-07/T2-06 → ✅ архив; версия v2.3.29
+- docs: user_context.md — версия v2.3.29, current state обновлён
+
+## v2.3.29 (2026-05-14) — T2-06 AnyTLS RTT-aware padding
+
+- feat(anytls): BBR-aware RTT-adaptive padding
+  anytls_session_t: observed_rtt_ms (EWMA α=0.25 из HC результатов)
+  anytls_session_update_rtt(): обновление из HC и активных relay
+  anytls_pad_get_size(): +rtt_ms параметр; lo ×1.5 при RTT>100ms, ×2 при RTT>200ms, cap=hi
+  anytls_pool_update_rtt(): обновление idle сессий пула
+  dispatcher_notify_anytls_rtt(): forward extern — обход circular dep
+  proxy_group_handle_hc_event(): вызов notify при каждом успешном HC
+  61 тест ALL PASS
+
 ## audit_v49 ЗАКРЫТ — 2026-05-14 — все §1–§43, 0 открытых блокеров
 
 Итог v2.3.7–v2.3.25:
