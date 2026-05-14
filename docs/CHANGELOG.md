@@ -4004,3 +4004,25 @@ TLS record) уходил в `continue` — бесконечный busy-wait. Sin
   T1-07 QUIC SNI, T1-23 YAML parser, T1-26 graceful reload,
   T2-03 eBPF Flint2, T2-06 AnyTLS BBR padding,
   T3-01 LuCI, T3-02 coverage, T3-03 CI/CD, T3-04 benchmarks, T3-05 release
+
+### v2.3.27 (2026-05-14) — T1-26 config ref-count UAF fix
+
+- fix(config): атомарный ref-count на EburNetConfig (_Atomic uint32_t ref_count)
+  config.h: eburnet_config_ref() / eburnet_config_unref() — acquire/release семантика
+  config.c: config_unref() вызывает free только при ref_count==0
+  dispatcher.c: config_ref() при старте relay, config_unref() в relay_free()
+  main.c: SIGHUP — старый конфиг unref после атомарной замены указателя
+  WHY: graceful reload (T1-26) — воркеры держат ссылку на конфиг пока активны;
+  без ref-count SIGHUP вызывал UAF при обращении к освобождённому конфигу
+
+### v2.3.28 (2026-05-14) — T1-07 Sniffer QUIC SNI (RFC 9001)
+
+- feat(sniffer): полная расшифровка QUIC Initial packet для SNI extraction (RFC 9001 §5)
+  sniffer.h: sniffer_quic_test_derive_keys() под #ifdef EBURNET_TEST; обновлён docstring
+  sniffer.c: quic_hkdf_expand_label() — HKDF-Expand-Label (RFC 8446 §7.1) через hmac_sha256_2()
+  sniffer.c: quic_derive_initial_keys() — key/iv/hp из DCID; salt QUICv1 RFC 9001 §5.2
+  sniffer.c: sniffer_parse_quic_sni() переписан — AES-ECB header protection removal,
+  AES-128-GCM payload decrypt, CRYPTO frame scan → sniffer_parse_tls_sni_from_buf()
+  test_sniffer.c: T16 (RFC 9001 Appendix A.1 test vectors), T17 (round-trip encrypt→sniff)
+  Makefile.dev: test-sniffer — wolfSSL включён в компиляцию тестов
+  42 тестов ALL PASS; mipsel binary 3.2MB
