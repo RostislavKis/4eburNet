@@ -223,7 +223,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Проверка наличия исходников
+        id: check-src
+        run: |
+          [ -d dashboard-src ] && echo "has_source=true" >> $GITHUB_OUTPUT \
+                               || echo "has_source=false" >> $GITHUB_OUTPUT
+
       - name: Настройка Node.js
+        if: steps.check-src.outputs.has_source == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -231,12 +238,15 @@ jobs:
           cache-dependency-path: dashboard-src/package-lock.json
 
       - name: Установка зависимостей
+        if: steps.check-src.outputs.has_source == 'true'
         run: cd dashboard-src && npm ci
 
       - name: Сборка dashboard
+        if: steps.check-src.outputs.has_source == 'true'
         run: cd dashboard-src && npm run build
 
       - name: Загрузка dashboard dist
+        if: steps.check-src.outputs.has_source == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dashboard-dist

@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.4.1+1 (2026-05-15) — fix: CI dashboard job — check-src guard (dashboard-src gitignored в публичном репо)
+
+- fix(ci): dashboard job — добавлен check-src guard: `[ -d dashboard-src ]` → has_source
+  все шаги пропускаются если dashboard-src/ отсутствует; поведение симметрично test/build jobs
+
 ## v2.4.1 (2026-05-14) — feat: T3-03 CI/CD GitHub Actions — build×3arch + tests + dashboard + release на v*
 
 - feat: .github/workflows/build.yml — CI/CD pipeline: jobs test + build(mipsel/aarch64/x86_64) + dashboard + release
