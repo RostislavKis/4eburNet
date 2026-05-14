@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.4.1 (2026-05-14) — feat: T3-03 CI/CD GitHub Actions — build×3arch + tests + dashboard + release на v*
+
+- feat: .github/workflows/build.yml — CI/CD pipeline: jobs test + build(mipsel/aarch64/x86_64) + dashboard + release
+- feat(ci): test job — wolfSSL host (musl-gcc) + make -f Makefile.dev test
+- feat(ci): build job — matrix×3arch: OpenWrt SDK download + wolfSSL cross-compile + 4eburnetd + IPK
+- feat(ci): dashboard job — Node 22 + npm ci + npm run build (параллельно с build)
+- feat(ci): release job — GitHub Release на тег v* с IPK × 3arch + dashboard_assets.tar.gz
+- fix(ci): guard has_source — все шаги пропускаются если core/ отсутствует (публичное репо без исходников)
+- feat(scripts): armv7 добавлен в scripts/build.sh — ARMV7_SDK + SDK_PATH + OPENWRT_ARCH + case + all loop
+- fix(makefile): PKG_VERSION динамический — grep из Makefile.dev (устранён рассинхрон 1.5.180 vs 2.3.30)
+
 ## v2.4.0+1 (2026-05-14) — docs: ROADMAP.md актуализирован — v2.4.0, audit_v50 архив, T-AND-01 + T-LB-01
 
 - docs: ROADMAP.md — версия и дата обновлены до v2.4.0 / 2026-05-14

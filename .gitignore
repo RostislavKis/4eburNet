@@ -1,4 +1,4 @@
-# Публичный репо: только README + лого + docs/CHANGELOG.
+# Публичный репо: только README + лого + docs/CHANGELOG + CI/CD workflow.
 *
 !README.md
 !4eburNet.png
@@ -6,3 +6,6 @@
 !docs/
 docs/*
 !docs/CHANGELOG.md
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
