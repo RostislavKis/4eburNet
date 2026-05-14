@@ -1,0 +1,304 @@
+name: 4eburNet CI/CD
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+
+# WHY: одновременно может идти только один workflow на ветку;
+# новый push отменяет предыдущий незавершённый run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WOLFSSL_VERSION: "5.9.0"
+  WOLFSSL_FLAGS: "--enable-all --enable-static --disable-shared --enable-static-ephemeral --disable-examples --disable-crypttests"
+
+jobs:
+
+  # ─── Тесты на host x86_64 (musl-gcc) ─────────────────────────────────
+  test:
+    name: Тесты (host x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # WHY: в публичном репо core/ отсутствует; все шаги пропускаются,
+      # job проходит зелёным без ошибок.
+      - name: Проверка наличия исходников
+        id: check-src
+        run: |
+          [ -d core ] && echo "has_source=true" >> $GITHUB_OUTPUT \
+                      || echo "has_source=false" >> $GITHUB_OUTPUT
+
+      - name: Установка зависимостей
+        if: steps.check-src.outputs.has_source == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            musl-tools autoconf automake libtool make
+
+      - name: Кэш wolfSSL host
+        if: steps.check-src.outputs.has_source == 'true'
+        id: cache-wolfssl-host
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/musl-wolfssl
+          key: wolfssl-host-${{ env.WOLFSSL_VERSION }}-${{ runner.os }}
+
+      # WHY: TEST_CC = musl-gcc → тесты линкуются с musl libc;
+      # wolfSSL должен быть собран тем же CC, иначе символы не совпадут.
+      - name: Сборка wolfSSL (host, musl-gcc)
+        if: steps.check-src.outputs.has_source == 'true' && steps.cache-wolfssl-host.outputs.cache-hit != 'true'
+        run: |
+          wget -q "https://github.com/wolfSSL/wolfssl/archive/refs/tags/v${WOLFSSL_VERSION}-stable.tar.gz" \
+               -O wolfssl.tar.gz
+          tar -xzf wolfssl.tar.gz
+          cd "wolfssl-${WOLFSSL_VERSION}-stable"
+          ./autogen.sh
+          CC=musl-gcc ./configure --prefix=/usr/local/musl-wolfssl $WOLFSSL_FLAGS
+          make -j$(nproc)
+          sudo make install
+
+      - name: Запуск тестов
+        if: steps.check-src.outputs.has_source == 'true'
+        working-directory: core
+        run: make -f Makefile.dev test
+        env:
+          WOLFSSL_X86_64: /usr/local/musl-wolfssl
+
+  # ─── Кросс-компиляция + IPK (матрица: 3 архитектуры) ─────────────────
+  build:
+    name: Сборка ${{ matrix.arch }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # WHY: провал одной арки не останавливает остальные
+      matrix:
+        include:
+          - arch: mipsel
+            sdk_release: "23.05.5"
+            sdk_target: "ramips/mt7621"
+            sdk_name: "openwrt-sdk-23.05.5-ramips-mt7621_gcc-12.3.0_musl.Linux-x86_64"
+            wolfssl_prefix: /usr/local/musl-wolfssl-mipsel
+            tc_var: TC_MIPSEL
+            wolfssl_var: WOLFSSL_MIPSEL
+            tc_prefix: mipsel-openwrt-linux-musl
+            cross_target: cross-mipsel
+
+          - arch: aarch64
+            sdk_release: "25.12.0"
+            sdk_target: "mediatek/filogic"
+            sdk_name: "openwrt-sdk-25.12.0-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64"
+            wolfssl_prefix: /usr/local/musl-wolfssl-aarch64
+            tc_var: TC_AARCH64
+            wolfssl_var: WOLFSSL_AARCH64
+            tc_prefix: aarch64-openwrt-linux-musl
+            cross_target: cross-aarch64
+
+          - arch: x86_64
+            sdk_release: "23.05.5"
+            sdk_target: "x86/64"
+            sdk_name: "openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64"
+            wolfssl_prefix: /usr/local/musl-wolfssl-x86_64
+            tc_var: TC_X86_64
+            wolfssl_var: WOLFSSL_X86_64
+            tc_prefix: x86_64-openwrt-linux-musl
+            cross_target: cross-x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверка наличия исходников
+        id: check-src
+        run: |
+          [ -d core ] && echo "has_source=true" >> $GITHUB_OUTPUT \
+                      || echo "has_source=false" >> $GITHUB_OUTPUT
+
+      - name: Установка зависимостей сборки
+        if: steps.check-src.outputs.has_source == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential make wget autoconf automake libtool \
+            python3 rsync unzip libncurses5-dev zlib1g-dev gawk git gettext
+
+      - name: Кэш OpenWrt SDK (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true'
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: ~/sdk/${{ matrix.arch }}
+          key: sdk-${{ matrix.arch }}-${{ matrix.sdk_release }}
+
+      - name: Загрузка OpenWrt SDK
+        if: steps.check-src.outputs.has_source == 'true' && steps.cache-sdk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/sdk/${{ matrix.arch }}
+          URL="https://downloads.openwrt.org/releases/${{ matrix.sdk_release }}/targets/${{ matrix.sdk_target }}/${{ matrix.sdk_name }}.tar.xz"
+          wget -q "$URL" -O sdk.tar.xz
+          tar -xJf sdk.tar.xz -C ~/sdk/${{ matrix.arch }} --strip-components=1
+
+      - name: Кэш wolfSSL (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true'
+        id: cache-wolfssl
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.wolfssl_prefix }}
+          key: wolfssl-${{ matrix.arch }}-${{ env.WOLFSSL_VERSION }}-${{ matrix.sdk_release }}
+
+      # WHY: wolfSSL собирается кросс-компилятором из SDK toolchain,
+      # кэшируется по тройке arch+wolfssl_version+sdk_release.
+      - name: Сборка wolfSSL (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true' && steps.cache-wolfssl.outputs.cache-hit != 'true'
+        run: |
+          TC_BIN=$(find ~/sdk/${{ matrix.arch }}/staging_dir/ \
+                    -maxdepth 1 -name "toolchain-*" -type d | head -1)/bin
+          wget -q "https://github.com/wolfSSL/wolfssl/archive/refs/tags/v${WOLFSSL_VERSION}-stable.tar.gz" \
+               -O wolfssl.tar.gz
+          tar -xzf wolfssl.tar.gz
+          cd "wolfssl-${WOLFSSL_VERSION}-stable"
+          ./autogen.sh
+          PATH="${TC_BIN}:$PATH" \
+          CC="${{ matrix.tc_prefix }}-gcc" \
+          AR="${{ matrix.tc_prefix }}-ar" \
+          RANLIB="${{ matrix.tc_prefix }}-ranlib" \
+          ./configure \
+            --host="${{ matrix.tc_prefix }}" \
+            --prefix=${{ matrix.wolfssl_prefix }} \
+            $WOLFSSL_FLAGS
+          make -j$(nproc)
+          sudo make install
+
+      - name: Кросс-компиляция 4eburnetd (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true'
+        run: |
+          TC_BIN=$(find ~/sdk/${{ matrix.arch }}/staging_dir/ \
+                    -maxdepth 1 -name "toolchain-*" -type d | head -1)/bin
+          # WHY: EBURNET_VERSION явно — Makefile.dev default не всегда
+          # пробрасывается в sub-make при кросс-компиляции.
+          EBURNET_VER=$(grep -m1 'EBURNET_VERSION[[:space:]]*:=' \
+                        core/Makefile.dev | sed 's/.*:=\s*//' | tr -d ' ')
+          # WHY: BUILDDIR абсолютный — relative ../../build от core/
+          # выходит за пределы workspace и ломает артефакт-upload.
+          cd core
+          make -f Makefile.dev ${{ matrix.cross_target }} \
+            ${{ matrix.tc_var }}="${TC_BIN}" \
+            ${{ matrix.wolfssl_var }}="${{ matrix.wolfssl_prefix }}" \
+            EBURNET_VERSION="$EBURNET_VER" \
+            BUILDDIR="$RUNNER_TEMP/4eburnet-${{ matrix.arch }}"
+
+      - name: Сборка IPK (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true'
+        run: |
+          MIPSEL_SDK=~/sdk/mipsel \
+          AARCH64_SDK=~/sdk/aarch64 \
+          ARMV7_SDK=~/sdk/armv7 \
+          X86_64_SDK=~/sdk/x86_64 \
+          bash scripts/build.sh ${{ matrix.arch }}
+
+      - name: Загрузка бинарника (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: 4eburnetd-${{ matrix.arch }}
+          path: prebuilt/${{ matrix.arch }}/4eburnetd
+          retention-days: 7
+
+      - name: Загрузка IPK (${{ matrix.arch }})
+        if: steps.check-src.outputs.has_source == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipk-${{ matrix.arch }}
+          path: build/${{ matrix.arch }}/*.ipk
+          retention-days: 30
+
+  # ─── Dashboard build (параллельно с build) ────────────────────────────
+  dashboard:
+    name: Dashboard build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Настройка Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: dashboard-src/package-lock.json
+
+      - name: Установка зависимостей
+        run: cd dashboard-src && npm ci
+
+      - name: Сборка dashboard
+        run: cd dashboard-src && npm run build
+
+      - name: Загрузка dashboard dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard-src/dist/
+          retention-days: 7
+
+  # ─── Release (только на тег v*) ───────────────────────────────────────
+  release:
+    name: Release
+    needs: [test, build, dashboard]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # WHY: нужно для создания GitHub Release и загрузки assets
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверка наличия исходников
+        id: check-src
+        run: |
+          [ -d core ] && echo "has_source=true" >> $GITHUB_OUTPUT \
+                      || echo "has_source=false" >> $GITHUB_OUTPUT
+
+      - name: Загрузка IPK артефактов
+        if: steps.check-src.outputs.has_source == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ipk-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: Загрузка dashboard dist
+        if: steps.check-src.outputs.has_source == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: dashboard-dist
+          path: release-dashboard/
+
+      - name: Упаковка dashboard assets
+        if: steps.check-src.outputs.has_source == 'true'
+        run: |
+          tar -czf release-assets/dashboard_assets.tar.gz \
+              -C release-dashboard .
+
+      - name: Извлечение changelog для версии
+        if: steps.check-src.outputs.has_source == 'true'
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          NOTES=$(awk "/^## ${VERSION}/,/^## v[0-9]/" docs/CHANGELOG.md \
+                  | grep -v "^## v[0-9]" | head -50 || echo "")
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Создание GitHub Release
+        if: steps.check-src.outputs.has_source == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "4eburNet ${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.notes }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          files: release-assets/*
