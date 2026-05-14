@@ -1,3 +1,11 @@
+### v2.3.17 (2026-05-14) — audit_v49 §16
+
+- feat(test): smoke-тесты для hc_vmess_spawn — 6 PASS (T1-T4: NULL guards + ECONNREFUSED)
+- feat(test): smoke-тесты для hc_anytls_spawn — 4 PASS (T1: NULL + T2: ECONNREFUSED)
+- feat(test): smoke-тесты для hc_tuic_spawn — 4 PASS (T1: NULL + T2: QUIC недоступный UDP)
+  Все три теста добавлены в test: и .PHONY: цели Makefile.dev
+  tuic_uuid strncpy n=sizeof (не n-1) — поле ровно 37 байт
+
 ### v2.3.15 (2026-05-14) — audit_v49 §13
 
 - fix(config): mixed_port, awg_itime — заменены strtoul без проверки на parse_int_uci
