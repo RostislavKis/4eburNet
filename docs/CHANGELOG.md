@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.4.2 (2026-05-15) — T3-01 LuCI Enhanced integration
+
+- feat(luci): Overview вкладка — статус демона (version/uptime/mode/profile), кнопки
+  start/stop/reload, ссылка на Dashboard :8080, poll аптайма каждые 5с
+- feat(luci): Settings вкладка — mixed_port, tproxy_port, upstream DNS (default/bypass/fallback),
+  fake_ip_enabled; применяется через /api/network + /api/dns демона
+- feat(luci): Logs вкладка — последние 80 строк logread | grep 4eburnet, poll каждые 10с
+- feat(luci): rpcd ucode +4 метода: control, config_get, config_set, logs
+- feat(luci): ACL write права: control + config_set
+- feat(luci): menu.d +2 пункта: Настройки (order:20), Логи (order:30)
+- feat(luci): po/ru +33 строки перевода
+
+## v2.4.1 (2026-05-15) — T3-03 CI/CD GitHub Actions
+
+- feat(ci): .github/workflows/build.yml — 4 jobs: test + build (matrix mipsel/aarch64/x86_64) + dashboard + release
+- feat(ci): wolfSSL 5.9.0 кэш по arch+version+sdk, SDK кэш ~150MB/arch
+- feat(ci): check-src guard — зелёный статус в публичном репо без исходников
+- feat(ci): release job — автоматический GitHub Release на тег v* с CHANGELOG секцией
+- fix(makefile): PKG_VERSION динамически читается из Makefile.dev (был рассинхронизирован
+  1.5.180 vs 2.3.30)
+- fix(build.sh): добавлена архитектура armv7 (4-я целевая платформа)
+
 ## v2.4.1+1 (2026-05-15) — fix: CI dashboard job — check-src guard (dashboard-src gitignored в публичном репо)
 
 - fix(ci): dashboard job — добавлен check-src guard: `[ -d dashboard-src ]` → has_source
