@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.3.35 (2026-05-14) — feat: i18n tooltip keys — Overview/Conn/Rules/Devices/Transport/Settings/DNS (33 ключа)
+
+- feat(i18n): добавлены 33 отсутствующих tooltip-ключа в ru.ts и en.ts
+  Все ключи вставлены в секцию tooltips: после существующих server_stls_* записей
+- feat(i18n/Overview ×5): overview_traffic_chart, overview_rule_hits, overview_topology,
+  overview_dpi_toggle, overview_adblock_toggle
+- feat(i18n/Connections ×5): conn_close_one, conn_close_all, conn_search, conn_pause,
+  conn_destination
+- feat(i18n/Rules ×7): rule_type, rule_value, rule_target, rule_enabled, rule_test,
+  rule_test_input, rule_delete
+- feat(i18n/Devices ×5): device_mac, device_proxy_group, device_tx, device_rx,
+  device_conn_count
+- feat(i18n/Transport ×7): server_name, server_ws_path, server_ws_host, server_reality_fp,
+  server_tuic_cc_profile, server_hy2_obfs, server_hy2_obfs_password
+- feat(i18n/Settings ×2): settings_mixed_port, settings_tproxy_port
+- feat(i18n/DNS ×1): dns_fake_ip_enable
+  TypeScript 0 ошибок; ru.ts и en.ts — паритет ключей
+
 ## v2.3.34 (2026-05-14) — fix: vTooltip directive → tippy.js + shift middleware + mobile touch
 
 - fix(dashboard): vTooltip directive переведён с native title= на tippy.js
