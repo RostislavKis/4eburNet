@@ -1,5 +1,44 @@
 # Changelog
 
+## [2.3.20] — 2026-05-14
+
+### Fixed (audit_v49 §21-22)
+
+**fix(dns): EDNS0 udp_payload_size — согласование UDP MTU (RFC 6891 §6.2.3)**
+
+- `dns_packet.h:31-32` — поля `has_edns` / `edns_udp_size` в `dns_query_t`.
+- `dns_cookie.h` — расширена сигнатура `dns_cookie_parse_query` двумя out-параметрами.
+- `dns_cookie.c` — при TYPE=41 (OPT RR): CLASS field → `edns_udp_size`, min 512.
+- `dns_packet.c` — `dns_parse_query` передаёт `&q->has_edns`, `&q->edns_udp_size`.
+- WHY: без EDNS0 сервер слепо отвечал в 512 байт; при EDNS0 можно до 4096 (DNS_MAX_PACKET).
+
+**fix(dns): TC truncation — RFC 1035 §4.2.1**
+
+- `dns_server.c:429-439` — перед `sendto()`: если `final_len > max_udp` → `buf[2] |= 0x02` (TC=1), ответ усекается до `max_udp`.
+- `max_udp`: 512 без EDNS0, `min(edns_udp_size, DNS_MAX_PACKET)` с EDNS0.
+- WHY: без TC=1 клиент считает ответ полным и не переспрашивает по TCP.
+
+**fix(dns): SOA в Authority section для NXDOMAIN (RFC 2308 §3)**
+
+- `dns_packet.c` `dns_build_nxdomain` — добавлена SOA RR в authority section (NSCOUNT=1).
+- SOA: MNAME=localhost, RNAME=hostmaster.localhost, TTL=300, minimum=300.
+- Graceful: если буфера (512 B) не хватает — ответ без SOA, NSCOUNT=0.
+- WHY: RFC 2308 требует SOA для отрицательного кэширования (negative TTL).
+
+**feat(ws): server-initiated Ping keepalive (RFC 6455 §5.5.2)**
+
+- `ws.h` — объявлен `ws_send_ping(HttpConn*, int epoll_fd)`.
+- `ws_frame.c:129-136` — пустой Ping-фрейм (FIN=1, opcode=0x9, payload=0).
+- `http_server.h:21-22` — `WS_PING_INTERVAL_S=45`, `WS_PONG_TIMEOUT_S=15`.
+- `http_server.h:71-73` — поля `ws_last_ping_ms`, `ws_last_pong_ms`, `ws_ping_pending`.
+- `http_server.c` — `WS_OP_PONG` обработчик обновляет `ws_last_pong_ms`; `http_server_tick` отправляет Ping каждые 45 с, закрывает 1001 если нет Pong за 15 с.
+- WHY: без keepalive NAT-таблица (idle 60-120 с) рвёт WS-соединение молча.
+
+**EC330 deploy 2026-05-14:** version 2.3.20, 3.2MB ✅
+- EDNS0 neg-cache TTL согласован, TC=1 при усечении ✅
+- NXDOMAIN содержит SOA в Authority (NSCOUNT=1) ✅
+- WS Ping/Pong keepalive активен ✅
+
 ## [2.3.19] — 2026-05-14
 
 ### Fixed (audit_v49 §20)
