@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.3.39 (2026-05-14) — fix: i18n RuleTestModal + ImportSubModal×12 + SSHConsolePage — useI18n + 33 ключа
+
+- fix(dashboard): RuleTestModal.vue — добавлен useI18n; все 10 hardcoded строк заменены на t()
+  ruleTestTitle/Hint/Btn/Found/Miss/Rule/Direction/Server/History/Close
+- fix(dashboard): ImportSubModal.vue — 12 hardcoded строк заменены на t()
+  importSubUrl/OrPaste/Raw/Found/Servers/SelectAll/ClearAll/Group/Back/Add/Added/Errors/Done
+  строки с интерполяцией: importSubAdd {n}, importSubAdded {added}, importSubErrors {errors}
+- fix(dashboard): SSHConsolePage.vue — добавлен useI18n; 9 строк заменены на t()
+  шаблон: sshDisconnect/Connect, sshClear, sshConnected/Disconnected, :placeholder, sshSend
+  JS callbacks: sshSessionOpened/Closed/ConnectionClosed в appendOutput через template literals
+- feat(i18n): 33 новых ключа в ru.ts и en.ts (основная секция, не tooltips)
+  Файлы: RuleTestModal.vue, ImportSubModal.vue, SSHConsolePage.vue, ru.ts, en.ts
+  TypeScript 0 ошибок; build ok
+
 ## v2.3.38 (2026-05-14) — fix: tooltips DNSFullConfig×7 + GeoConfig×4 + ImportSubModal×4 + DevicesConfig×9 + 18 i18n ключей
 
 - fix(dashboard): DNSFullConfig.vue — 4 кнопки "Тест" (fallback/doh/dot/doq) получили v-tooltip
