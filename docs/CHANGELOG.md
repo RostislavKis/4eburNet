@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.3.40 (2026-05-14) — fix: ConnectionCtrl tooltips Pause/Close-All + ConnectionTable 7 китайских комментариев → русский
+
+- fix(dashboard): ConnectionCtrl.tsx — кнопки Pause и Close-All получили onMouseenter tooltip
+  Pause: t(isPaused ? 'play' : 'conn_pause'); Close-All: t('conn_close_all')
+  паттерн showTip({ appendTo: 'parent' }) — совпадает с FilterButton
+- feat(i18n): ключ play: 'Продолжить' / 'Resume' добавлен в ru.ts и en.ts
+- fix(dashboard): ConnectionTable.vue — 7 китайских комментариев/строк переведены на русский
+  完整显示所有代理链 → Показываем полную цепочку прокси
+  只处理左键 → Обрабатываем только левую кнопку мыши
+  检查是否超过拖动阈值 → Проверяем превышение порога перетаскивания
+  延迟重置拖动状态 → Отложенный сброс drag — предотвращает срабатывание click
+  复制功能 → Функция копирования в буфер обмена
+  降级处理 → Fallback для старых браузеров
+  console.error('复制失败:') → console.error('Ошибка копирования:')
+  Файлы: ConnectionCtrl.tsx, ConnectionTable.vue, ru.ts, en.ts; TypeScript 0 ошибок; build ok
+
 ## v2.3.39 (2026-05-14) — fix: i18n RuleTestModal + ImportSubModal×12 + SSHConsolePage — useI18n + 33 ключа
 
 - fix(dashboard): RuleTestModal.vue — добавлен useI18n; все 10 hardcoded строк заменены на t()
