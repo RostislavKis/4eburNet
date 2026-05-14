@@ -4005,6 +4005,19 @@ TLS record) уходил в `continue` — бесконечный busy-wait. Sin
   T2-03 eBPF Flint2, T2-06 AnyTLS BBR padding,
   T3-01 LuCI, T3-02 coverage, T3-03 CI/CD, T3-04 benchmarks, T3-05 release
 
+### v2.3.29 (2026-05-14) — T2-06 AnyTLS BBR-aware RTT-adaptive padding
+
+- feat(anytls): BBR-aware RTT-адаптация padding нижней границы
+  anytls.h: observed_rtt_ms в anytls_session_t (EWMA α=0.25);
+  anytls_pad_get_size() +rtt_ms: >200ms → lo×2, >100ms → lo×3/2, зажим в hi
+  anytls_session.c: anytls_session_update_rtt(); два call site передают sess->observed_rtt_ms
+  anytls_pool.c: anytls_pool_update_rtt() — EWMA-обновление idle сессий по server_idx
+  dispatcher.c: dispatcher_notify_anytls_rtt() — через g_dispatcher → pool_update_rtt
+  dispatcher.h: объявление dispatcher_notify_anytls_rtt()
+  proxy_group.c: forward extern + вызов в proxy_group_update_result() и handle_hc_event()
+  test_anytls.c: группа E (E1-E6, RTT-адаптация и EWMA); 61 тест ALL PASS
+  mipsel binary 3.2MB (unchanged)
+
 ### v2.3.27 (2026-05-14) — T1-26 config ref-count UAF fix
 
 - fix(config): атомарный ref-count на EburNetConfig (_Atomic uint32_t ref_count)
