@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.3.34 (2026-05-14) — fix: vTooltip directive → tippy.js + shift middleware + mobile touch
+
+- fix(dashboard): vTooltip directive переведён с native title= на tippy.js
+  native title= не поддерживает позиционирование и не работает на мобильных (hover недоступен)
+  tippy.js уже присутствует в зависимостях (package.json), единая система для всех tooltip
+- fix(dashboard): добавлен shift modifier (padding: 8px) — tooltip не уходит за край viewport
+  при placement='top' на узком экране или у края страницы tooltip сдвигается горизонтально
+- fix(dashboard): touch: ['hold', 500] — отображение tooltip на iOS/Android через 500ms удержание
+- fix(dashboard): beforeUnmount — destroy() снимает event listeners, устраняет memory leak
+- fix(dashboard): updated — реактивное обновление контента при смене языка i18n
+  preventOverflow + flip модификаторы: boundary='clippingParents', fallback top/bottom/right/left
+  Файл: dashboard-src/src/composables/useTooltip.ts; helper/tooltip.ts — не изменён
+
 ## v2.3.33 (2026-05-14) — fix: hardcoded DNS 1.1.1.1/8.8.8.8 → net_get_fallback_dns1/2() в HC-файлах
 
 - fix(net_utils): добавлены net_get_fallback_dns1/2() — getter'ы статических переменных s_fb_dns1/s_fb_dns2
