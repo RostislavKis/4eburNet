@@ -3995,3 +3995,12 @@ TLS record) уходил в `continue` — бесконечный busy-wait. Sin
 - fix(security): Bearer pointer bug — strstr возвращал начало заголовка, а не значение токена; исправлено `auth += strlen("Authorization: Bearer ")` (http_server.c:3157)
 - docs: IPC_SCHEMA.md — добавлены dpi-get (cmd 40), dpi-set (cmd 41), таблица HTTP-only эндпоинтов
 - docs: user_context.md — исправлена устаревшая запись 4eb_token → setup/api-list[].password
+
+### v2.3.26 (2026-05-14) — ROADMAP актуализирован
+
+- docs: ROADMAP.md полностью переписан (v1.5.178 → v2.3.25)
+  Все реализованные фичи перенесены в архив закрытых задач
+  Открытые (10 позиций, ~5200 LoC):
+  T1-07 QUIC SNI, T1-23 YAML parser, T1-26 graceful reload,
+  T2-03 eBPF Flint2, T2-06 AnyTLS BBR padding,
+  T3-01 LuCI, T3-02 coverage, T3-03 CI/CD, T3-04 benchmarks, T3-05 release
