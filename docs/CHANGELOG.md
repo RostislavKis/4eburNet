@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.3.43 (2026-05-14) — fix: TopologyCharts 14 CN→RU + 4 tooltips; ProxyGroupEditModal rm sticky/consistent-hashing; docs: T-LB-01
+
+- fix(dashboard): TopologyCharts.vue — 14 китайских комментариев переведены на русский
+  addNode: цикл в Sankey; initialNodes/nodesByLayer/sortedLayers: формирование/группировка/сортировка
+  idMapping: старый id → новый id; переназначение id; обновление links после переназначения
+  логарифмическое масштабирование + формула; originalValue tooltip; tooltip pause/fullscreen handlers
+- fix(dashboard): TopologyCharts.vue — v-tooltip на 4 кнопках (2 pause + 2 fullscreen)
+  WHY: закон "КАЖДЫЙ button → tooltip". Две пары кнопок (normal + fullscreen Teleport layout)
+  добавлены import useTooltip + const { tip } = useTooltip() в script setup
+- feat(i18n): 2 новых tooltip-ключа в ru.ts и en.ts
+  topology_pause, topology_fullscreen
+- fix(dashboard): ProxyGroupEditModal.vue — удалены options consistent-hashing и sticky-sessions
+  proxy_group.c реализует только round-robin (строка 269); consistent/sticky grep → 0 = мок
+- docs: зафиксирован tech debt T-LB-01 в audit_v50.md — lb стратегии до v2.5.0
+  Файлы: TopologyCharts.vue, ProxyGroupEditModal.vue, ru.ts, en.ts, audit_v50.md
+  TypeScript 0 ошибок; build ok
+
 ## v2.3.42 (2026-05-14) — fix: RuleFormModal 4 hardcoded labels → i18n; docs: T-AND-01 tech debt
 
 - fix(dashboard): RuleFormModal.vue — 4 hardcoded label-text заменены на t()
