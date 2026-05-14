@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.3.41 (2026-05-14) — fix: SnifferSection QUIC SNI enable + quic stats + saveMessage i18n + bypass tooltip
+
+- fix(dashboard): SnifferSection.vue — QUIC SNI toggle разблокирован (реализован в v2.3.28, RFC 9001 §5)
+  удалены: opacity-50 с контейнера, disabled с input, badge comingSoon; добавлен @change="save"
+- feat(dashboard): SnifferSection.vue — stat-блок QUIC SNI добавлен рядом с total/tls/http/bypassed
+  backend возвращает поле "quic" напрямую; Object.assign работает без маппинга
+- feat(api): SnifferStats — добавлено поле quic: number; инициализация stats с quic: 0
+- fix(dashboard): saveMessage hardcoded 'Сохранено'/'Ошибка сохранения' → t('snifferSaved'/'snifferSaveError')
+  добавлены import useI18n + const { t } = useI18n() в script setup
+- fix(dashboard): newDomain input — добавлен v-tooltip="tip('sniffer_bypass_input')"
+  добавлены import useTooltip + const { tip } = useTooltip() в script setup
+- feat(i18n): 5 новых ключей в ru.ts и en.ts
+  основная секция: snifferSaved, snifferSaveError
+  tooltips: sniffer_bypass_input
+  Файлы: SnifferSection.vue, api/index.ts, ru.ts, en.ts; TypeScript 0 ошибок; build ok
+
 ## v2.3.40 (2026-05-14) — fix: ConnectionCtrl tooltips Pause/Close-All + ConnectionTable 7 китайских комментариев → русский
 
 - fix(dashboard): ConnectionCtrl.tsx — кнопки Pause и Close-All получили onMouseenter tooltip
