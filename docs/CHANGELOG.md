@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.3.24] — 2026-05-14 — audit_v49 §34
+
+- feat(h2): нативный HPACK decoder RFC 7541 без внешних зависимостей
+  h2.h: hpack_dyn_table_t + hpack_header_cb + 4 функции API
+  h2.c: static table 61 запись (RFC 7541 Appendix A), Huffman table 257 символов,
+  dynamic table ring buffer, decode_int §5.1, huffman_decode §5.2,
+  decode_header_block §6 (все 6 форматов: indexed/lit-inc/lit-no-idx/lit-never/size-update)
+  callback-API без heap аллокаций (MIPS-safe)
+- feat(grpc): HPACK decode в HEADERS frame handler (монолитный + multiplex режимы)
+  grpc_conn_t + grpc_stream_t: поля hpack_dyn + grpc_status
+  grpc_header_cb: :status + grpc-status; grpc_status != 0 → LOG_WARN
+  WHY: ранее payload HEADERS frame дренировался без парсинга — grpc-status игнорировался
+
 ## [2.3.23] — 2026-05-14 — audit_v49 §25
 
 - fix(dispatcher): RELAY_TIMEOUT_CHECK — tick_count % N заменён на CLOCK_MONOTONIC порог
