@@ -798,6 +798,10 @@ int config_load(const char *path, EburNetConfig *cfg)
     cfg->dns.block_geosite_threats  = true;
     cfg->dns.stale_while_revalidate = true;
     cfg->dns.stale_grace_seconds    = 3600;
+    /* WHY: публичные резолверы для NTP bootstrap и provider HC.
+     * Не хардкод — переопределяются через UCI dns.fallback_dns1/2. */
+    strncpy(cfg->dns.fallback_dns1, "1.1.1.1", sizeof(cfg->dns.fallback_dns1) - 1);
+    strncpy(cfg->dns.fallback_dns2, "8.8.8.8", sizeof(cfg->dns.fallback_dns2) - 1);
     /* WHY: fd00::/120 = 256 адресов — стандартный диапазон IPv6 fake-ip пула.
      * Если UCI не задаёт fake_ip6_range, используем этот дефолт. */
     strncpy(cfg->dns.fake_ip6_range, "fd00::/120",
@@ -1205,6 +1209,10 @@ int config_load(const char *path, EburNetConfig *cfg)
                         log_msg(LOG_WARN,
                             "dns_stale_grace_seconds: невалидное '%s', "
                             "используется %u", value, d->stale_grace_seconds);
+                } else if (strcmp(key, "fallback_dns1") == 0) {
+                    snprintf(d->fallback_dns1, sizeof(d->fallback_dns1), "%s", value);
+                } else if (strcmp(key, "fallback_dns2") == 0) {
+                    snprintf(d->fallback_dns2, sizeof(d->fallback_dns2), "%s", value);
                 } else if (strcmp(key, "static_hosts") == 0) {
                     /* WHY: формат "domain=ip" — каждый UCI list-элемент от sub_convert.py.
                      * Ограничение DNS_STATIC_HOSTS_MAX=20 соответствует лимиту в sub_convert.py. */
