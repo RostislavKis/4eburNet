@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.4.7 (2026-05-15) — тест-сюита: 58/58 PASS (+1 новая сюита)
+
+- feat(tests): test_proxy_provider — 9 проверок URI парсеров, inline-.c паттерн
+  Подход: #include "../src/proxy/proxy_provider.c" для доступа к static функциям;
+  7 заглушек (log_msg/clash_yaml/hy2_parse_uri/http_emit/net_spawn/rm_detect)
+  в tests/stubs/proxy_provider_stubs.c; proxy_provider.c не компилируется отдельно
+  [1] base64_decode: "hello"(5B), "test"(4B), пустая строка(0B), некорректный '!'→-1
+  [2] url_decode: %2F%40%3A→"/@:", %20→" ", без кодирования, '+' не декодируется
+  [3] parse_vless_uri_basic: Reality — addr/port/uuid/sni/pbk/sid/fp/name/transport=raw
+  [4] parse_vless_uri_ws_transport: type=ws → transport="ws"
+  [5] parse_vless_uri_invalid: unknown:// / "" / NULL → все возвращают -1
+  [6] parse_ss_uri_sip002: YWVzLTI1Ni1nY206cGFzc3dvcmQ=→password; addr/port/name
+  [7] parse_trojan_uri: password123/host/443/TrojanServer
+  [8] parse_server_uri_dispatch: vless/ss/trojan→proto; unknown://→-1
+  [9] proxy_provider_max_servers: NORMAL=1024, override=50, FULL=4096
+
 ## v2.4.6 (2026-05-15) — тест-сюита: 57/57 PASS (+3 новых сюита)
 
 - feat(tests): test_proxy_group — 7 проверок LB-алгоритмов inline-паттерн (без production headers)
