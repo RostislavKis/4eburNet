@@ -1,20 +1,47 @@
 # Changelog
 
-## v2.4.3 (2026-05-15) — T-AND-01 AND rules backend + T-LB-01 LB стратегии
+## v2.4.5 (2026-05-15) — тест-сюита: 54/54 PASS
 
-- feat(rules): AND правило полностью реализовано — sub_rules механика идентична OR,
-  UCI list `and_condition` → finalizing pass → `sub_rules[]` (ALL MUST MATCH)
-- feat(rules): RULE_TYPE_NETWORK = 15 — новый sub-тип для AND,((NETWORK,TCP),(DST-PORT,443)),TARGET
-- feat(rules): `parse_sub_condition` расширен: DST-PORT + NETWORK как sub-типы
-- feat(api): AND добавлен в valid_rtypes[] POST + PATCH; `need_value` guard учитывает AND
-- feat(api): POST /api/rules — AND block: `and_conditions[]` → UCI `add_list and_condition`
-- feat(api): PATCH /api/rules — AND block: del_list + add_list `and_condition`
-- feat(api): GET /api/rules — `and_conditions` ключ в JSON для AND правил (vs `sub_conditions` для OR)
-- feat(lb): `pg_fnv1a32` — FNV-1a 32-bit inline без зависимостей (proxy_group.h)
-- feat(lb): consistent-hashing — hash(dst_ip4) → детерминированный сервер для одного назначения
-- feat(lb): sticky-sessions — hash(src_ip4) → аффинити per-client; LRU eviction 256 слотов
-- feat(lb): `proxy_group_select_server` принимает src_ip4 + dst_ip4; dispatcher передаёт из conn->src
-- feat(lb): `rules_engine_get_server` принимает src_ip4, извлекает dst_ip4 из sockaddr_storage
+- fix(tests): Makefile.dev test-ja3 — добавлен src/crypto/hmac_sha256.c
+  sniffer.c с -DCONFIG_EBURNET_QUIC=1 вызывает hmac_sha256/hmac_sha256_2;
+  в test-sniffer файл был, в test-ja3 отсутствовал → ld error
+- fix(tests): test_tuic_v5.c — 14 вызовов tuic_defrag_add обновлены до 12-param API
+  расширение сигнатуры: +addr_in/port_in/addr_out/addr_out_sz/port_out;
+  тест передаёт NULL/0 (адреса для дефрагментации не нужны)
+- result: все 54 таргета make test PASS; 0 Error впервые
+
+## v2.4.4 (2026-05-15) — T-AND-01 + T-LB-01 UI
+
+- feat(dashboard): RuleFormModal — AND builder полностью реализован
+  AND option в select + builder секция (аналог OR) + addAndCond/removeAndCond
+  submit payload: and_conditions[] при type=AND; guard расширен (!== 'AND')
+  buildInitialForm: инициализация из rule?.and_conditions (поддержка edit)
+- feat(dashboard): ProxyGroupEditModal — consistent-hashing и sticky-sessions возвращены
+  consistent-hashing: hash по dst IP (один destination → один сервер)
+  sticky-sessions: hash по src IP (один клиент → один сервер)
+  оба option с v-tooltip через lbConsistentHashingDesc / lbStickySessionsDesc
+- feat(api): RuleConfig.and_conditions?: OrCondition[] добавлено в api/index.ts
+- feat(i18n): 7 ключей ru.ts+en.ts: ruleAndDesc, ruleAndConditions,
+  rule_add_and_condition, lbConsistentHashing/Desc, lbStickySessions/Desc
+
+## v2.4.3 (2026-05-15) — T-AND-01 + T-LB-01 backend
+
+- feat(rules): AND правило полностью реализовано
+  RULE_TYPE_NETWORK=15 добавлен в enum (sub-условие для AND)
+  config.c: UCI list and_condition парсинг → sub_rules[] (ALL MUST MATCH)
+  rules_engine.c: AND case переписан — sub_rules loop вместо захардкоженного
+    NETWORK+DST-PORT; поддержка DOMAIN/IP-CIDR/GEOIP/GEOSITE/DST-PORT/NETWORK
+  http_server.c: "AND" добавлен в valid_rtypes[] POST+PATCH; AND block UCI handler;
+    GET возвращает sub_conditions для AND правил
+- feat(proxy_group): три стратегии load-balance
+  round-robin: rr_idx % avail (дефолт, без изменений)
+  consistent-hashing: fnv1a32(dst_ip4) % avail — детерминированный по destination
+  sticky-sessions: fnv1a32(src_ip4) → LRU таблица 256 слотов per-group;
+    fallback на RR при первом запросе или после eviction
+- feat(proxy_group): proxy_group_select_server +src_ip4, +dst_ip4 параметры
+  dispatcher.c: 3 call sites обновлены; src_ip4 извлекается из conn->src
+- feat(proxy_group): pg_fnv1a32, pg_sticky_entry_t, sticky_table[256] в proxy_group.h
+  577 тестов PASS; бинарник 3.12 MB
 
 ## v2.4.2 (2026-05-15) — T3-01 LuCI Enhanced integration
 
