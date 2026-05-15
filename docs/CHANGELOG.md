@@ -1,7 +1,15 @@
 # Changelog
 
-## v2.4.6 (2026-05-15) — тест-сюита: 56/56 PASS (+2 новых сюита)
+## v2.4.6 (2026-05-15) — тест-сюита: 57/57 PASS (+3 новых сюита)
 
+- feat(tests): test_proxy_group — 7 проверок LB-алгоритмов inline-паттерн (без production headers)
+  [1] round_robin 0→1→2→3→4→0; [2] round_robin_skip_unavailable только 0,2,4;
+  [3] consistent_hashing_deterministic (все 10 → сервер 1);
+  [4] consistent_hashing_distribution (hits: 21 21 18 22 18 по 100 dst_ip);
+  [5] sticky_same_src (все 10 → сервер 0);
+  [6] sticky_different_src (hits: 4 4 4 4 4 по 20 src_ip);
+  [7] sticky_lru_eviction (slot 202: ip_a=0xef→0 ip_b=0x100→1 re-a→2)
+  коллизия: pg_fnv1a32(0xef,4)%256 == pg_fnv1a32(0x100,4)%256 = 202
 - feat(tests): test_net_utils — 50 проверок net_utils.c (T1-T8)
   T1: valid_ifname (11 кейсов); T2-T3: net_format_addr IPv4/IPv6;
   T4: json_escape_str; T5: net_parse_url_host; T6: fallback DNS getters/setters;
