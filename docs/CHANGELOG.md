@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.4.6 (2026-05-15) — тест-сюита: 56/56 PASS (+2 новых сюита)
+
+- feat(tests): test_net_utils — 50 проверок net_utils.c (T1-T8)
+  T1: valid_ifname (11 кейсов); T2-T3: net_format_addr IPv4/IPv6;
+  T4: json_escape_str; T5: net_parse_url_host; T6: fallback DNS getters/setters;
+  T7: resolve IP fast path; T8: net_random_bytes
+  заглушки: tls_connect/send/recv/close
+- feat(tests): test_proxy_group_lb — 27 проверок proxy_group.c LB-логики (T1-T6)
+  T1: pg_fnv1a32 детерминизм + FNV offset basis; T2: round-robin wrap-around;
+  T3: consistent-hashing детерминированность; T4: sticky-sessions аффинити;
+  T5: URL_TEST mark_fail_immediate available=false + SELECT fallback logic;
+  T6: mark_server_ok градуальный декремент без underflow
+  заглушки: http_server_emit_event, hc_*_spawn, rm_detect_profile,
+            dispatcher_notify_anytls_rtt, tls_*
+- fix: config_get_server — добавлен NULL guard (cfg=NULL → return NULL)
+  WHY: тесты передают pgm->cfg=NULL; pg_select_rotate → crash без guard
+- fix: proxy_group.c ev_mf_sw/ev_mi_sw/ev_fg_sw/ev_ut 256→512 байт
+  WHY: group(63) + server(127) + server(127) = 317 > 256; -Wformat-truncation
+
 ## v2.4.5 (2026-05-15) — тест-сюита: 54/54 PASS
 
 - fix(tests): Makefile.dev test-ja3 — добавлен src/crypto/hmac_sha256.c
