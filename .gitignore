@@ -9,3 +9,6 @@ docs/*
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
+!tools/
+tools/*
+!tools/geo_update.sh
