@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.5.0 (2026-05-16) — AWG WireGuard working: 97 Telegram via WARP, 36+ min stable
+
+- fix(awg): blake2s_hmac вызывал blake2s_keyed вместо настоящего HMAC (ipad/opad)
+  Следствие: все KDF-ключи noise-протокола были неверными → handshake failure
+- fix(awg): отсутствовал шаг MixKey(Ci, Ei_pub) в noise_handshake_initiation_create
+  Согласно WireGuard noise spec §5.4.2: Ck,k = KDF2(Ck, DH(Ei,Sr))
+  без предшествующего KDF1(Ci, Ei_pub) цепочка ключей расходится
+- fix(awg): hash/chainKey не сбрасывались между повторными попытками handshake
+  При retry использовалось накопленное состояние предыдущей попытки → failure
+- fix(awg): EPOLLET→EPOLLIN LT + принудительный drain после epoll_ctl ADD для peer fd
+  Edge-trigger пропускал данные при наличии байт до первого epoll_wait
+- feat(awg): singleton peer pool (awg_pool.c/h)
+  Один udp_fd на peer вместо fd-per-relay; awg_pool_tick retransmit из dispatcher_tick
+- feat(awg): awg_send_handshake_sequence — полный CPS+junk+Init при каждом retry
+- feat(awg): userspace IPv4/TCP stack (awg_ipstack.c/h, 370 LoC)
+  Encap/decap WireGuard tunnel → TCP relay без kmod; поддержка awg_local_ip UCI
+- feat(config): UCI поле awg_local_ip + clash_yaml парсер поля ip:
+
 ## v2.4.7 (2026-05-15) — тест-сюита: 58/58 PASS (+1 новая сюита)
 
 - feat(tests): test_proxy_provider — 9 проверок URI парсеров, inline-.c паттерн
