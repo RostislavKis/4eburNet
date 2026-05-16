@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.7 (2026-05-17) — N7: DnsPolicy fallback upstream
+
+- feat(config): DnsPolicy +fallback_upstream/fallback_port/fallback_type полях
+  Причина: при недоступности primary policy upstream код молча падал на глобальный DNS
+  без попытки альтернативного upstream → неверная маршрутизация policy-доменов
+- feat(config): парсинг fallback_upstream/port/type из UCI секций dns_policy
+- feat(dns_server): fallback-блок в 4 путях: UDP-fail, DoT-fail, DoH-fail, TCP-fail
+  При ошибке primary → dns_pending_add(fallback_upstream, fb_port); continue
+  При ошибке fallback → log WARN + стандартный routing (прежнее поведение)
+- feat(http_server): GET /api/dns/policies — UCI read + JSON вывод fallback полей
+  POST /api/dns/policies — парсинг + UCI set fallback_upstream/port/type
+- verified(mipsel): 3.2MB, ALL PASS
+
 ## v2.5.6 (2026-05-17) — geo update через wolfSSL, без mbedTLS/wget
 
 - feat(cdn_updater): geo_fetch_from_manifest(profile) — скачивает .gbin через wolfSSL
