@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.3 (2026-05-16) — N4: geoip-ru.gbin деплой (mmap вместо heap .dat)
+
+- fix(geo): geoip-ru загружался через 22.5MB .dat с heap-парсингом при каждом старте
+  Причина: geoip-ru.gbin отсутствовал в filter репо и на EC330
+  Решение: geo_compile.c (tools/) скомпилирован для x86_64, сгенерирован geoip-ru.gbin
+  Результат: 87KB [mmap] вместо 22.5MB heap — в 255 раз меньше, без повторного парсинга
+- deploy(filter): добавлен geo/geoip-ru.gbin + обновлён checksums.sha256 → RostislavKis/filter
+- verified(EC330): logread подтверждает [INFO] GeoIP geoip-ru: 11240 IPv4 [mmap]
+
 ## v2.5.2 (2026-05-16) — audit_v51: технические долги закрыты
 
 - fix(muxcool): s_muxcool_stream_buf[1500] перенесён из function-local static
