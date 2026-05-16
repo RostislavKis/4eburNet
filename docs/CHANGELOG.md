@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.2 (2026-05-16) — audit_v51: технические долги закрыты
+
+- fix(muxcool): s_muxcool_stream_buf[1500] перенесён из function-local static
+  в file-scope static (нарушение правила скрытого persistent state; MIPS stack safe)
+- fix(dispatcher): удалён static int udp_dbg + if-блок (debug-код в production)
+- fix(tuic): double-free после tuic_stream_pool_remove() — убран free(st)
+  (pool является owner и сам освобождает stream внутри remove)
+- fix(tuic): добавлен explicit_bzero(conn->token, 32) в tuic_conn_free()
+  (HMAC-SHA256 credential не зачищался → heap-spray vulnerability)
+- verified(anytls): UAF relay_release_upstream уже закрыт (stream_close+free+NULL,
+  session pool-return при stream_count==0)
+- verified(hc): hc_anytls.c + hc_tuic.c уже реализованы и интегрированы в proxy_group.c
+
 ## v2.5.0 (2026-05-16) — AWG WireGuard working: 97 Telegram via WARP, 36+ min stable
 
 - fix(awg): blake2s_hmac вызывал blake2s_keyed вместо настоящего HMAC (ipad/opad)
