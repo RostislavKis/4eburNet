@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.5.6 (2026-05-17) — geo update через wolfSSL, без mbedTLS/wget
+
+- feat(cdn_updater): geo_fetch_from_manifest(profile) — скачивает .gbin через wolfSSL
+  Использует net_resolve_host_direct (прямой UDP DNS в 1.1.1.1, минует 4eburnetd:53)
+  и net_http_fetch_ip (wolfSSL TLS GET), без зависимости от mbedTLS/wget/uclient-fetch
+- fix(http_server): route_api_geo_update: fork+execv(geo_update.sh) → geo_fetch_from_manifest
+  geo_update.sh сохранён как fallback для production роутеров с прямым WAN
+- fix(geo_fetch): tmp файлы создаются в GEO_MANIFEST_DIR а не /tmp
+  Причина: rename(/tmp/*.tmp → /etc/4eburnet/geo/) → EXDEV (разные FS)
+  Решение: tmp_path = dst_path + ".tmp" — atomic rename в одной FS
+- диагностика EC330: mbedTLS (libustream-mbedtls 3.6.2) не устанавливает TLS
+  (EPERM от busybox kTLS), wolfSSL в 4eburnetd работает без ограничений
+- verified(EC330): POST /api/geo/update → 4 файла обновлены за ~23 сек
+  geoip-ru.gbin 87KB, geosite-ru.gbin 26MB, geosite-ads.gbin 6MB, opencck-domains.gbin 9MB
+  cdn_geo: SIGHUP отправлен → горячая перезагрузка geo без рестарта
+
 ## v2.5.3 (2026-05-16) — N4: geoip-ru.gbin деплой (mmap вместо heap .dat)
 
 - fix(geo): geoip-ru загружался через 22.5MB .dat с heap-парсингом при каждом старте
