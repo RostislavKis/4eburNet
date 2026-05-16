@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.8 (2026-05-17) — N8: nftables Flow Offload
+
+- feat(routing): nftables flowtable eburnet_ft — DIRECT-трафик → kernel fast path
+  config.h: flow_offload_ifaces[4][32] + flow_offload_iface_count
+  nftables.h: nft_flow_offload_enable(cfg) + nft_flow_offload_disable() + g_flow_offload_active _Atomic bool
+  config.c: парсинг UCI list flow_offload_ifaces с valid_ifname() валидацией
+  nftables.c: _Atomic bool g_flow_offload_active, multi-iface flowtable, atomic_store/load memory_order_release
+  nft_flow_offload_disable_internal() из enable() — идемпотентность; kmod check /sys/module/nft_flow_offload
+- feat(api): GET /api/network → {"flow_offload":{"enabled":bool,"active":bool},...}; PATCH toggle с UCI commit
+- feat(dashboard): NetworkConfig.vue — тумблер Flow Offload + badge "активен" + v-tooltip
+- feat(main): handle_start/stop/reload интеграция; лог devices при активации
+- EC330 deploy: flowtable devices={br-lan, phy1-sta0}, conntrack ✅, бинарник 3.2MB
+
 ## v2.5.7 (2026-05-17) — N7: DnsPolicy fallback upstream
 
 - feat(config): DnsPolicy +fallback_upstream/fallback_port/fallback_type полях
