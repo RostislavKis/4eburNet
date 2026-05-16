@@ -1,6 +1,6 @@
-﻿CC = musl-gcc
+CC = musl-gcc
 
-# ── Профили сборки (PROFILE=micro|normal|full) ──
+# -- ������� ������ (PROFILE=micro|normal|full) --
 PROFILE ?= full
 
 ifeq ($(PROFILE),micro)
@@ -36,7 +36,7 @@ else ifeq ($(PROFILE),normal)
     -DCONFIG_EBURNET_GRPC_MULTIPLEX=1 \
     -DCONFIG_EBURNET_XUDP=1     \
     -DCONFIG_VISION_ENABLED=1
-else  # full — все функции включены
+else  # full � ��� ������� ��������
   KCONFIG_CFLAGS := \
     -DCONFIG_EBURNET_VLESS=1    \
     -DCONFIG_EBURNET_TROJAN=1   \
@@ -55,10 +55,10 @@ else  # full — все функции включены
     -DCONFIG_VISION_ENABLED=1
 endif
 
-# CONFIG_VISION_ENABLED=1 — Block 1 включён (v2.3.5 hardening: enableXTLS gate +
-# isCompleteRecord + no-splice). Тестовый сервер: 82.202.197.2:52006 (Germany #71/#82).
+# CONFIG_VISION_ENABLED=1 � Block 1 ������� (v2.3.5 hardening: enableXTLS gate +
+# isCompleteRecord + no-splice). �������� ������: 82.202.197.2:52006 (Germany #71/#82).
 EXTRA_CFLAGS ?=
-EBURNET_VERSION := 2.3.30
+EBURNET_VERSION := 2.4.12
 CFLAGS = -std=gnu2x -Wall -Wextra -Wsign-compare -Wpedantic -O2 -flto -pipe -D_GNU_SOURCE -static \
          -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
          -ffunction-sections -fdata-sections \
@@ -108,8 +108,11 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/proxy/protocols/hysteria2_udp.c \
           $(SRCDIR)/proxy/protocols/hysteria2_cc.c \
           $(SRCDIR)/crypto/noise.c \
+          $(SRCDIR)/crypto/curve25519_donna.c \
           $(SRCDIR)/proxy/protocols/awg.c \
           $(SRCDIR)/routing/device_policy.c \
+          $(SRCDIR)/proxy/awg_pool.c \
+          $(SRCDIR)/proxy/awg_ipstack.c \
           $(SRCDIR)/proxy/proxy_group.c \
           $(SRCDIR)/proxy/hc_vless.c \
           $(SRCDIR)/proxy/hc_anytls.c \
@@ -149,7 +152,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/log.c $(SRCDIR)/resource_manager.c $(SRCDIR
           $(SRCDIR)/http_server.c
 TARGET = $(BUILDDIR)/4eburnetd
 
-# StrictHostKeyChecking=no: только для dev QEMU VM (127.0.0.1:2222)
+# StrictHostKeyChecking=no: ������ ��� dev QEMU VM (127.0.0.1:2222)
 SSH = ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@127.0.0.1
 
 all: $(TARGET)
@@ -168,16 +171,16 @@ run: $(TARGET)
 install-vm: $(TARGET)
 	cat $(TARGET) | $(SSH) "cat > /usr/sbin/4eburnetd && chmod +x /usr/sbin/4eburnetd"
 	cat ../../qemu/test-config/4eburnet | $(SSH) "cat > /etc/config/4eburnet"
-	@echo "Деплой завершён. Запусти: ssh -p 2222 root@localhost \"4eburnetd -d\""
+	@echo "������ ��������. �������: ssh -p 2222 root@localhost \"4eburnetd -d\""
 
 WOLFSSL_INCLUDES = -I$(WOLFSSL_PREFIX)/include
 WOLFSSL_LIBS     = -L$(WOLFSSL_PREFIX)/lib -lwolfssl -lm
 TEST_CC  = musl-gcc
-# Тест-код компилируется с теми же security guards что и production (CFLAGS L53).
-# -Wsign-compare: сигнальные/беззнаковые сравнения часто прячут indexing bug'и.
-# -fstack-protector-strong: stack canary в тестах ловит buffer overflow на этапе run.
-# -D_FORTIFY_SOURCE=2: glibc bounds-check для memcpy/sprintf.
-# Без этих флагов тесты проходили с ослабленной защитой — дефекты могли проскочить.
+# ����-��� ������������� � ���� �� security guards ��� � production (CFLAGS L53).
+# -Wsign-compare: ����������/����������� ��������� ����� ������ indexing bug'�.
+# -fstack-protector-strong: stack canary � ������ ����� buffer overflow �� ����� run.
+# -D_FORTIFY_SOURCE=2: glibc bounds-check ��� memcpy/sprintf.
+# ��� ���� ������ ����� ��������� � ����������� ������� � ������� ����� ����������.
 TEST_FLAGS = -std=gnu2x -O2 -D_GNU_SOURCE -DCONFIG_EBURNET_QUIC=1 \
              -Wall -Wextra -Werror -Wsign-compare \
              -fstack-protector-strong -D_FORTIFY_SOURCE=2
@@ -309,6 +312,7 @@ test-cdn-updater:
 	  src/net_utils.c \
 	  src/crypto/tls.c \
 	  src/crypto/noise.c \
+	  src/crypto/curve25519_donna.c \
 	  src/crypto/blake2s.c \
 	  src/proxy/protocols/awg.c \
 	  src/dpi/dpi_filter.c \
@@ -395,6 +399,13 @@ test-varint:
 	  tests/test_hysteria2_varint.c \
 	  -o /tmp/test_hysteria2_varint $(WOLFSSL_LIBS)
 	/tmp/test_hysteria2_varint
+
+test-curve25519-vectors:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
+	  tests/test_curve25519_vectors.c \
+	  -o /tmp/test_curve25519_vectors $(WOLFSSL_LIBS)
+	@echo "--- test-curve25519-vectors ---"
+	/tmp/test_curve25519_vectors
 
 test-sniffer:
 	$(TEST_CC) $(TEST_FLAGS) -DEBURNET_TEST $(INCLUDES) $(WOLFSSL_INCLUDES) \
@@ -649,6 +660,15 @@ test-ecdh-wolfssl:
 	@echo "--- test-ecdh-wolfssl ---"
 	/tmp/test_ecdh_wolfssl
 
+test-noise-vectors:
+	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) \
+	  tests/test_noise_vectors.c \
+	  src/crypto/curve25519_donna.c \
+	  src/crypto/blake2s.c \
+	  -o /tmp/test_noise_vectors
+	@echo "--- test-noise-vectors ---"
+	/tmp/test_noise_vectors
+
 test-reality-roundtrip:
 	$(TEST_CC) $(TEST_FLAGS) $(INCLUDES) $(WOLFSSL_INCLUDES) \
 	  tests/test_reality_roundtrip.c \
@@ -767,15 +787,15 @@ test-tproxy:
 
 test: test-uri test-udp test-cc test-vision-addons test-vision-state test-reality-keys test-reality-auth test-tls13-chrome test-tls13-record test-tls13-hs-unit test-reality-conn-unit test-dpi-filter test-dpi-payload test-dpi-strategy test-cdn-updater test-hmac-sha256 test-shadowtls test-ipc-safety test-config-parsing test-blake2b test-salamander test-varint test-dns-geosite test-sniffer test-geo-bin test-ipc-async test-bloom test-simd test-dpi-adapt test-ja3 test-http-devices test-ptr-resolver test-rules-engine-priority test-or-regex test-rules-sport test-dispatcher-resolve test-ws-frame test-tls13-wire test-pbk-decode test-hc-vless test-hc-vmess test-hc-anytls test-hc-tuic test-ws-handshake test-ecdh-wolfssl test-reality-roundtrip test-dns-cookie test-xudp-session test-muxcool test-anytls test-tuic-v5 test-inbound test-vmess test-clash-yaml test-net-utils test-proxy-group-lb test-proxy-group test-proxy-provider test-rule-provider test-dispatcher-pure test-tproxy
 
-# ── geo_compile (инструмент компиляции .lst → .gbin) ──────────────
+# -- geo_compile (���������� ���������� .lst > .gbin) --------------
 
 geo-compile:
 	$(CC) -std=gnu2x -O2 -Iinclude -o ../tools/geo_compile ../tools/geo_compile.c
-	@echo "geo_compile собран: ../tools/geo_compile"
+	@echo "geo_compile ������: ../tools/geo_compile"
 
-# geo-compile-host: host x86_64 для CI / Releases pipeline (G15-3).
-# WHY: geo_compile запускается ТОЛЬКО на host. Роутер mmap'ит готовые .gbin
-# из 4eburnet-geo IPK или скачивает через cdn_updater. Архитектура=all.
+# geo-compile-host: host x86_64 ��� CI / Releases pipeline (G15-3).
+# WHY: geo_compile ����������� ������ �� host. ������ mmap'�� ������� .gbin
+# �� 4eburnet-geo IPK ��� ��������� ����� cdn_updater. �����������=all.
 geo-compile-host:
 	@echo "=== geo_compile (host) ==="
 	mkdir -p $(PREBUILT_DIR)/host
@@ -785,7 +805,7 @@ geo-compile-host:
 	@ls -lh $(PREBUILT_DIR)/host/geo_compile
 
 geo-compile-mipsel:
-	$(if $(wildcard $(TC_MIPSEL)),,$(error TC_MIPSEL не найден: $(TC_MIPSEL)))
+	$(if $(wildcard $(TC_MIPSEL)),,$(error TC_MIPSEL �� ������: $(TC_MIPSEL)))
 	mkdir -p $(PREBUILT_DIR)/mipsel
 	$(TC_MIPSEL)/mipsel-openwrt-linux-musl-gcc \
 		-std=gnu2x -O2 -static -Iinclude \
@@ -796,7 +816,7 @@ geo-compile-mipsel:
 	@ls -lh $(PREBUILT_DIR)/mipsel/geo_compile
 
 geo-compile-aarch64:
-	$(if $(wildcard $(TC_AARCH64)),,$(error TC_AARCH64 не найден: $(TC_AARCH64)))
+	$(if $(wildcard $(TC_AARCH64)),,$(error TC_AARCH64 �� ������: $(TC_AARCH64)))
 	mkdir -p $(PREBUILT_DIR)/aarch64
 	$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
 		-std=gnu2x -O2 -static -march=armv8-a \
@@ -807,7 +827,7 @@ geo-compile-aarch64:
 	@ls -lh $(PREBUILT_DIR)/aarch64/geo_compile
 
 geo-compile-armv7:
-	$(if $(wildcard $(TC_ARMV7)),,$(error TC_ARMV7 не найден: $(TC_ARMV7)))
+	$(if $(wildcard $(TC_ARMV7)),,$(error TC_ARMV7 �� ������: $(TC_ARMV7)))
 	mkdir -p $(PREBUILT_DIR)/armv7
 	$(TC_ARMV7)/arm-openwrt-linux-musleabihf-gcc \
 		-std=gnu2x -O2 -static -march=armv7-a -mfpu=neon -mfloat-abi=hard \
@@ -817,7 +837,7 @@ geo-compile-armv7:
 	$(TC_ARMV7)/arm-openwrt-linux-musleabihf-strip --strip-all $(PREBUILT_DIR)/armv7/geo_compile
 	@ls -lh $(PREBUILT_DIR)/armv7/geo_compile
 
-# ── Cross-compilation (Путь A: prebuilt binary → ipk) ─────────────
+# -- Cross-compilation (���� A: prebuilt binary > ipk) -------------
 SDK_BASE         ?= $(HOME)/4eburnet-dev/sdk
 TC_MIPSEL        ?= $(SDK_BASE)/mipsel/sdk-mipsel/staging_dir/toolchain-mipsel_24kc_gcc-12.3.0_musl/bin
 TC_AARCH64       ?= $(SDK_BASE)/aarch64/sdk-aarch64/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin
@@ -830,15 +850,15 @@ WOLFSSL_X86_64   ?= /usr/local/musl-wolfssl
 PREBUILT_DIR     ?= ../prebuilt
 
 sync-dashboard:
-	@echo "Синхронизация dashboard.html..."
+	@echo "������������� dashboard.html..."
 	cp src/dashboard.html \
 	   ../luci-app-4eburnet/files/usr/share/4eburnet/dashboard.html
-	@echo "OK: dashboard.html синхронизирован"
+	@echo "OK: dashboard.html ���������������"
 
 cross-mipsel: sync-dashboard
-	$(if $(wildcard $(TC_MIPSEL)),,$(error TC_MIPSEL не найден: $(TC_MIPSEL)))
-	$(if $(wildcard $(WOLFSSL_MIPSEL)),,$(error WOLFSSL_MIPSEL не найден: $(WOLFSSL_MIPSEL)))
-	@echo "=== Cross-compile 4eburnetd для mipsel ==="
+	$(if $(wildcard $(TC_MIPSEL)),,$(error TC_MIPSEL �� ������: $(TC_MIPSEL)))
+	$(if $(wildcard $(WOLFSSL_MIPSEL)),,$(error WOLFSSL_MIPSEL �� ������: $(WOLFSSL_MIPSEL)))
+	@echo "=== Cross-compile 4eburnetd ��� mipsel ==="
 	$(MAKE) -f Makefile.dev PROFILE=normal \
 		CC=$(TC_MIPSEL)/mipsel-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_MIPSEL) \
@@ -850,9 +870,9 @@ cross-mipsel: sync-dashboard
 	ls -lh $(PREBUILT_DIR)/mipsel/4eburnetd
 
 cross-aarch64: sync-dashboard
-	$(if $(wildcard $(TC_AARCH64)),,$(error TC_AARCH64 не найден: $(TC_AARCH64)))
-	$(if $(wildcard $(WOLFSSL_AARCH64)),,$(error WOLFSSL_AARCH64 не найден: $(WOLFSSL_AARCH64)))
-	@echo "=== Cross-compile 4eburnetd для aarch64 ==="
+	$(if $(wildcard $(TC_AARCH64)),,$(error TC_AARCH64 �� ������: $(TC_AARCH64)))
+	$(if $(wildcard $(WOLFSSL_AARCH64)),,$(error WOLFSSL_AARCH64 �� ������: $(WOLFSSL_AARCH64)))
+	@echo "=== Cross-compile 4eburnetd ��� aarch64 ==="
 	$(MAKE) -f Makefile.dev PROFILE=full \
 		CC=$(TC_AARCH64)/aarch64-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_AARCH64) \
@@ -864,9 +884,9 @@ cross-aarch64: sync-dashboard
 	ls -lh $(PREBUILT_DIR)/aarch64/4eburnetd
 
 cross-armv7: sync-dashboard
-	$(if $(wildcard $(TC_ARMV7)),,$(error TC_ARMV7 не найден: $(TC_ARMV7)))
-	$(if $(wildcard $(WOLFSSL_ARMV7)),,$(error WOLFSSL_ARMV7 не найден: $(WOLFSSL_ARMV7)))
-	@echo "=== Cross-compile 4eburnetd для armv7 ==="
+	$(if $(wildcard $(TC_ARMV7)),,$(error TC_ARMV7 �� ������: $(TC_ARMV7)))
+	$(if $(wildcard $(WOLFSSL_ARMV7)),,$(error WOLFSSL_ARMV7 �� ������: $(WOLFSSL_ARMV7)))
+	@echo "=== Cross-compile 4eburnetd ��� armv7 ==="
 	$(MAKE) -f Makefile.dev PROFILE=normal \
 		CC=$(TC_ARMV7)/arm-openwrt-linux-musleabihf-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_ARMV7) \
@@ -878,9 +898,9 @@ cross-armv7: sync-dashboard
 	ls -lh $(PREBUILT_DIR)/armv7/4eburnetd
 
 cross-x86_64: sync-dashboard
-	$(if $(wildcard $(TC_X86_64)),,$(error TC_X86_64 не найден: $(TC_X86_64)))
-	$(if $(wildcard $(WOLFSSL_X86_64)),,$(error WOLFSSL_X86_64 не найден: $(WOLFSSL_X86_64)))
-	@echo "=== Cross-compile 4eburnetd для x86_64 ==="
+	$(if $(wildcard $(TC_X86_64)),,$(error TC_X86_64 �� ������: $(TC_X86_64)))
+	$(if $(wildcard $(WOLFSSL_X86_64)),,$(error WOLFSSL_X86_64 �� ������: $(WOLFSSL_X86_64)))
+	@echo "=== Cross-compile 4eburnetd ��� x86_64 ==="
 	$(MAKE) -f Makefile.dev PROFILE=full \
 		CC=$(TC_X86_64)/x86_64-openwrt-linux-musl-gcc \
 		WOLFSSL_PREFIX=$(WOLFSSL_X86_64) \
@@ -906,19 +926,19 @@ asan:
 	$(MAKE) -f Makefile.dev EXTRA_CFLAGS="$(CFLAGS_EXTRA)" CC=$(CC) all
 
 help:
-	@echo "4eburNet Makefile.dev — доступные таргеты:"
+	@echo "4eburNet Makefile.dev � ��������� �������:"
 	@echo ""
-	@echo "  make                     — сборка x86_64 dev бинарника"
-	@echo "  make test                — запустить все тесты (56 суитов)"
-	@echo "  make clean               — удалить артефакты сборки"
-	@echo "  make asan                — сборка с AddressSanitizer + UBSan"
-	@echo "  make check-cross         — проверить флаги кросс-сборки (dry-run)"
-	@echo "  make geo-compile         — собрать geo_compile для хоста"
-	@echo "  make geo-compile-mipsel  — кросс-компиляция geo_compile для mipsel"
-	@echo "  make cross-mipsel        — кросс-компиляция MIPS (TC_MIPSEL=path)"
-	@echo "  make cross-aarch64       — кросс-компиляция ARM64 (TC_AARCH64=path)"
-	@echo "  make cross-armv7         — кросс-компиляция ARMv7 (TC_ARMV7=path)"
-	@echo "  make help                — этот список"
+	@echo "  make                     � ������ x86_64 dev ���������"
+	@echo "  make test                � ��������� ��� ����� (56 ������)"
+	@echo "  make clean               � ������� ��������� ������"
+	@echo "  make asan                � ������ � AddressSanitizer + UBSan"
+	@echo "  make check-cross         � ��������� ����� �����-������ (dry-run)"
+	@echo "  make geo-compile         � ������� geo_compile ��� �����"
+	@echo "  make geo-compile-mipsel  � �����-���������� geo_compile ��� mipsel"
+	@echo "  make cross-mipsel        � �����-���������� MIPS (TC_MIPSEL=path)"
+	@echo "  make cross-aarch64       � �����-���������� ARM64 (TC_AARCH64=path)"
+	@echo "  make cross-armv7         � �����-���������� ARMv7 (TC_ARMV7=path)"
+	@echo "  make help                � ���� ������"
 	@echo ""
 
 .PHONY: all clean run install-vm test help asan check-cross \
