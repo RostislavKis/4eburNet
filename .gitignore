@@ -1,4 +1,4 @@
-# Публичный репо: README, docs/CHANGELOG, CI/CD, инструменты geo-update.
+# Публичный репо: только README + лого + docs/CHANGELOG + CI/CD workflow.
 *
 !README.md
 !4eburNet.png
@@ -9,9 +9,3 @@ docs/*
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
-!update_geo.bat
-!tools/
-tools/*
-!tools/geo_update.sh
-!tools/geo_manifest_update.py
-!tools/update_geo.py
