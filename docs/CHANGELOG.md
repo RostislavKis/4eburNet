@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.15 (2026-05-17)
+
+- fix(geo): .dat heap parser удалён из сборки — geo_dat_parser.c исключён из
+  Makefile.dev (3 места), geo_load_category_dat() удалена, .dat path → LOG_WARN + return -1 (P8)
+- fix(geo): `flow_offload_ifaces[4][32]` → `[4][IFNAMSIZ]` в config.h;
+  валидация config.c: `vl < 32` → `vl < IFNAMSIZ` (P10)
+- fix(http): `bypass_arr[512]` → `[4608]` с cursor-based snprintf в
+  `route_api_sniffer_get()` — устраняет silent truncation при 5+ доменах (P9)
+
 ## v2.5.14 (2026-05-17)
 
 - refactor(constants): `FWMARK_DEVICE_PROXY=0x10u` перенесён из device_policy.h в constants.h (P4)
