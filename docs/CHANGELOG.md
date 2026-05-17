@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.18 (2026-05-17)
+
+- fix(vmess): `wc_AesEcbEncrypt` → `wc_AesCbcEncrypt(iv=0)` для VMess AuthID AES-128-ECB —
+  устраняет implicit declaration на aarch64 wolfSSL без --enable-aesecb (pre-existing)
+- fix(version): `EBURNET_VERSION=2.5.18` в Makefile.dev + `PKG_VERSION=2.5.18` в Makefile (P22+P23)
+- build: mipsel ✅ 3.2MB / aarch64 ✅ 2.1MB / x86_64 ✅ 5.0MB / тесты 27 PASS 0 FAIL
+
 ## v2.5.17 (2026-05-17)
 
 - fix(i18n): `lbConsistentHashingDesc` + `lbStickySessionsDesc` продублированы в
