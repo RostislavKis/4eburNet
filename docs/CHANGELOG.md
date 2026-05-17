@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.21 (2026-05-17)
+
+- feat(stls): ShadowTLS v3 outbound активирован — HC ветка в hc_vless.c:
+  TCP connect → stls_send_client_hello → stls_recv_handshake loop (poll) →
+  RTT = TCP→STLS_ACTIVE (честное измерение для url-test, не TCP latency)
+- feat(stls): shadowtls_ctx_t на heap (calloc, 4.4KB > MIPS stack limit)
+- dashboard: stls_password + stls_sni поля уже присутствовали ✅
+- test: test_shadowtls 10/10 PASS, 0 TS ошибок
+
 ## v2.5.20 (2026-05-17)
 
 - feat(ss2022): полная активация Shadowsocks 2022 — hc_ss.c/h (~130 LoC):
