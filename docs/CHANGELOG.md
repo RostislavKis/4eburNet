@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.5.13 (2026-05-17)
+
+- fix(nft): `nft_flow_offload_disable_internal()` перенесена первой строкой `enable()` —
+  гарантирует идемпотентность при повторном вызове (P3)
+- fix(nft): `valid_ifname()` проверка для всех iface перед подстановкой в nft команду —
+  невалидный iface пропускается с LOG_WARN (P2)
+- fix(nft): `"br-lan"` hardcode → NULL + guard в auto-detection path nftables.c (P1)
+- fix(main): `"br-lan"` hardcode → `cfg_ptr->lan_interface[0]` guard в tc_fast_enable/disable
+  main.c (4 места) — корректная работа на x86_64 без br-lan
+
 ## v2.5.12 (2026-05-17)
 
 - feat(ui): поле `awg_local_ip` в ServerFormModal.vue — Local IP туннеля AWG ipstack
