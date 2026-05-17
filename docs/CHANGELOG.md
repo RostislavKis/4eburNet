@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.5.11 (2026-05-17)
+
+- fix(ts): удалены дублирующие ключи `activeConnections` в en.ts:428 + ru.ts:430 (TS1117)
+- fix(ts): `useI18n` импорт + `const { t }` в DevicesConfig.vue (TS2339 ×4)
+- fix(ts): `ja3?/ja4?` в ConnectionRawMessage.metadata + JA3/JA4 entries в componentMap (TS2739)
+- fix(ts): `strategy?: string` в тип Proxy в types/index.d.ts (TS2339)
+- fix(ts): `configs.inbound_auth ?? false` в BackendSettings.vue (TS2322)
+- fix(ts): computed `bogusNxdomain as string` в DNSFullConfig.vue (TS2322 ×2)
+- fix(ts): `Ref<EventMessage | undefined>` в useEventStream.ts (TS2345)
+- fix(ts): `clearTerm()` wrapper ref<Terminal|null> в SSHConsolePage.vue (TS2339)
+
 ## v2.5.10 (2026-05-17)
 
 - fix(cdn): `dst_path[256]` / `tmp_path[264]` в `geo_fetch_from_manifest()` —
