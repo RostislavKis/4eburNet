@@ -12,3 +12,4 @@ docs/*
 !tools/
 tools/*
 !tools/geo_update.sh
+!tools/sub_convert.py
