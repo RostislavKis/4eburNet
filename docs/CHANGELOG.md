@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.25 (2026-05-17)
+
+- doc(t2-01): DPI bypass подтверждён реализованным —
+  5 стратегий (NONE/FRAGMENT/FAKE_TTL/BOTH/DISORDER), dpi_strategy.c +
+  dpi_filter.c + dpi_payload.c + dpi_adapt.c (1773 LoC суммарно),
+  CONFIG_EBURNET_DPI=1 во всех профилях, GET/PATCH /api/dpi (8 полей),
+  DPIConfig.vue + i18n, адаптивный кэш (fail_count≥3 → автоэскалация),
+  полная интеграция в dispatcher pipeline. Задача закрыта.
+
 ## v2.5.24 (2026-05-17)
 
 - feat(devices): T2-02 Per-device routing UI закрыт —
