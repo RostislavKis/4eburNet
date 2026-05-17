@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.5.29 (2026-05-17)
+
+- feat(device-logs): T1-25 Шаг 2 — запись conn_log_entry_t в relay_free()
+  (timestamp/duration_ms/tx_rx/dst_host/group/protocol)
+- feat(device-logs): GET /api/devices/{mac}/logs — JSON массив обратным
+  порядком (новые первые), json_escape_str экранирование
+- feat(device-logs): DELETE /api/devices/{mac}/logs — сброс ring buffer, 204
+- fix(device-logs): офлайн устройства в GET /api/devices теперь отдают
+  реальные tx_bytes/rx_bytes/conn_count из dm->traffic вместо нулей
+
 ## v2.5.28 (2026-05-17)
 
 - feat(device-logs): T1-25 Шаг 1 — conn_log_entry_t + ring buffer в
