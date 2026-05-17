@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.5.31 (2026-05-17)
+
+- feat(sub_convert): T1-22 — 13 edge cases закрыты:
+  EC-1: awg_dns → list, awg_reserved → '240,220,224' (не Python repr)
+  EC-3: AND-правила сохраняют все sub-conditions (list and_condition)
+  EC-4: NOT-правила → явный WARNING вместо молчаливого skip
+  EC-5: sing-box vless — reality_pbk/sid, sni, ws_path, packet_encoding
+  EC-6: sing-box — новые типы tuic, anytls, wireguard→awg
+  EC-7: все nameserver/fallback DNS серверы (upstream_doh_alt, fallback_alt)
+  EC-8: default-nameserver → bootstrap_dns (DoH bootstrap)
+  EC-9: direct-nameserver → list direct_nameserver
+  EC-10: fake-ip-filter-mode → option fake_ip_filter_mode
+  EC-11: proxy-server-nameserver → list proxy_server_nameserver
+  EC-12: смешанные группы proxies+use → list providers отдельными строками
+  EC-13: имена провайдеров с пробелами → replace('_')
+  EC-14: VMess ветка в Clash парсере (uuid/security/ws/grpc/h2/tls/alterId warn)
+
 ## v2.5.30 (2026-05-17)
 
 - feat(device-logs): T1-25 Шаг 3 — DeviceLogsModal.vue: таблица истории
