@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.5.30 (2026-05-17)
+
+- feat(device-logs): T1-25 Шаг 3 — DeviceLogsModal.vue: таблица истории
+  соединений (время/хост:порт/протокол/группа/TX/RX/длит.), spinner,
+  кнопки Обновить + Очистить, backdrop закрытие
+- feat(device-logs): api/index.ts — ConnLogEntry, getDeviceLogsAPI,
+  deleteDeviceLogsAPI
+- feat(device-logs): DevicesConfig.vue — кнопка "📋 Логи" + DeviceLogsModal
+- feat(device-logs): i18n 7 ключей device_logs_* (ru+en)
+- T1-25 Per-device traffic logs — закрыт полностью
+
 ## v2.5.29 (2026-05-17)
 
 - feat(device-logs): T1-25 Шаг 2 — запись conn_log_entry_t в relay_free()
