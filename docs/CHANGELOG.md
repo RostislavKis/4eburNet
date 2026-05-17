@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.19 (2026-05-17)
+
+- feat(vmess): T1-08 AEAD — полная dispatcher интеграция:
+  RELAY_VMESS_SHAKE state=33, vmess_protocol_start() TLS+header send,
+  SHAKE handler с rx_buf накоплением, relay_transfer() encode/decode path,
+  relay_free() + relay_release_upstream() cleanup
+- fix(vmess): SHAKE-128 stream desync в vmess_decode_chunk — enc_len кешируется
+  в rx_enc_len, SHAKE продвигается ровно один раз на чанк
+- feat(vmess): rx_buf/tx_buf[VMESS_MAX_CHUNK=16402] на heap в vmess_conn_t
+  (MIPS stack limit 512B)
+- build: CONFIG_EBURNET_VMESS=1 во всех профилях mipsel/aarch64/x86_64
+- test: test_vmess 35 PASS + test_hc_vmess 23 PASS + 270 PASS total, 0 FAIL
+- verify: TLS→VMESS_SHAKE переход подтверждён логами EC330;
+  end-to-end не достигнут из-за dead публичных серверов (не наш код)
+
 ## v2.5.18 (2026-05-17)
 
 - fix(vmess): `wc_AesEcbEncrypt` → `wc_AesCbcEncrypt(iv=0)` для VMess AuthID AES-128-ECB —
