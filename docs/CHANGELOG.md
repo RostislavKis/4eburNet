@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.20 (2026-05-17)
+
+- feat(ss2022): полная активация Shadowsocks 2022 — hc_ss.c/h (~130 LoC):
+  TCP connect + SS AEAD handshake + HTTP probe + RTT измерение (аналог hc_vless)
+- feat(ss2022): transport_is_implemented() + HC spawn ветка в proxy_group.c —
+  SS серверы работают в url-test/fallback группах с latency измерением
+- test: test_hc_ss 5 PASS, test_proxy_group_lb 27 PASS, все тесты 0 FAIL
+- note: CONFIG_EBURNET_SS=1 в normal/full профилях (micro=0 намеренно)
+
 ## v2.5.19 (2026-05-17)
 
 - feat(vmess): T1-08 AEAD — полная dispatcher интеграция:
