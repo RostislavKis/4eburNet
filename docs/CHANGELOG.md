@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.16 (2026-05-17)
+
+- feat(ui): N7 fallback поля в DNSPoliciesSection.vue — fallback_upstream/port/type
+  в форме + reactive + payload + тип API (P13)
+- fix(ui): NetworkConfig.vue PATCH catch → toast вместо silent ignore (P14)
+- fix(ui): v-tooltip на TUIC CC алгоритм select + i18n server_tuic_cc (P15)
+- fix(ui): v-tooltip на 6 AWG полей — private_key/public_key/address/jc/jmin/jmax;
+  i18n ключи ru+en (P16)
+
 ## v2.5.15 (2026-05-17)
 
 - fix(geo): .dat heap parser удалён из сборки — geo_dat_parser.c исключён из
