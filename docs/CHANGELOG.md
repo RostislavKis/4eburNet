@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.10 (2026-05-17)
+
+- fix(cdn): `dst_path[256]` / `tmp_path[264]` в `geo_fetch_from_manifest()` —
+  убирает -Werror=format-truncation (GEO_MANIFEST_DIR+fname=145 > 128)
+- fix(cdn): tmp файл в `cdn_geo_update_gbin()` перенесён из /tmp/ в GEO_INSTALL_DIR —
+  устраняет EXDEV при rename() через tmpfs→JFFS2 на OpenWrt
+
 ## v2.5.9 (2026-05-17)
 
 - fix(awg): `s_awg_send_pkt[AWG_MTU]` — file-scope static вместо локального
