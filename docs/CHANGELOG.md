@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.17 (2026-05-17)
+
+- fix(i18n): `lbConsistentHashingDesc` + `lbStickySessionsDesc` продублированы в
+  tooltips:{} секцию — tip() теперь находит ключи (были только на top-level) (P19)
+- fix(i18n): добавлены отсутствующие tooltip ключи в оба файла (ru+en):
+  `flow_offload_desc`, `flow_offload_active`, `conn_ja3` (P20+P21)
+
 ## v2.5.16 (2026-05-17)
 
 - feat(ui): N7 fallback поля в DNSPoliciesSection.vue — fallback_upstream/port/type
