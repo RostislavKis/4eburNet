@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.14 (2026-05-17)
+
+- refactor(constants): `FWMARK_DEVICE_PROXY=0x10u` перенесён из device_policy.h в constants.h (P4)
+- refactor(constants): `NFT_TPROXY_PORT=7893` перенесён из nftables.h в constants.h (P5)
+- refactor(constants): `WS_PING_INTERVAL_S=45` / `WS_PONG_TIMEOUT_S=15` перенесены из
+  http_server.h в constants.h (P6)
+- refactor(constants): `HTTP_RATE_MS=200` / `RATE_LIMIT_SLOTS=64u` перенесены из
+  http_server.c в http_server.h (P12)
+
 ## v2.5.13 (2026-05-17)
 
 - fix(nft): `nft_flow_offload_disable_internal()` перенесена первой строкой `enable()` —
