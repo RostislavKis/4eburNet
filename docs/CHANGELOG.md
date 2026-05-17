@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.5.12 (2026-05-17)
+
+- feat(ui): поле `awg_local_ip` в ServerFormModal.vue — Local IP туннеля AWG ipstack
+  (template input + form ref + submit payload + tooltip ru/en)
+
 ## v2.5.11 (2026-05-17)
 
 - fix(ts): удалены дублирующие ключи `activeConnections` в en.ts:428 + ru.ts:430 (TS1117)
