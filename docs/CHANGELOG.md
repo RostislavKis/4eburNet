@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.5.28 (2026-05-17)
+
+- feat(device-logs): T1-25 Шаг 1 — conn_log_entry_t + ring buffer в
+  device_traffic_t (DEVICE_CONN_LOG_SIZE=32/8), device_traffic_log()
+- fix(tests): test-hc-vless — добавлены CONFIG_EBURNET_STLS=1, CONFIG_EBURNET_DPI=1,
+  shadowtls.c, hmac_sha256.c, dpi_payload.c; 808 → 1216 PASS, 0 FAIL
+  (root cause: shadowtls.c проверяет флаг до первого #include)
+
 ## v2.5.27 (2026-05-17)
 
 - feat(inbound): T1-16 SOCKS5 + T1-17 HTTP inbound подтверждены реализованными
