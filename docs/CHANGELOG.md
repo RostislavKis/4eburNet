@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.23 (2026-05-17)
+
+- doc(t1-06): Sniffer HTTP Host подтверждён реализованным —
+  sniffer_parse_http_host() 154 LoC, интеграция dispatcher:3408,
+  UCI + REST API + dashboard toggle + stats + ConnectionTable sniffHost,
+  12 unit-тестов PASS. Задача закрыта.
+
 ## v2.5.22 (2026-05-17)
 
 - fix(bbr): удалён sysctl/kmod-tcp-bbr подход — нарушал zero-dependency принцип
