@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.26 (2026-05-17)
+
+- feat(reload): T1-26 graceful reload — atomic pgm swap при SIGHUP:
+  pgm_retain/pgm_release (acq_rel) + owner_pgm снапшот в каждом relay
+- feat(reload): pgm_state → heap (calloc) + atomic swap в handle_reload():
+  new_pgm создаётся до free старого, relay держат retain через owner_pgm
+- feat(reload): dispatcher g_reloading gate — accept блокируется на ~1-5мс
+  во время swap, исключает UB окно (g_pgm dangling ptr при SIGHUP)
+- fix(reload): proxy_group_mark_fail/ok → r->owner_pgm (не g_pgm) —
+  исключает out-of-bounds при изменении количества серверов после reload
+- verify: EC330 PID=13933 до/после SIGHUP, DNS работает, лог "graceful swap ✓"
+
 ## v2.5.25 (2026-05-17)
 
 - doc(t2-01): DPI bypass подтверждён реализованным —
