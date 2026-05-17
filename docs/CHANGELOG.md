@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.5.22 (2026-05-17)
+
+- fix(bbr): удалён sysctl/kmod-tcp-bbr подход — нарушал zero-dependency принцип
+- feat(bbr): BBR v1/v2 уже реализованы в TUIC v5 CC (tuic_cc_algo_t,
+  state machine tuic_v5_proto.c:535+, dispatch по server->tuic_cc)
+- feat(ui): NetworkConfig.vue tooltip BBR обновлён — userspace, kmod не нужен
+- feat(ui): ServerFormModal.vue TUIC CC: cubic/bbr1/bbr2/newreno опции ✅
+
 ## v2.5.21 (2026-05-17)
 
 - feat(stls): ShadowTLS v3 outbound активирован — HC ветка в hc_vless.c:
