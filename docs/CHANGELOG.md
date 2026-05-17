@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.5.24 (2026-05-17)
+
+- feat(devices): T2-02 Per-device routing UI закрыт —
+  dispatcher.c: MAC→server_group override в двух точках (после rules engine
+  и после dispatcher_select_server), ARP-lookup + device_policy_find + proxy_group_select_server;
+  http_server.c: route_api_devices() — поле server_group, online:true/false,
+  блок офлайн UCI-устройств (online=false);
+  DevicesConfig.vue: server_group + online в интерфейсе, online/offline badge;
+  i18n ru+en: device_online / device_offline. Сборка mipsel 3.2MB, ALL PASS.
+
 ## v2.5.23 (2026-05-17)
 
 - doc(t1-06): Sniffer HTTP Host подтверждён реализованным —
