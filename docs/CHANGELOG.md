@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.27 (2026-05-17)
+
+- feat(inbound): T1-16 SOCKS5 + T1-17 HTTP inbound подтверждены реализованными
+  (inbound.c 550 LoC, RFC 1928 + RFC 1929 auth, TPROXY listener, dispatcher integration)
+- fix(inbound): GET /api/configs — socks-port/mixed-port более не хардкодят 0,
+  читаются из s_cfg->mixed_port
+- feat(inbound): PATCH /api/configs — mixed-port/socks-port с atomic listener
+  restart через dispatcher_restart_inbound() без SIGHUP
+- feat(inbound): UDP ASSOCIATE (RFC 1928 §7) — локальный UDP relay на loopback,
+  EPOLL_EP_UDP_ASSOC=10 ET drain, RELAY_UDP_ASSOC=34 state,
+  inbound_reply_bind() BND.ADDR/PORT, TCP control conn EOF → relay_free
+
 ## v2.5.26 (2026-05-17)
 
 - feat(reload): T1-26 graceful reload — atomic pgm swap при SIGHUP:
