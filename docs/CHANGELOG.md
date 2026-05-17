@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.9 (2026-05-17)
+
+- fix(awg): `s_awg_send_pkt[AWG_MTU]` — file-scope static вместо локального
+  `uint8_t pkt[1280]` в цикле `awg_stream_send()` (MIPS stack crash, awg_ipstack.c:282)
+- fix(tuic): убран double-free `free(tst)` после `tuic_stream_pool_remove()` в
+  `relay_free()` и `relay_release_upstream()` (heap corruption при закрытии TUIC соединения)
+
 ## v2.5.8 (2026-05-17) — N8: nftables Flow Offload
 
 - feat(routing): nftables flowtable eburnet_ft — DIRECT-трафик → kernel fast path
