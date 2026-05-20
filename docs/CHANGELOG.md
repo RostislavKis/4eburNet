@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.36 (2026-05-20)
+
+- refactor(dashboard): полный ребрендинг — убраны все mihomo/zashboard/MetaCubeX
+  ссылки, заменены на 4eburNet/RostislavKis/4eburNet
+- feat(dashboard): title → "4eburNet Dashboard", router titles обновлены
+- fix(dashboard): flush paths исправлены → /api/dns/cache/flush + /api/dns/fakeip/flush
+- feat(dashboard): upgradeCore → POST /upgrade (4eburNet бинарь, не mihomo)
+- feat(dashboard): fetchBackendUpdateAvailable → EBURNET_RELEASES_URL (GitHub RostislavKis)
+- feat(http): POST /restart → run_initd restart (4eburNet compat)
+- feat(http): POST /upgrade → upgrade.sh (501 если не найден)
+- feat(http): POST /configs/geo → alias route_api_geo_update (202 async)
+- deploy: EC330 dashboard + бинарь обновлены (2026-05-20 19:49)
+
 ## v2.5.35 (2026-05-20)
 
 - feat(proxy_group): group-in-group — группа может ссылаться на другую группу
