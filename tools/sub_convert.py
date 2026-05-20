@@ -260,6 +260,53 @@ def _classify_dns_upstream(server_str) -> dict:
     return {'type': 'udp', 'upstream': plain, 'sni': ''}
 
 
+# Явный маппинг сирот из анализа config.yaml.
+# WHY: провайдеры объявлены в rule-providers, но не упомянуты в RULE-SET
+# правилах конфига. Автоматически генерируем RULE-SET правила чтобы
+# все 34 списка скачивались и участвовали в маршрутизации.
+# Маппинг определён анализом групп и правил Flint2-конфига:
+# - Discord/мессенджеры → TELEGRAM (канал с минимальным RT)
+# - Иностранный контент/сервисы → GEMINI (основная proxy группа)
+_ORPHAN_GROUP_MAP = {
+    'youtube':        '🤖 GEMINI',
+    'youtube-ip':     '🤖 GEMINI',
+    'discord-domain': '✈️ TELEGRAM',
+    'discord-ip':     '✈️ TELEGRAM',
+    'discord-txt':    '✈️ TELEGRAM',
+    'messengers':     '✈️ TELEGRAM',
+    'xiaomi':         '🤖 GEMINI',
+    'jetbrains':      '🤖 GEMINI',
+    'games':          '🤖 GEMINI',
+    'education':      '🤖 GEMINI',
+    'art':            '🤖 GEMINI',
+    'casino':         '🤖 GEMINI',
+    'music':          '🤖 GEMINI',
+    'news':           '🤖 GEMINI',
+    'porn':           '🤖 GEMINI',
+    'shop':           '🤖 GEMINI',
+    'social':         '🤖 GEMINI',
+    'video':          '🤖 GEMINI',
+    'anime-ip':       '🤖 GEMINI',
+}
+
+
+def _guess_group_for_provider(name, available_groups):
+    """Определить целевую группу для orphan rule-provider по маппингу."""
+    if name in _ORPHAN_GROUP_MAP:
+        target = _ORPHAN_GROUP_MAP[name]
+        if target in available_groups:
+            return target
+        # Группа переименована — fallback на любую GEMINI/PROXY группу
+        for g in available_groups:
+            if 'GEMINI' in g.upper() or 'PROXY' in g.upper():
+                return g
+    # Неизвестная сирота — fallback на первую GEMINI/PROXY группу
+    for g in available_groups:
+        if 'GEMINI' in g.upper() or 'PROXY' in g.upper():
+            return g
+    return available_groups[0] if available_groups else 'PROXY'
+
+
 def _convert_clash_rule_providers(doc: dict) -> list:
     """Конвертирует rule-providers Clash YAML → UCI rule_provider секции.
 
@@ -340,19 +387,12 @@ def _warn_unsupported_sections(doc: dict) -> None:
     конфигурация (sniffer protocol detection, TUN interface, global mode)
     не применилась к 4eburnet и нужно настраивать вручную.
     """
-    # sniffer: 4eburnet использует адаптивный DPI (UCI dpi_enabled),
-    # но Clash sniffer.sniff (TLS/HTTP/QUIC) маппится не 1-в-1.
+    # sniffer: enable=true конвертируется автоматически в _parse_clash_yaml_native
+    # (dpi_enabled + sniffer_tls/http → dns_opts). Здесь логируем только enable=false.
     sniffer = doc.get('sniffer')
-    if isinstance(sniffer, dict):
-        if sniffer.get('enable'):
-            print("[WARNING] sub_convert: sniffer.enable=true — "
-                  "автоматическая конвертация невозможна. "
-                  "4eburnet использует адаптивный DPI: настройте "
-                  "option dpi_enabled '1' в /etc/config/4eburnet вручную.",
-                  file=sys.stderr)
-        else:
-            print("[INFO] sub_convert: sniffer присутствует с enable=false — "
-                  "пропущено как ожидаемо.", file=sys.stderr)
+    if isinstance(sniffer, dict) and not sniffer.get('enable'):
+        print("[INFO] sub_convert: sniffer присутствует с enable=false — "
+              "пропущено как ожидаемо.", file=sys.stderr)
 
     # tun: 4eburnet перехватывает трафик через nftables TPROXY, не TUN.
     tun = doc.get('tun')
@@ -555,16 +595,36 @@ def _parse_clash_yaml_native(doc: dict, max_servers: int = 500) -> tuple:
     rule_providers = _convert_clash_rule_providers(doc)
 
     # Orphan-провайдеры: объявлены в rule-providers, но нет RULE-SET ссылок.
+    # WHY: вместо фильтрации — генерируем RULE-SET правила автоматически.
+    # Это активирует все провайдеры: списки скачиваются и участвуют в маршрутизации.
+    # Авто-правила добавляются в конец (перед MATCH catch-all): явные правила конфига
+    # имеют приоритет над авто-маппингом.
     if rule_providers:
         referenced = {r['value'] for r in rules if r.get('type') == 'rule_set'}
-        orphans = [rp['name'] for rp in rule_providers
-                   if rp['name'] not in referenced]
-        if orphans:
-            prev = ', '.join(orphans[:5]) + ('...' if len(orphans) > 5 else '')
-            print(f"[WARNING] sub_convert: rule-providers без RULE-SET правил "
-                  f"({len(orphans)}): {prev}", file=sys.stderr)
-            print(f"         Добавь RULE-SET,{orphans[0]},PROXY в rules секцию YAML",
-                  file=sys.stderr)
+        orphan_set = {rp['name'] for rp in rule_providers
+                      if rp['name'] not in referenced}
+        if orphan_set:
+            available_groups = [g['name'] for g in groups]
+            for name in sorted(orphan_set):
+                target = _guess_group_for_provider(name, available_groups)
+                rules.append({'type': 'rule_set', 'value': name, 'target': target})
+                print(f"[INFO] sub_convert: orphan '{name}' → {target} (авто-правило)",
+                      file=sys.stderr)
+
+    # sniffer → UCI main dpi_enabled + sniffer_tls/sniffer_http (автоматическая конвертация)
+    sniffer_cfg = doc.get('sniffer') or {}
+    if isinstance(sniffer_cfg, dict) and sniffer_cfg.get('enable', False):
+        # WHY: sniffer.enable=true маппируется в 4eburNet DPI pipeline:
+        # dpi_enabled=1 активирует диспетчер DPI, sniffer_tls — TLS SNI extractor,
+        # sniffer_http — HTTP Host header extractor (только если явно включён).
+        dns_opts.append(('main_dpi_enabled', '1'))
+        dns_opts.append(('main_sniffer_tls', '1'))
+        sniff_protos = sniffer_cfg.get('sniff', {})
+        if isinstance(sniff_protos, dict) and 'HTTP' in sniff_protos:
+            dns_opts.append(('main_sniffer_http', '1'))
+        bypass = sniffer_cfg.get('skip-domain', []) or []
+        for domain in (bypass[:64] if isinstance(bypass, list) else []):
+            dns_opts.append(('main_sniffer_bypass', str(domain)))
 
     # Warnings для неконвертируемых секций (KB-5)
     _warn_unsupported_sections(doc)
@@ -1423,7 +1483,7 @@ def generate_uci(servers: list,
         lines.append("\toption enabled\t'1'")
         for key, val in main_opts:
             opt_name = key[5:]  # убрать prefix 'main_'
-            if key == 'main_fake_ip_filter':
+            if key in ('main_fake_ip_filter', 'main_sniffer_bypass'):
                 lines.append(f"\tlist {opt_name}\t'{_uci_safe(val)}'")
             else:
                 lines.append(f"\toption {opt_name}\t'{_uci_safe(val)}'")

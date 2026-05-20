@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.34 (2026-05-20)
+
+- fix(sub_convert): все 34 rule-providers включаются в UCI (не только 15)
+- feat(sub_convert): точный маппинг 19 orphan providers из анализа config.yaml:
+  discord-domain/ip/txt + messengers → ✈️ TELEGRAM;
+  youtube/youtube-ip/xiaomi/jetbrains/games/education/art/casino/
+  music/news/porn/shop/social/video/anime-ip → 🤖 GEMINI
+- feat(sub_convert): sniffer.enable=true → авто UCI (dpi_enabled + sniffer_tls/http)
+- feat(sub_convert): orphan providers генерируют RULE-SET правила перед MATCH
+  (412 явных + 19 авто = 431 правило)
+- fix(hc): fair per-group HC scheduling (v2.5.33) — EC330 v2.5.33 задеплоен
+
 ## v2.5.33 (2026-05-20)
 
 - fix(hc): fair round-robin HC scheduling — каждая группа получает ≥1 слот:
