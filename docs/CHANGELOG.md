@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.33 (2026-05-20)
+
+- fix(hc): fair round-robin HC scheduling — каждая группа получает ≥1 слот:
+  per_grp=max(1, global_limit/non_select_groups); при limit=4 и 6 группах = 1 слот/группа
+- fix(hc): `compute_hc_limit()` теперь возвращает avail_mb для downstream использования
+- fix(hc): OOM floor: min(active_groups, avail_mb/5) — безопасно для 20MB RAM (cap=4)
+- fix(hc): interval floor — url-test/fastest-whitelist группы min 300s при MemAvailable<32MB
+- fix(hc): AWG timeout override → max(timeout_ms, 3000ms) для Noise IK handshake через WARP
+
 ## v2.5.32 (2026-05-20)
 
 - feat(xudp): T1-13 XUDP live verification — все 4 проблемы закрыты:
