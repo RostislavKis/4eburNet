@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.35 (2026-05-20)
+
+- feat(proxy_group): group-in-group — группа может ссылаться на другую группу
+  как на "сервер" (Clash-совместимо): is_group + group_name[64] в
+  group_server_state_t, proxy_group_select_server_depth() с depth guard ≤16,
+  защита от циклических ссылок, HC/failover/rotate guards для group refs
+- feat(proxy_group): GroupRef отображается в /proxies JSON с latency из
+  referenced группы; PUT /proxies поддерживает выбор по group_name
+- fix(sub_convert): все 34 rule-providers в UCI + orphan авто-маппинг (v2.5.34)
+- deploy: config.yaml (Flint2) применён на EC330 — 431 правил, 34 провайдера,
+  group-in-group ✈️ TELEGRAM → 🤖 GEMINI работает
+
 ## v2.5.34 (2026-05-20)
 
 - fix(sub_convert): все 34 rule-providers включаются в UCI (не только 15)
