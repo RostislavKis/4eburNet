@@ -1315,6 +1315,24 @@ def detect_format(data: str) -> str:
 
 # ── UCI генератор ──────────────────────────────────────────────────────
 
+def _clean_regex_filter(s: str) -> str:
+    """Очистить regex фильтр после _uci_safe(): удалить пустые альтернативы |.
+
+    WHY: эмодзи-флаги стран (U+1F1xx) удаляются _uci_safe() → появляются
+    последовательности вида |(||...|) которые матчат пустую строку и тем
+    самым отсекают ВСЕ серверы из группы через отрицательный lookahead.
+    """
+    import re as _re
+    # убрать все пустые альтернативы: (|a) → (a), (a|) → (a), (a||b) → (a|b)
+    prev = None
+    while prev != s:
+        prev = s
+        s = _re.sub(r'\|\|+', '|', s)   # схлопнуть цепочки ||
+        s = _re.sub(r'\(([^()]*)\|(?=\))', r'(\1', s)   # (a|) → (a)
+        s = _re.sub(r'\(\|([^()]*)\)', r'(\1', s)       # (|a) → (a)
+    return s
+
+
 def _uci_safe(s) -> str:
     """Привести строку к UCI-безопасному виду.
 
@@ -1419,7 +1437,7 @@ def generate_uci(servers: list,
             else:
                 lines.append(f"\toption providers\t'{_uci_safe(str(providers))}'")
         if grp.get('filter'):
-            lines.append(f"\toption filter\t'{_uci_safe(str(grp['filter']))}'")
+            lines.append(f"\toption filter\t'{_clean_regex_filter(_uci_safe(str(grp['filter'])))}'")
         lines.append(f"\toption enabled\t'1'")
         lines.append("")
 
