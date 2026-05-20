@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.32 (2026-05-20)
+
+- feat(xudp): T1-13 XUDP live verification — все 4 проблемы закрыты:
+  P1: nftables UDP tproxy verdict в prerouting (tproxy ip to :7893) для IPv4+IPv6
+  P2: SOCKS5 UDP ASSOCIATE → dispatcher_handle_udp() — полный XUDP/Mux.Cool
+      pipeline вместо прямого sendto() (IPv4+IPv6 atyp)
+  P3: nat output REDIRECT (nat_output chain) вместо tproxy verdict в output hook
+      (ядро Linux не поддерживает tproxy в output); SO_MARK=0x01 на всех
+      upstream UDP сокетах предотвращает петли
+  P4: kmod-nft-tproxy уже установлен, veth не требуется
+- fix(tproxy): IP_RECVORIGDSTADDR + guard dst=0 в tproxy_recv_udp()
+
 ## v2.5.31 (2026-05-17)
 
 - feat(sub_convert): T1-22 — 13 edge cases закрыты:
