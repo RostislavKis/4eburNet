@@ -1,5 +1,32 @@
 # Changelog
 
+## v2.5.42 (2026-05-22)
+
+- fix(dispatcher): DNS resolve cache file-scope + invalidate-on-failure + TTL default
+  3600→60s. Stale IP провайдера (ca1.xxee.ru: 194.221.250.50 → 150.241.82.25)
+  больше не блокирует connections. `dispatcher_invalidate_resolve_cache()` сбрасывает
+  slot при ETIMEDOUT/ECONNREFUSED/ENETUNREACH/EHOSTUNREACH в upstream_connect
+- fix(dispatcher): `dispatcher_prewarm_resolve` TTL 3600→60s sync с _resolve_server
+- fix(proxy_group): compute_hc_limit жёсткие пороги по MemAvailable —
+  <20MB=1, <40MB=2, <80MB=4, ≥80MB=8. EC330 (14MB free): limit=1 вместо OOM
+- fix(proxy_group): url_test fallback_idx — если все серверы latency=0
+  (HC ещё не прогрелся), выбирать первый available вместо -1
+- fix(awg): убраны reserved [240,220,224] из Init handshake — mihomo шлёт
+  Init с reserved=00, sid_len=32 (стандарт WG). WARP отвергает MAC1 mismatch
+- diag(awg): hex log Init pkt 148 байт через malloc(700) — для будущего
+  WARP crypto debug (Noise IK MAC1 verification)
+- diag(reality): T0-01 pre-inject/post-inject log в tls13_hs.c send_client_hello —
+  hex dump session_id_length+session_id для верификации Reality auth injection
+- ops(init.d): `procd_set_param respawn 5 5 5` → `60 5 0` (threshold=60s,
+  unlimited retries) — auto-respawn после OOM kill
+- ops(sysctl): vm.overcommit_memory=1 + vm.overcommit_ratio=80 на EC330 —
+  предотвращает OOM kill из-за virtual size 77MB при real RSS 13MB
+- docs: docs/reality_ch_diff.md — полный анализ T0-01 (mihomo vs 4eburNet
+  ClientHello байт-в-байт): корневая причина = Trojan+Reality+gRPC использует
+  стандартный wolfSSL без Reality session_id auth. План refactor для
+  следующей сессии: trojan_protocol_start Reality branch + RELAY_REALITY_HS
+  proto-aware dispatch + relay_send_trojan_header_reality
+
 ## v2.5.41 (2026-05-21)
 
 - fix(awg): удалён skip_awg guard в proxy_group.c (8 мест) — AWG работает
