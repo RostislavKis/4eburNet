@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.39 (2026-05-21)
+
+- fix(fake-ip): dns.fake_ip_enabled='true' парсился как невалидный →
+  fake-IP не включался → proxy домены получали реальные IP вместо 198.18.x.x
+- feat(config): parse_bool_uci() helper — унифицированный парсер bool для UCI:
+  принимает '1'/'0'/'true'/'false', 16 мест в config.c обновлены
+- fix(sub_convert): dns_fake_ip_enabled вместо main_fake_ip_enabled —
+  правильная секция UCI для fake-ip настроек
+- fix(dns): +.domain.com pattern матчит базовый домен (google.com без точки)
+- fix(dns): action=PROXY без configured upstream → fallback 1.1.1.1
+- fix(version): EBURNET_VERSION 2.5.36 → 2.5.38 в Makefile.dev
+- fix(dnsmasq): dnsmasq.port уже 5353, procd START=95 > dnsmasq START=19 ✓
+- Полная цепочка fake-IP работает:
+  DNS→198.18.x.x→tproxy→dispatcher→fake_ip_lookup→domain→GEMINI→proxy
+
 ## v2.5.37 (2026-05-21)
 
 - fix(provider): root cause NUL в кэш-файлах — buf[safe_n]='\0' в net_utils.c

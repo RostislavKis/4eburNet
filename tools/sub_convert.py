@@ -542,8 +542,10 @@ def _parse_clash_yaml_native(doc: dict, max_servers: int = 500) -> tuple:
         if fip:
             dns_opts.append(('fake_ip_range', str(fip)))
         # fake-ip mode
+        # WHY: парсер ожидает fake_ip_enabled в секции dns (config.c SECTION_DNS),
+        # main_fake_ip_enabled → "Неизвестная опция 4eburnet" → fake-IP не включается.
         if str(dns.get('enhanced-mode', '')).strip().lower() == 'fake-ip':
-            dns_opts.append(('main_fake_ip_enabled', '1'))
+            dns_opts.append(('dns_fake_ip_enabled', '1'))
         # fake-ip-filter → main section (дополнительно к traffic_rules выше).
         # WHY: traffic_rules маршрутизируют трафик; main_fake_ip_filter говорит
         # DNS-демону не выдавать fake-IP для этих доменов.
