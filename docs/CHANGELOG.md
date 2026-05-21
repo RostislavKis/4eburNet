@@ -1,22 +1,33 @@
 # Changelog
 
-## v2.5.37 (2026-05-20)
+## v2.5.37 (2026-05-21)
 
-- fix(ws): ws_send_101 добавлен заголовок Access-Control-Allow-Private-Network: true —
-  Chrome 113+ требует его при cross-origin WS к приватной сети (192.168.x.x),
-  без него ERR_CONNECTION_RESET после 101 на /traffic и /memory
-- fix(http): EPOLLOUT обработчик — после flush WS соединение не закрывается,
-  только снимается EPOLLOUT → EPOLLIN (баг убивал WS соединения после broadcast с EAGAIN)
-- fix(json): json_escape_str — валидация UTF-8: невалидные байты заменяются на U+FFFD
-  (EF BF BD); Chrome отвергает WS text frame с невалидным UTF-8 ("Could not decode
-  a text frame as UTF-8") → /connections WS разрывался при не-ASCII символах в r->domain
-- feat(http): PUT /providers/proxies/{name} → reload_daemon (Clash API, кнопка Update)
-- feat(http): GET /providers/proxies/{name}/healthcheck → 204 (Clash API, кнопка HC)
-- feat(http): PUT /providers/rules/{name} → rule_provider_update() (Clash API)
-- feat(http): HTTP 404 catch-all логирует метод+путь через log_msg для диагностики
-- fix(sub_convert): `_clean_regex_filter` — удаление пустых альтернаций `|(||)` в regex
-  фильтрах после `_uci_safe()`; эмодзи-флаги стран → пустая строка → матч пустой строки
-  → отсекал все серверы через отрицательный lookahead
+- fix(provider): root cause NUL в кэш-файлах — buf[safe_n]='\0' в net_utils.c
+  затирал последний байт при n=4096 → PrivateVPN 0→91 серверов
+- fix(provider): sanitize \0→\n перед парсингом + memmem вместо strstr
+  (defense-in-depth для исторических кэшей)
+- fix(provider): удалён диагностический log_msg, прод-код очищен
+- feat(proxy_group): proxy_group_rebuild_from_providers() — пересчёт групп
+  после async provider fetch (GEMINI/CLAUDE: 0→74 серверов)
+- feat(proxy_group): group_populate_provider_servers() — helper вынесен из
+  proxy_group_init для повторного вызова
+- feat(main): hook proxy_group_rebuild_from_providers перед restore_all_selections
+  в proxy_provider_handle_fetch path
+- fix(http): HTTP_MAX_CONN 8→64 — браузер открывает 10+ conn → пул переполнялся
+  → ERR_CONNECTION_RESET на WS /traffic и /memory
+- fix(ws): EPOLLOUT без is_websocket check — flush EAGAIN закрывал WS соединение
+- fix(ws): Access-Control-Allow-Private-Network: true в ws_send_101
+- fix(ws): json_escape_str для UTF-8 в ws_logs_send_history
+- feat(http): POST /restart, POST /upgrade, POST /configs/geo endpoints
+- feat(provider): custom HTTP headers для proxy provider fetch (PrivateVPN auth)
+- fix(provider): WL убран из GEMINI/CLAUDE групп (только иностранные серверы)
+- feat(proxy_group): group-in-group рекурсивное разрешение + depth guard ≤16
+- fix(dashboard): registerSW.js убран (PWA не нужен в LAN)
+- fix(dashboard): GitHub tags API вместо releases/latest (404)
+- fix(http): GET /dns/query alias, GET /api/dns/upstream alias
+- fix(http): delay test rate limit MAX_CONCURRENT_DELAY=3 (429 при превышении)
+- feat(dashboard): throttle delay tests pLimit(3) + retry на 429
+- feat(sub_convert): custom headers для proxy providers (PrivateVPN auth)
 - deploy: EC330 (192.168.2.1) v2.5.37 ✓
 
 ## v2.5.36 (2026-05-20)
