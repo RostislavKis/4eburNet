@@ -928,6 +928,11 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             'awg_private_key': proxy.get('private-key', ''),
             'awg_public_key':  proxy.get('public-key', ''),
         }
+        # WHY: ip: 172.16.0.2 в Clash YAML = virtual client IP для AWG ipstack.
+        # Без awg_local_ip ipstack init возвращает EINVAL → handshake не запускается.
+        local_ip = proxy.get('ip') or proxy.get('local-address')
+        if local_ip:
+            srv['awg_local_ip'] = str(local_ip).split('/')[0]  # snip /32 если есть
         # AWG obfuscation: из amnezia-wg-option dict или top-level
         awg_opts = proxy.get('amnezia-wg-option') or proxy
         # jc/jmin/jmax

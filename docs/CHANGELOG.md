@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.41 (2026-05-21)
+
+- fix(awg): удалён skip_awg guard в proxy_group.c (8 мест) — AWG работает
+  в любой группе как в mihomo (TELEGRAM использует AWG напрямую)
+- fix(awg): awg_local_ip default '172.16.0.2' если не задан в UCI
+- fix(awg): удалён SO_MARK=FWMARK_PROXY на AWG UDP сокете — вызывал
+  ENETUNREACH через table 100/loopback вместо WAN default route
+- fix(sub_convert): proxy.get('ip') → awg_local_ip для wireguard outbound
+- diag(awg): WARP отвечает cookie-reply (16 байт) при burst — anti-flood;
+  cookie handling — отдельная задача
+- fix(fake-ip): persist fake_ip_table через рестарты — save при SIGHUP/SIGTERM,
+  load при старте из /etc/4eburnet/fake_ip_cache.bin (v2.5.40)
+- fix(dns): +.domain.com матчит базовый домен без точки (v2.5.39)
+- fix(config): parse_bool_uci() — поддержка true/false для 16 bool UCI полей
+
 ## v2.5.39 (2026-05-21)
 
 - fix(fake-ip): dns.fake_ip_enabled='true' парсился как невалидный →
