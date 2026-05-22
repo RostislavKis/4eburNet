@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.43 (2026-05-22)
+
+- feat(T0-01): Trojan+Reality+gRPC — полный Reality TLS путь для Trojan протокола.
+  trojan_protocol_start Reality branch (идентично vless, relay_proto=RELAY_PROTO_TROJAN).
+  relay_handle_reality proto-aware dispatch: switch(r->relay_proto) → VLESS/Trojan.
+  trojan_handshake_start_reality(): trojan_build_request → reality_send → RELAY_ACTIVE
+  (Trojan не имеет response header, переход сразу в ACTIVE в отличие от VLESS).
+  Верификация EC330: CONNECTING→REALITY_HS→REALITY_TROJAN→ACTIVE ✓
+  reality_inject_session_id rc=0, session_id_length=0x20 (было 0x00 до fix).
+- refactor(dispatcher): relay_proto_t enum (RELAY_PROTO_VLESS=0, RELAY_PROTO_TROJAN=1)
+  в relay_conn_t для protocol-aware dispatch после Reality HS.
+- cleanup: удалены все T0-01 диагностические логи (dispatcher.c ×4, tls13_hs.c ×2).
+
 ## v2.5.42 (2026-05-22)
 
 - fix(dispatcher): DNS resolve cache file-scope + invalidate-on-failure + TTL default

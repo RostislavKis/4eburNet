@@ -825,27 +825,44 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             'reality_pbk': proxy.get('reality-opts', {}).get('public-key', '')
                            if isinstance(proxy.get('reality-opts'), dict)
                            else proxy.get('pbk', ''),
-            'reality_sid': proxy.get('reality-opts', {}).get('short-id', '')
-                           if isinstance(proxy.get('reality-opts'), dict)
-                           else proxy.get('sid', ''),
+            'reality_short_id': proxy.get('reality-opts', {}).get('short-id', '')
+                               if isinstance(proxy.get('reality-opts'), dict)
+                               else proxy.get('sid', ''),
             'sni':         proxy.get('servername', proxy.get('sni', '')),
             'ws_path':     _ws_opts.get('path', ''),
             'ws_host':     (_ws_opts.get('headers', {}) or {}).get('Host', ''),
             'packet_encoding': _pe,
         })
     elif ptype == 'trojan':
+        _ro_trj = proxy.get('reality-opts', {})
+        if not isinstance(_ro_trj, dict):
+            _ro_trj = {}
+        _grpc_opts_trj = proxy.get('grpc-opts', {})
+        if not isinstance(_grpc_opts_trj, dict):
+            _grpc_opts_trj = {}
+        _ws_opts_trj = proxy.get('ws-opts', {})
+        if not isinstance(_ws_opts_trj, dict):
+            _ws_opts_trj = {}
+        _net_trj = proxy.get('network', 'raw')
         srv = {
-            'protocol':  'trojan',
-            'name':      name,
-            'address':   host,
-            'port':      int(port),
-            'password':  proxy.get('password', ''),
-            'sni':       proxy.get('sni', ''),
-            'transport': proxy.get('network', 'raw'),
-            # Trojan+Mux: только при явном packet-encoding (xray не поддерживает,
-            # mihomo поддерживает через external sing-vmess).
-            'packet_encoding': proxy.get('packet-encoding', ''),
+            'protocol':           'trojan',
+            'name':               name,
+            'address':            host,
+            'port':               int(port),
+            'password':           proxy.get('password', ''),
+            'sni':                proxy.get('sni', ''),
+            'transport':          _net_trj,
+            'reality_pbk':        _ro_trj.get('public-key', ''),
+            'reality_short_id':   _ro_trj.get('short-id', ''),
+            'reality_fingerprint': proxy.get('client-fingerprint', ''),
+            'reality_sni':        proxy.get('servername', proxy.get('sni', '')),
+            'packet_encoding':    proxy.get('packet-encoding', ''),
         }
+        if _net_trj == 'grpc':
+            srv['grpc_service_name'] = _grpc_opts_trj.get('grpc-service-name', '')
+        elif _net_trj in ('ws', 'websocket'):
+            srv['ws_path'] = _ws_opts_trj.get('path', '')
+            srv['ws_host'] = (_ws_opts_trj.get('headers', {}) or {}).get('Host', '')
         _apply_shadowtls(proxy, srv)
         servers.append(srv)
     elif ptype in ('ss', 'shadowsocks'):
@@ -902,7 +919,7 @@ def _clash_proxy_to_server(proxy: dict, servers: list) -> None:
             srv['ws_path'] = _ws_opts.get('path', '/')
             srv['ws_host'] = (_ws_opts.get('headers') or {}).get('Host', '')
         elif network == 'grpc':
-            srv['grpc_service'] = _grpc_opts.get('grpc-service-name', '')
+            srv['grpc_service_name'] = _grpc_opts.get('grpc-service-name', '')
         if proxy.get('tls'):
             srv['tls']              = '1'
             srv['sni']              = proxy.get('servername', proxy.get('sni', ''))
@@ -1181,7 +1198,7 @@ def parse_singbox_json(data: str, max_servers: int = 500) -> tuple:
                 'uuid':           ob.get('uuid', ''),
                 'transport':      _sb_t_map.get(t_type, 'raw'),
                 'reality_pbk':    reality.get('public_key', ''),
-                'reality_sid':    reality.get('short_id', ''),
+                'reality_short_id': reality.get('short_id', ''),
                 'sni':            tls.get('server_name', ''),
                 'packet_encoding': ob.get('packet_encoding', ''),
             }
@@ -1189,7 +1206,7 @@ def parse_singbox_json(data: str, max_servers: int = 500) -> tuple:
                 srv['ws_path'] = transport.get('path', '/')
                 srv['ws_host'] = (transport.get('headers') or {}).get('Host', '')
             elif t_type == 'grpc':
-                srv['grpc_service'] = transport.get('service_name', '')
+                srv['grpc_service_name'] = transport.get('service_name', '')
             servers.append(srv)
         elif ob_type == 'trojan':
             servers.append({
