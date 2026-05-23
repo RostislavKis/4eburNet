@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.44 (2026-05-23)
+
+- fix(noise): TAI64N timestamp использует реальные nanoseconds (clock_gettime
+  CLOCK_REALTIME) вместо нулей. Убран tai_utc_offset +37 — не соответствует
+  amneziawg-go reference (vendor/tai64n/tai64n.go). При retry >1 раза в секунду
+  nano=0 вызывало одинаковый timestamp → anti-replay drop на сервере.
+- diag(awg): полное исследование AWG WARP handshake (6+ часов, 20+ векторов).
+  Найдено: MTK PPE HNAT на Flint2 обходит conntrack+masquerade → EC330 пакеты
+  могут достигать WARP с private IP. Flint2 bypass + forward rules добавлены
+  в /etc/firewall.user. Тестирование требует direct WAN (без Flint2 NAT).
+- fix(flint2): persistent nftables bypass для EC330 в /etc/firewall.user Flint2:
+  mangle bypass + forward accept + explicit masquerade для 192.168.1.249
+
 ## v2.5.43 (2026-05-22)
 
 - feat(T0-01): Trojan+Reality+gRPC — полный Reality TLS путь для Trojan протокола.
