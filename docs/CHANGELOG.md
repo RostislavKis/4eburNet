@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.49 (2026-05-25) — AWG WireGuard rekey expiration sync
+
+- fix(awg): при noise_encrypt fail из-за истёкшего ключа
+  (NOISE_REJECT_AFTER_TIME=180s, set noise.handshake_complete=false внутри
+  noise_encrypt) awg.handshake_done сбрасывается в false + last_handshake=0
+  для форс retry без задержки.
+- fix(awg_pool): awg_pool_tick синхронизирует peer.hs_done с
+  peer.awg.handshake_done. Без этого reuse path использовал peer.hs_done=true
+  → попытка отправить через expired noise → noise_encrypt fail → loop.
+- impact: до фикса после 180с непрерывный noise_encrypt FAILED 15+/сек,
+  все relay застревали в RELAY_AWG_WAIT навечно. После — стабильная работа,
+  rekey активируется автоматически.
+
 ## v2.5.48 (2026-05-25) — AWG reuse path не закрывает shared UDP socket
 
 - fix(awg): не присваивать relay->upstream_fd = peer->awg.udp_fd в reuse path
