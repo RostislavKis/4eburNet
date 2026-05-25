@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.51 (2026-05-25) — AWG IP/TCP checksum + Linux-like SYN
+
+- fix(awg): ones_checksum/tcp_checksum возвращали результат в host-endian
+  вместо network-order. Затрагивало ВСЕ LE архитектуры (mipsel/aarch64/x86_64).
+  Inner IP пакеты в WG туннеле имели неверный checksum в network-frame.
+  Manual verify захваченного SYN: до фикса bytes[10..11]=[ec,56] (LE storage
+  of 0x56EC), после = [97,93] (correct network-order для compute=0x9793).
+  Symptom: WARP/AmneziaWG decrypt OK но inner IP rejected as invalid checksum.
+- fix(awg): TCP SYN options Linux-like — MSS(1240) + SACK perm + Timestamps
+  (tsval random, tsecr=0) + NOP + Window Scale 7. doff=10, header=40 bytes.
+  Также random IP id (был 0), window=64240 (было 65535), TTL=64, DF.
+  Устраняет synthetic SYN fingerprint у DPI-aware firewall/NAT.
+- diag(awg): noise_encrypt логирует PLAIN TX hex (до 60 байт) для
+  byte-by-byte сравнения inner IP с эталоном.
+
 ## v2.5.50 (2026-05-25) — AWG transport DIAG + Python verification
 
 - diag(awg): расширенный DIAG logging для transport layer:
