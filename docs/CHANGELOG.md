@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.48 (2026-05-25) — AWG reuse path не закрывает shared UDP socket
+
+- fix(awg): не присваивать relay->upstream_fd = peer->awg.udp_fd в reuse path
+  (dispatcher.c). relay_release_upstream закрывал shared peer UDP socket при
+  первом teardown — следующие reuse получали send()=-1 errno=22 (EINVAL).
+  Legacy path (handle_awg_peer:5537 для waiters) тоже не присваивает
+  upstream_fd, остаётся -1. Shared socket принадлежит peer pool, его
+  жизненный цикл управляется awg_pool_destroy_peer.
+- verified(ec330): после fix rc=0, conntrack outgoing packets=160 bytes=63346
+  для peer[0] WARP. 0 errors/warns. WARP отвечает только HandshakeResponse
+  (reply=1 bytes=120), encrypted transport data не возвращается — это
+  не наш код (WARP credentials / edge routing issue, отдельная диагностика).
+
 ## v2.5.47 (2026-05-25) — AWG transport reserved + reuse stream
 
 - fix(dispatcher): AWG reuse path с hs_done=1 теперь вызывает
