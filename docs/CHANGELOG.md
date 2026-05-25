@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.5.50 (2026-05-25) — AWG transport DIAG + Python verification
+
+- diag(awg): расширенный DIAG logging для transport layer:
+  - AWG TX: msg_type, reserved, receiver_index (LE), counter — для byte-by-byte
+    сравнения с эталонным WG transport.
+  - AWG IN drain: первые 8 байт incoming пакетов (определение custom WARP
+    reject types типа 0xCF).
+  - AWG IN decoded: IP version, proto (TCP/ICMP), TCP flags (SYN/ACK/RST).
+  - handle_awg_peer rc: трассировка return code awg_process_incoming.
+  - Noise HS Response: WARP sender_idx + local_idx для верификации session match.
+  - DIAG_FULL Ci_pre[32] + Hi_pre[32] + E_priv[32] + E_pub_r[32] — позволяет
+    Python reproduction всей KDF цепочки.
+  - DIAG T_send/T_recv/Ci_final после derivation.
+- verified: Python reference (HMAC-BLAKE2s + KDF2/KDF3 + x25519 DH)
+  репродуцировал точно те же T_send/T_recv/Ci_final байт-в-байт.
+  Noise IK chain корректна по WG spec §5.4.3-5.4.5.
+- impact: при будущих AWG handshake/transport проблемах диагностика занимает
+  минуты вместо часов. WARP 16B 0xCF reject — confirmed credentials issue,
+  не баг крипты.
+
 ## v2.5.49 (2026-05-25) — AWG WireGuard rekey expiration sync
 
 - fix(awg): при noise_encrypt fail из-за истёкшего ключа
