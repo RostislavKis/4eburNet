@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.5.45 (2026-05-25)
+
+- fix(blake2s): sigma[9] позиции 13 и 14 были перепутаны — одна цифра.
+  Следствие: blake2s_compress давал неверный результат для multi-block inputs
+  с определёнными битовыми паттернами → mix_hash/HKDF в Noise IK неверные →
+  encrypted_static не декриптовалось на WARP → handshake никогда не завершался.
+  Верифицировано: 16/16 промежуточных значений Noise IK совпадают с Python
+  reference. После фикса WARP отвечает HandshakeResponse 92B (conntrack reply
+  packets=1 bytes=120 для всех 4 AWG endpoints).
+- fix(awg): reserved bytes в Init всегда 00 00 00. Удалён override блок,
+  записывавший awg_reserved (240,220,224) поверх байт msg[1..3]. mihomo pcap
+  подтвердил: Init с reserved=0 → WARP отвечает; reserved=[F0 DC E0] →
+  молча дропает. reserved[1-3] применяется только в TRANSPORT DATA пакетах
+  как WARP edge routing identifier, НЕ в HandshakeInitiation.
+- fix(awg): UCI WARP-IPv4 → AWG 1.5 (1) параметры (jc=120, jmin=23, jmax=911,
+  h1=1, h2=2, h3=4, h4=3, awg_i1=2406 hex chars). Без jc/i1 WARP не отвечает.
+- diag(awg): найдены и подтверждены 2 независимых критических бага через
+  байт-в-байт сравнение Init пакета mihomo (frame 134, pcap) и EC330 — оба
+  148B со стандартным WG layout; первое расхождение → blake2s bug.
+- pending(awg): noise_handshake_response_process провалился при получении
+  92B HandshakeResponse от WARP — отдельный bug, не блокирует Init success.
+
 ## v2.5.44 (2026-05-23)
 
 - fix(noise): TAI64N timestamp использует реальные nanoseconds (clock_gettime
