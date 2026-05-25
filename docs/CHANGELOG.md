@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.5.46 (2026-05-25) — AWG WARP handshake РАБОТАЕТ
+
+- fix(noise): aead_encrypt/aead_decrypt переписаны на wolfSSL incremental API
+  (Init/UpdateAad/UpdateData/Final + CheckTag). wc_ChaCha20Poly1305_Encrypt
+  и _Decrypt (one-shot) возвращают rc=-173 (MAC_CMP_FAILED_E) при plaintext
+  длиной 0 — encrypted_empty в HandshakeResponse имеет именно plen=0. Host
+  тест против Python reference подтвердил bug: incremental API даёт правильный
+  Poly1305 tag совпадающий с эталоном, one-shot возвращает все нули в tag.
+  После фикса noise_handshake_response_process успешно расшифровывает
+  encrypted_empty → hs_done=1 → AWG WARP handshake завершается.
+- verified(ec330): WARP-IPv4 (162.159.192.1:4500) hs_done=1 после трёх
+  закрытых багов: blake2s sigma[9] swap (v2.5.45), reserved=00 в Init
+  (v2.5.45), AEAD incremental API (v2.5.46). Все 10/10 промежуточных
+  значений noise_handshake_response_process совпадают с Python reference.
+
 ## v2.5.45 (2026-05-25)
 
 - fix(blake2s): sigma[9] позиции 13 и 14 были перепутаны — одна цифра.
