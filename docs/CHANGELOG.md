@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.5.57 (2026-05-25) — AWG SO_SNDBUF 256KB на client_fd
+
+- perf(awg): setsockopt(SO_SNDBUF, 256KB) на client_fd при создании AWG relay.
+  Дефолт Linux ~87KB = ~60 MSS. При burst загрузке WARP шлёт 1460B/пакет быстрее
+  чем клиент читает → write(client_fd)=EAGAIN → relay_free → reconnect.
+  256KB = ~170 MSS в ядерном буфере → реже EAGAIN при burst.
+- Мониторинг: relay closed [AWG*] up=N down=M lifetime=Ls — throughput stats.
+
 ## v2.5.56 (2026-05-25) — Откат AWG к v2.5.53: Telegram перестал грузить
 
 - revert(awg): relay_awg_stream_data возвращена к void — backpressure (int + rcv_nxt
