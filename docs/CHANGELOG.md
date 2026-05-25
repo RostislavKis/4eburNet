@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.5.52 (2026-05-25) — AWG userspace TCP stack — Telegram working
+
+- fix(awg): WG inner packet 16-byte padding (mandatory per spec, verified
+  amneziawg-go send.go reference). pad_bytes = (16 - plain_len%16) % 16.
+  Без этого inner packet non-aligned → WARP rejected → 0xCF reply.
+- fix(awg): TCP SYN fingerprint matches Clash Verge mihomo TUN capture
+  byte-by-byte: TTL=128, doff=8 (TCP hdr=32), MSS=1360, WS=8, NO Timestamps,
+  window=65535, random IP id. Linux-стиль с Timestamps отвергался DPI.
+- fix(awg_ipstack): random_u32 локальная (xorshift32 seeded by time^rand)
+  для random IP id и TSval. Static в awg.c — не accessible.
+- fix(noise): static uint8_t padded[1600] вместо stack (MIPS 8KB limit).
+  Stack overflow при plain_len>0 на EC330 → краш + reboot.
+- perf(awg): убраны heavy DIAG logs (5-6 log_msg(LOG_INFO)/packet на slow
+  MIPS CPU). log_msg = snprintf+localtime+syslog write на каждом packet =
+  bottleneck. Throughput значительно улучшен после удаления.
+- verified(ec330): Telegram через AWG endpoint 162.159.195.3:928
+  работает: 11.2 MB stream conntrack, multiple TCP destinations,
+  SYN-ACK received, TCP ESTABLISHED.
+
 ## v2.5.51 (2026-05-25) — AWG IP/TCP checksum + Linux-like SYN
 
 - fix(awg): ones_checksum/tcp_checksum возвращали результат в host-endian
