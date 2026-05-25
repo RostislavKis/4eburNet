@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.5.56 (2026-05-25) — Откат AWG к v2.5.53: Telegram перестал грузить
+
+- revert(awg): relay_awg_stream_data возвращена к void — backpressure (int + rcv_nxt
+  отложение) сломал Telegram (причина не диагностирована до конца).
+- revert(awg): awg_ip_dispatch возвращён к простому вызову без проверки return value —
+  rcv_nxt и send_ack снова обновляются сразу после relay_awg_stream_data.
+- revert(awg): убран AWG-специфичный EPOLLOUT блок из dispatcher.c (теперь не нужен
+  т.к. relay_awg_stream_data не использует to_client_buf при EAGAIN).
+- revert(awg): dispatcher.h — сигнатура relay_awg_stream_data возвращена к void.
+- Следующий шаг: реализовать более аккуратный backpressure через проверку
+  to_client_buf ПЕРЕД вызовом relay_awg_stream_data без изменения сигнатуры.
+
 ## v2.5.55 (2026-05-25) — AWG backpressure: rcv_nxt/ACK только при доставке
 
 - fix(awg): relay_awg_stream_data при to_client_buf занят возвращал void →
