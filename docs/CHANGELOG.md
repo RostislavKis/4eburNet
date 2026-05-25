@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.5.53 (2026-05-25) — AWG relay downstream fix — idle timeout + stats
+
+- fix(awg): relay_awg_stream_data не обновляла bytes_out/last_active/stats.
+  Следствие: down=0 в статистике; idle timeout 30s убивал активные relay
+  при однонаправленном трафике (сервер шлёт, клиент только читает).
+  Теперь: bytes_out и last_active обновляются при каждом downstream write.
+- fix(awg): ECONNRESET/EPIPE в relay_awg_stream_data не закрывали relay.
+  Relay продолжал жить с мёртвым fd и дублировал ошибки на каждом входящем
+  WG пакете. Теперь: relay_free вызывается при любой write ошибке.
+- fix(awg): awg_stream_send возврат игнорировался в relay_handle_awg.
+  При WG rekey (awg_send fail) данные от клиента молча терялись.
+  Теперь: -1 из awg_stream_send → relay_free немедленно.
+- verified(ec330): down > 0 наблюдается после фикса (up=105 down=101 etc).
+
 ## v2.5.52 (2026-05-25) — AWG userspace TCP stack — Telegram working
 
 - fix(awg): WG inner packet 16-byte padding (mandatory per spec, verified
