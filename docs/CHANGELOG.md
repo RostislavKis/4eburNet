@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.5.54 (2026-05-25) — AWG EPOLLOUT backpressure вместо relay_free
+
+- fix(awg): relay_awg_stream_data при EAGAIN вызывала relay_free → reconnect storm.
+  WARP шлёт 1460B/пакет быстрее чем клиент читает → partial data → низкая скорость.
+  Теперь: EAGAIN/частичная запись → буферизация в to_client_buf + relay_client_epollout_set.
+  При EPOLLOUT → слив to_client_buf напрямую (relay_transfer не используется — AWG
+  upstream данные приходят через callback, не через upstream_fd).
+- fix(awg): EPOLLOUT handler вызывал relay_transfer для AWG relay, который возвращал 0
+  → ложный relay_do_half_close и закрытие соединения. Добавлен специальный AWG path
+  перед for(;;) loop: слив to_client_buf напрямую + return.
+
 ## v2.5.53 (2026-05-25) — AWG relay downstream fix — idle timeout + stats
 
 - fix(awg): relay_awg_stream_data не обновляла bytes_out/last_active/stats.
