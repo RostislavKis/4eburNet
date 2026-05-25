@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.5.47 (2026-05-25) — AWG transport reserved + reuse stream
+
+- fix(dispatcher): AWG reuse path с hs_done=1 теперь вызывает
+  awg_stream_create + awg_stream_connect и устанавливает state=RELAY_AWG_WAIT.
+  Ранее state сразу шёл в RELAY_AWG_ACTIVE без stream → r->awg_stream=NULL →
+  relay_loop дропал данные на write (нет потока для записи внутрь туннеля).
+- fix(awg): transport data применяет awg_reserved (F0 DC E0 для WARP-IPv4)
+  к байтам header[1..3] после obfuscate_header. Это WARP edge routing
+  identifier для пакетов type=4 — без него WARP получает transport data,
+  но не знает к какому edge-серверу route'ить → reply packets=0. Аналогичный
+  фикс в keepalive ветке awg.c.
+- verified(ec330): после fix #1 — `awg: reuse peer[0] stream connect → WAIT`
+  в логах; conntrack packets=153 outgoing bytes=63888. Reply packets=1
+  (только HandshakeResponse, transport data ещё не возвращается — следующий
+  этап диагностики).
+
 ## v2.5.46 (2026-05-25) — AWG WARP handshake РАБОТАЕТ
 
 - fix(noise): aead_encrypt/aead_decrypt переписаны на wolfSSL incremental API
