@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.55 (2026-05-25) — AWG backpressure: rcv_nxt/ACK только при доставке
+
+- fix(awg): relay_awg_stream_data при to_client_buf занят возвращал void →
+  awg_ip_dispatch обновлял rcv_nxt и отправлял ACK за данные которые были дропнуты.
+  Сервер не делал retransmit → TCP stream corrupt → reconnect loop → низкая скорость.
+- fix(awg): relay_awg_stream_data теперь возвращает int:
+  0=OK, 1=buffered(to_client_buf), 2=backpressure(буфер занят), -1=fatal
+- fix(awg): awg_ip_dispatch при ret==2 (backpressure) — НЕ обновляет rcv_nxt,
+  НЕ отправляет ACK → сервер retransmit при RTO → корректный TCP.
+- fix(awg): при ret<0 (fatal) или ret==2 — ранний return из awg_ip_dispatch.
+- fix(awg): rcv_nxt обновляется ПОСЛЕ relay_awg_stream_data (а не до).
+- perf(awg): LOG_INFO → LOG_DEBUG в dispatcher_handle_awg_peer (per-epoll-event log).
+
 ## v2.5.54 (2026-05-25) — AWG EPOLLOUT backpressure вместо relay_free
 
 - fix(awg): relay_awg_stream_data при EAGAIN вызывала relay_free → reconnect storm.
