@@ -1,3 +1,13 @@
+## v2.5.59 (2026-05-26) — AWG SYN-ACK timeout: bad серверы исключаются из url-test
+
+- fix(awg): SYN-ACK timeout 10s для RELAY_AWG_WAIT. Relay без SYN-ACK за 10с
+  → dispatcher_server_result(false) + relay_free. url-test автоматически исключает
+  серверы без работающего inner TCP routing (bad reserved bytes / неправильный endpoint).
+  Результат: только server=1 (WARP 2.0 1 Вариант) используется — Telegram стабилен.
+- perf(awg): SO_RCVBUF 4MB на peer UDP socket (awg.c) — 2730 пакетов буфера,
+  нет UDP drops при burst на медленном MIPS epoll loop.
+- fix(awg): LOG_INFO → LOG_DEBUG для AWG_PEER epoll event — 0 spam в syslog.
+
 # Changelog
 
 ## v2.5.58 (2026-05-26) — AWG backpressure: EAGAIN больше не вызывает relay_free
