@@ -1,3 +1,16 @@
+## v2.5.60 (2026-05-26) — AWG HC inner TCP probe: bad серверы не возвращаются в пул
+
+- fix(awg/hc): `child_do_awg_handshake` теперь проверяет inner TCP routing.
+  После WG handshake открывает TCP stream к `1.1.1.1:80` через туннель и ждёт SYN-ACK
+  за 3с. Нет SYN-ACK → HC возвращает ERR → сервер не попадает в url-test пул.
+  WHY: WG handshake (hs_done=true) не гарантирует маршрутизацию inner пакетов.
+  WARP принимает WG сессию но не route'ит inner TCP при неверных reserved bytes
+  (0,0,0 вместо 0xF0,0xDC,0xE0). Теперь только server=1 проходит HC, server[0]
+  и server[2] не возвращаются в пул — Telegram стабильно без startup hiccup.
+  Верификация: `60/60 REUSE server=1`, inner probe `src_port=49152` в логах HC child.
+- fix(awg): SYN-ACK relay timeout уменьшен 10с → 5с в `RELAY_AWG_WAIT`.
+  Сокращает startup window (до прохождения первого HC) с 10 до 5 секунд.
+
 ## v2.5.59 (2026-05-26) — AWG SYN-ACK timeout: bad серверы исключаются из url-test
 
 - fix(awg): SYN-ACK timeout 10s для RELAY_AWG_WAIT. Relay без SYN-ACK за 10с
