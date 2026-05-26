@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="4eburNet.png" width="220" alt="4eburNet">
+  <img src="4eburNet.png" width="300" alt="4eburNet">
   <h1>4eburNet</h1>
   <p>
     Универсальный прокси-маршрутизатор для OpenWrt<br>
@@ -7,10 +7,10 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/версия-v2.0.0-brightgreen?style=flat-square" alt="version">
+    <img src="https://img.shields.io/badge/версия-v2.5.57-brightgreen?style=flat-square" alt="version">
     <img src="https://img.shields.io/badge/OpenWrt-23.05%20%2F%2024.10%20%2F%2025.12-blue?style=flat-square" alt="OpenWrt">
     <img src="https://img.shields.io/badge/arch-mipsel%20%7C%20aarch64%20%7C%20armv7%20%7C%20x86__64-green?style=flat-square" alt="arch">
-    <img src="https://img.shields.io/badge/бинарник-3.1%20МБ-orange?style=flat-square" alt="size">
+    <img src="https://img.shields.io/badge/бинарник-3.2%20МБ-orange?style=flat-square" alt="size">
     <img src="https://img.shields.io/badge/зависимости-ноль-brightgreen?style=flat-square" alt="deps">
     <img src="https://img.shields.io/badge/TLS-wolfSSL%205.9-blue?style=flat-square" alt="wolfssl">
     <img src="https://img.shields.io/badge/license-GPLv2-lightgrey?style=flat-square" alt="license">
@@ -30,7 +30,7 @@
 | | 4eburNet | mihomo | podkop | xray |
 |---|:---:|:---:|:---:|:---:|
 | Один бинарник без зависимостей | ✅ | ❌ Go runtime | ❌ Shell + Lua | ❌ Go runtime |
-| Размер бинарника | ✅ 3.1 МБ | ❌ ~15 МБ | — | ❌ ~20 МБ |
+| Размер бинарника | ✅ 3.2 МБ | ❌ ~60 МБ | — | ❌ ~30 МБ |
 | Нет GC пауз | ✅ | ❌ | ✅ | ❌ |
 | Встроенный DNS-сервер | ✅ | ✅ | ❌ | ❌ |
 | **Adaptive DPI** — адаптивный обход | ✅ **уникально** | ❌ | ❌ | ❌ |
@@ -39,11 +39,14 @@
 | **nftables Flow Offload** | ✅ | ❌ | ❌ | ❌ |
 | GeoIP/GeoSite с Bloom filter | ✅ 6× быстрее | ✅ | ❌ | ✅ |
 | DNS RAM при 462 000 доменов | ✅ **5 МБ** (mmap) | ❌ ~38 МБ heap | — | ❌ ~30 МБ |
-| AmneziaWireGuard | ✅ | ❌ | ✅ через kmod | ❌ |
+| AmneziaWireGuard | ✅ userspace TCP/IP стек | ❌ | ✅ через kmod | ❌ |
 | VLESS + Reality | ✅ custom TLS stack | ✅ | ✅ | ✅ |
 | Hysteria2 | ✅ | ✅ | ✅ | ✅ |
 | **AnyTLS** — adaptive padding | ✅ | ✅ | ❌ | ❌ |
 | **TUIC v5** — NewReno CC | ✅ | ✅ | ❌ | ❌ |
+| VMess AEAD | ✅ | ✅ | ❌ | ✅ |
+| Shadowsocks 2022 | ✅ | ✅ | ❌ | ✅ |
+| ShadowTLS v3 | ✅ | ✅ | ❌ | ❌ |
 | Маршрутизация по MAC-адресу | ✅ | ❌ | ❌ | ❌ |
 | Встроенный веб-дашборд | ✅ :8080 | ✅ отдельный | ❌ | ❌ |
 
@@ -62,7 +65,7 @@
 LAN-трафик обрабатывается через TC-hook до netfilter. Пакеты получают метку до того, как nftables начнёт их проверять — снижение нагрузки на CPU **~25%** для внутрисетевого трафика.
 
 ### 🔍 TLS Fingerprint (JA3/JA4)
-Дашборд показывает JA3-хэш каждого TLS-соединения и автоматически определяет браузер (Chrome 120 / Firefox 121 / Safari 17 / curl). Позволяет проверить, маскируется ли прокси-клиент под настоящий браузер.
+Дашборд показывает JA3-хэш каждого TLS-соединения и автоматически определяет браузер (Chrome / Firefox / Safari / curl). Позволяет проверить, маскируется ли прокси-клиент под настоящий браузер.
 
 ### 📊 nftables Flow Offload
 Прямые соединения после первого пакета передаются в hardware fast-path. Последующие пакеты не проходят через netfilter. Эффект: **~30% снижение CPU** на MT7621A, **~95%** на MT7986.
@@ -73,8 +76,11 @@ Patricia trie + двухуровневый Bloom filter (512 КБ на базу)
 ### 🛡 AnyTLS — Anti-Fingerprinting Transport
 Собственная реализация AnyTLS транспорта (~1400 LoC). Адаптивная схема padding подгоняет размеры TLS application records под профиль легитимного HTTPS-трафика. Single-RTT: settings + SYN + первый PSH идут в одном TLS-record. Idle session pool снижает задержку переключения серверов.
 
+### 🔒 AmneziaWireGuard — userspace туннель
+Полная реализация AmneziaWireGuard без kernel-модулей. Собственный userspace IPv4/TCP стек: пакеты строятся и разбираются в user space, проходят через WireGuard туннель и выходят в интернет через WARP или другой AWG endpoint. Реализованы: Noise IK рукопожатие (blake2s HMAC, curve25519, ChaCha20-Poly1305), обфускация junk-пакетами (Jc/Jmin/Jmax), H1-H4 obfuscation headers, CPS i1/i2, singleton peer pool с автоматическим rekey каждые 180 секунд.
+
 ### 🚀 TUIC v5 — QUIC с адаптивным CC
-TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno congestion control (адаптивный, в отличие от Brutal в Hysteria2), фрагментация UDP датаграмм, multi-stream мультиплексирование. Ref: mihomo v1.19.24.
+TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno congestion control (адаптивный), фрагментация UDP датаграмм, multi-stream мультиплексирование.
 
 ---
 
@@ -82,15 +88,15 @@ TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno
 
 | Протокол | Транспорты | Особенности |
 |----------|-----------|-------------|
-| **VLESS** | TCP, gRPC, WebSocket, XHTTP, HTTPUpgrade, Mux.Cool | Reality (custom TLS 1.3 stack), Vision (XTLS-rprx-vision), x25519, JA3 fingerprint |
-| **VMess** | TCP, gRPC, WebSocket | AEAD шифрование заголовка (KDF13B + AES-128-GCM), UUID auth |
-| **Trojan** | TCP, gRPC | Маскировка под HTTPS |
-| **Shadowsocks 2022** | TCP, UDP | BLAKE3 + AES-128-GCM / AES-256-GCM / ChaCha20-Poly1305 |
-| **AmneziaWireGuard** | UDP | Jc/Jmin/Jmax, H1-H4, S1-S4, i1-i5, MTU/DNS/reserved |
+| **VLESS** | TCP, gRPC, WebSocket, XHTTP, HTTPUpgrade | Reality (custom TLS 1.3 stack), Vision (XTLS-rprx-vision), x25519, JA3 fingerprint |
+| **Trojan** | TCP, gRPC, Reality | Маскировка под HTTPS, полный Reality путь |
+| **VMess AEAD** | TCP, WebSocket+TLS | AES-128-GCM чанки, SHAKE-128 ChunkMasking, AesCbc AuthID |
+| **AmneziaWireGuard** | UDP | Jc/Jmin/Jmax, H1-H4, CPS i1-i5, userspace IPv4/TCP стек |
+| **Shadowsocks 2022** | TCP | blake3-chacha20-poly1305, aes-128/256-gcm, AEAD chunk framing |
+| **ShadowTLS v3** | TCP | SessionID=HMAC, HMAC chain per AppData frame |
 | **Hysteria2** | QUIC | Brutal CC, Salamander XOR, URI парсер, UDP relay |
 | **AnyTLS** | TLS | Adaptive padding scheme, single-RTT, idle pool, SHA256 auth |
-| **TUIC v5** | QUIC | TLS-Exporter auth, CUBIC/BBR v1/BBR v2 CC, DATAGRAM RFC 9221 |
-| **ShadowTLS v3** | TCP | SessionID=HMAC, HMAC chain per AppData frame |
+| **TUIC v5** | QUIC | TLS-Exporter auth, NewReno CC, DATAGRAM RFC 9221, stream pool |
 
 ---
 
@@ -115,9 +121,10 @@ TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno
 - **По IP**: IP-CIDR, IP-CIDR6, GEOIP (базы `.gbin` с Bloom filter)
 - **По портам**: DST-PORT
 - **По MAC-адресу**: индивидуальная политика для каждого устройства
+- **AND-правила**: комбинирование условий (домен + порт + IP)
 - **Rule Providers**: загрузка правил по URL с интервалом обновления
 - **Proxy Providers**: подписки из URL (base64, vless://, ss://, trojan://)
-- **Proxy Groups**: URL-TEST (автовыбор лучшего), FALLBACK, SELECT
+- **Proxy Groups**: URL-TEST (автовыбор лучшего), FALLBACK, SELECT, LOAD-BALANCE
 - nftables Verdict Maps — 300 000+ CIDR, O(1) поиск
 
 ---
@@ -134,26 +141,18 @@ TUIC v5 (~2100 LoC): QUIC v1, TLS-Exporter аутентификация, NewReno
 ## Веб-дашборд
 
 Встроенный HTTP-сервер на порту `:8080`. Открывается с любого устройства в сети.
-Совместим с zashboard / Yacd / Metacubex (Clash API).
 
-```text
-http://<IP роутера>:8080/          — полный дашборд
-http://<IP роутера>:8080/monitor   — минималистичный realtime монитор
-```
-
-| Раздел | Функции |
-|--------|---------|
-| **Overview**     | Realtime трафик, память, CPU, активные соединения, topology chart |
-| **Proxies**      | Серверы и группы, latency тесты, ручной выбор, drag-and-drop |
-| **Connections**  | Live таблица соединений с фильтром, закрытие по одному/все |
-| **Rules**        | Список правил с hit counter, управление rule-providers |
-| **DNS**          | Статистика, Fake-IP, DoH upstream, adblock статус |
-| **Logs**         | Live лог с фильтром по уровню и компоненту |
-| **SSH**          | Встроенный pty терминал — прямой root shell роутера в браузере |
-| **Settings**     | 30+ тем DaisyUI, i18n (RU/EN/ZH/JA), keyboard shortcuts |
-| **Setup**        | Диагностика всех модулей, API status, CRUD |
-
-Локализация: русский (по умолчанию), English, 中文, 日本語 и другие.
+| Раздел | Что показывает |
+|--------|----------------|
+| **Статус** | Uptime, соединения, DNS-запросы, dispatcher tick, geo статус |
+| **Прокси** | Серверы, группы, latency тесты, ручной выбор сервера |
+| **Сеть** | Flow Offload, TC Fast Path ON/OFF |
+| **DPI** | Adaptive DPI ON/OFF, кэш стратегий, счётчик попаданий |
+| **TLS** | JA3-хэш, определение браузера, ожидаемый хэш |
+| **DNS** | Статистика, Fake-IP, разбивка блокировок по категориям |
+| **GEO** | Загруженные базы, размеры, статус Bloom filter |
+| **Устройства** | ARP + DHCP + политики по MAC |
+| **Логи** | Живые логи с фильтрацией, цветовая разметка |
 
 ---
 
@@ -162,7 +161,7 @@ http://<IP роутера>:8080/monitor   — минималистичный rea
 | Устройство | Чипсет | Архитектура | RAM |
 |------------|--------|-------------|-----|
 | TP-Link EC330-G5u | MediaTek MT7621A | mipsel_24kc | 128 МБ |
-| GL-iNet Flint 2 | MediaTek Filogic 880 | aarch64_cortex-a53 | 512 МБ |
+| GL-iNet Flint 2 | MediaTek Filogic 880 | aarch64_cortex-a53 | 1024 МБ |
 | Любое устройство OpenWrt | MIPS / ARM / x86 | mipsel / aarch64 / armv7 / x86_64 | ≥ 116 МБ RAM |
 
 ---
@@ -236,19 +235,20 @@ nftables TPROXY :7893
 Verdict Maps: bypass / block / proxy  ←  300K+ CIDR, O(1) поиск
       │
       ▼
-4eburnetd  (epoll ET, один поток, 3.1 МБ)
+4eburnetd  (epoll ET, один поток, 3.2 МБ)
   ├── TC Fast Path ── LAN трафик → mark до netfilter
   ├── Flow Offload ── DIRECT трафик → hardware fast path
   ├── DNS :53 ── Fake-IP, DoH/DoT/DoQ, adblock, 462K доменов / 5 МБ mmap
   ├── Sniffer ── TLS SNI peek + JA3/JA4 fingerprint
   ├── Adaptive DPI ── кэш стратегий обхода по IP
-  ├── Rules Engine ── DOMAIN / GEOIP / GEOSITE / IP-CIDR / MAC
-  └── Proxy Groups ── url_test / fallback / select
+  ├── Rules Engine ── DOMAIN / GEOIP / GEOSITE / IP-CIDR / MAC / AND
+  └── Proxy Groups ── url_test / fallback / select / load-balance
       │
       ▼
 Upstream серверы
-VLESS+Reality · VLESS+gRPC · VLESS+WS · VLESS+XHTTP · Trojan+gRPC
-AmneziaWG · Hysteria2 · AnyTLS · TUIC v5 · ShadowTLS v3
+VLESS+Reality · VLESS+gRPC · VLESS+WS · VLESS+XHTTP · Trojan+gRPC+Reality
+VMess AEAD · AmneziaWireGuard (userspace) · Hysteria2 · AnyTLS · TUIC v5
+Shadowsocks 2022 · ShadowTLS v3
 ```
 
 ---
