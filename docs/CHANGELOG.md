@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.5.58 (2026-05-26) — AWG backpressure: EAGAIN больше не вызывает relay_free
+
+- fix(awg): `relay_awg_stream_data` буферизует данные в `to_client_buf` при EAGAIN.
+  Регистрирует EPOLLOUT; `relay_handle_awg` дренирует буфер в client_fd и снимает EPOLLOUT.
+  Пока `to_client_buf` занят, `awg_ipstack.c` не обновляет `rcv_nxt` и не отправляет ACK —
+  сервер выдерживает паузу по TCP flow control.
+  До фикса: EAGAIN → `relay_free` → TCP RST → reconnect → slow start → повтор.
+  Результат: 531 KB/s на EC330 MIPS MT7621A вместо 6–50 KB/s до фикса (рост 10×).
+- perf(awg): `SO_RCVBUF 4MB` на UDP peer socket в `awg_handshake_start`.
+  При download burst WARP шлёт пачку UDP-датаграмм за RTT; дефолт ~212KB может
+  переполниться на медленном MIPS epoll loop → kernel drops → retransmit → latency.
+  4MB = ~2730 x 1460B пакетов буфера — нет drops при 64-пакетном burst.
+- fix(awg): `epoll: AWG_PEER event` лог понижен с LOG_INFO до LOG_DEBUG.
+  На активном AWG соединении генерировался непрерывный поток записей — скрывал полезные
+  WARNING/ERROR в logread ring buffer EC330.
+
 ## v2.5.57 (2026-05-25) — AWG SO_SNDBUF 256KB на client_fd
 
 - perf(awg): setsockopt(SO_SNDBUF, 256KB) на client_fd при создании AWG relay.
