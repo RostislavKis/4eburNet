@@ -1,14 +1,13 @@
-## v2.5.61 (2026-05-26) — AWG delayed ACK: вдвое меньше upstream пакетов
+## v2.5.62 (2026-05-26) — откат delayed ACK: восстановление стабильности Telegram
 
-- perf(awg/ipstack): `awg_tcp_stream_t` получил поля `unacked_bytes` и `last_ack_ns`.
-  В `AWG_TCP_ESTABLISHED` DATA секции: ACK отправляется только когда накоплено
-  ≥2×1360 байт ИЛИ прошло ≥40мс с последнего ACK — паттерн Linux delayed ACK.
-  WHY: ACK на каждый сегмент = 1 encrypt(ChaCha20-Poly1305)/sendto/пакет на каждый
-  входящий. На MIPS 880MHz это значимый overhead при 400+ сегментах/сек. 2×MSS → 2×
-  меньше upstream пакетов при bulk transfer; idle соединения не держат ACK бесконечно.
-- perf(awg/pool): `awg_pool_tick` вызывает `awg_streams_flush_ack(peer)` для сброса
-  накопленных ACK с задержкой 20мс (половина Linux interval). Гарантирует своевременную
-  доставку ACK при конце данных и малых пакетах (не только при 2×MSS).
+- revert(awg/ipstack): откат delayed ACK из v2.5.61. Delayed ACK нарушал
+  TCP flow control: сервер=1 получал задержанные ACK → его latency в HC росла
+  → url-test переключался на server=2 (плохой) → Telegram не подключался.
+  Вернули немедленный `send_ack(s)` после каждого сегмента (v2.5.60 поведение).
+  Поля `unacked_bytes`/`last_ack_ns` в `awg_tcp_stream_t` оставлены для Фазы 3v2 —
+  правильная реализация требует пигибэкинг ACK в `awg_stream_send` + учёт RTT.
+
+## v2.5.61 (2026-05-26) — AWG delayed ACK (ОТКАТАНО в v2.5.62)
 
 ## v2.5.60 (2026-05-26) — AWG HC inner TCP probe: bad серверы не возвращаются в пул
 
