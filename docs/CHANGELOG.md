@@ -1,3 +1,16 @@
+## v2.5.63 (2026-05-29) — AWG rekey: немедленный Init без server_active блокировки
+
+- fix(awg): `awg_tick` при `last_handshake==0` (force rekey из `awg_send`) теперь
+  запускает handshake немедленно, игнорируя `server_active` guard.
+  WHY: при активном WARP соединении `last_server_rx` обновляется keepalive'ами каждые
+  10с → `server_active=true` → retry блокируется на `retry_sec=60с`. Итог: rekey
+  занимал 60-70 секунд вместо <1с → все active relay закрывались (`awg_send` fail →
+  `relay_free`) → Telegram видел 70-секундный разрыв.
+  Sentinel: `awg->last_handshake=0` устанавливается только из `awg_send` при `noise_encrypt`
+  fail (key expired/overflow) — безопасен как force-rekey сигнал.
+  После фикса: `force_rekey=true` → немедленный `noise_init` + `awg_send_handshake_sequence`
+  в следующем тике (~10мс) → WARP отвечает Response → `hs_done=true` < 1с.
+
 ## v2.5.62 (2026-05-26) — откат delayed ACK: восстановление стабильности Telegram
 
 - revert(awg/ipstack): откат delayed ACK из v2.5.61. Delayed ACK нарушал
