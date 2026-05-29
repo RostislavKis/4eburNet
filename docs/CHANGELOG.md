@@ -1,3 +1,16 @@
+## v2.5.64 (2026-05-29) — AWG HC probe: проверка DATA path, не только SYN-ACK
+
+- fix(awg/hc): `net_spawn_awg_check` теперь двухфазный:
+  Фаза 1 — WG handshake + inner TCP ESTABLISHED (SYN-ACK) как раньше.
+  Фаза 2 — HTTP GET к 1.1.1.1:80 + ждём первые байты ответа (3с).
+  WHY: WARP с `reserved=0,0,0` принимает WireGuard handshake и отвечает SYN-ACK
+  на inner TCP, но дропает последующие DATA пакеты. Результат: url-test выбирал
+  WARP v1/v2/v3 серверов как «рабочих» хотя Telegram через них не передавался.
+  `awg_tcp_stream_t` получил поле `hc_data_received` — устанавливается в
+  `awg_ip_dispatch` при `relay==NULL && data_len>0` (HC probe path).
+- fix(4eburnet.conf): TELEGRAM группа: убраны WARP v1/v2/v3 (reserved=0,0,0),
+  оставлены WARP-IPv4 (reserved=240,220,224) + AWG 2.0 (1/2/3 Вариант).
+
 ## v2.5.63 (2026-05-29) — AWG rekey: немедленный Init без server_active блокировки
 
 - fix(awg): `awg_tick` при `last_handshake==0` (force rekey из `awg_send`) теперь
