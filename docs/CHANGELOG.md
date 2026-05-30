@@ -1,3 +1,22 @@
+## v2.5.84 (2026-05-30) — AWG Фаза 3 delayed ACK — bulk throughput +82%
+
+- feat(awg): T1-AWG-throughput Фаза 3 — delayed ACK по RFC 1122 §4.2.3.2.
+  На каждый входящий DATA-сегмент слался ACK → ACK-шторм → лишние awg_send +
+  crypto на MIPS → window сервера рос медленно, потолок держался ~115 KB/s.
+- Разделение по размеру сегмента:
+  - MTProto ≤500B (интерактив — keep-alive/control) → немедленный ACK,
+    интерактивность Telegram не страдает;
+  - bulk >500B → задержка: ACK раз на 2 сегмента ИЛИ через 40мс
+    (двухсегментное правило + таймер как safety net для разреженного трафика).
+- Delayed ACK применяется ТОЛЬКО к in-order DATA (seq==rcv_nxt). dup-ACK для
+  out-of-order/дубликатов остаётся немедленным — он сигнал дырки серверу для
+  fast-retransmit (задержка замедлила бы восстановление потерь).
+- `awg_streams_delayed_ack_tick` из `awg_pool_tick` добивает истёкшие 40мс
+  дедлайны (CLOCK_MONOTONIC мс — часы EC330 прыгают, time(NULL) дал бы ложь).
+- Поля состояния в `awg_tcp_stream_t`: `delayed_ack_ms`, `acks_pending`.
+- EC330 (2.5.84) ПОДТВЕРЖДЕНО: видео 10.9 МБ за 51с → 209 KB/s (было ~115,
+  +82%); SYN-ACK timeout=0 (MTProto не задет), 0 крэшей/noise FAILED/OOM.
+
 ## v2.5.83 (2026-05-30) — AWG dual-key бесшовный rekey — загрузка не рвётся на 120с
 
 - fix(awg): на v2.5.82 проактивный rekey (120с) деструктивно стирал ключ
