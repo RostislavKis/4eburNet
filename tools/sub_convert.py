@@ -1447,12 +1447,14 @@ def generate_uci(servers: list,
         if grp.get('interval'):
             lines.append(f"\toption interval\t'{_uci_safe(grp['interval'])}'")
         if grp.get('proxies'):
-            if isinstance(grp['proxies'], list):
-                for s in grp['proxies']:
-                    lines.append(f"\tlist servers\t'{_uci_safe(str(s))}'")
-            else:
-                val = _uci_safe(str(grp['proxies']))
-                lines.append(f"\toption servers\t'{val}'")
+            # WHY: всегда list servers — option servers дробится по пробелу в
+            # config.c (strtok), а имена серверов содержат пробелы
+            # («AWG 2.0 (2 Вариант)») → группа теряет серверы. list servers
+            # сохраняет имя целиком. Строковый proxies трактуем как одно имя.
+            proxies = grp['proxies'] if isinstance(grp['proxies'], list) \
+                else [grp['proxies']]
+            for s in proxies:
+                lines.append(f"\tlist servers\t'{_uci_safe(str(s))}'")
         if grp.get('providers'):
             providers = grp['providers']
             if isinstance(providers, list):

@@ -1,3 +1,153 @@
+## v2.5.83 (2026-05-30) — AWG dual-key бесшовный rekey — загрузка не рвётся на 120с
+
+- fix(awg): на v2.5.82 проактивный rekey (120с) деструктивно стирал ключ
+  (noise_init на живом noise) → активная длинная загрузка рвалась на 2-й минуте
+  («рвётся каждые ~2 мин»). Короткий ролик успевал, длинный стрим — нет.
+- Фикс dual-key: перед noise_init снимок старых transport-ключей в
+  `awg_state.noise_prev` (noise_state_t = POD, снимок присваиванием безопасен),
+  `has_prev=true`, `prev_until=mono+20с`. В GAP (noise_init→Response):
+  - `awg_send` шифрует через noise_prev пока новый handshake не встал;
+  - `awg_process_incoming` при fail на новом ключе пробует noise_prev
+    (in-flight transport-пакеты от WARP, зашифрованные старым ключом).
+  WARP принимает старый ключ до RejectAfterTime=180с; gap <1с внутри окна.
+- `awg.h`: поля noise_prev/has_prev/prev_until.
+- EC330 (PID 31539, 2.5.83) ПОДТВЕРЖДЕНО (mon4.log 8 мин): один relay скачал
+  18.5 МБ (down=19480593), держался 14:13→14:17 СКВОЗЬ 2 rekey-цикла (14:14
+  ×3, 14:16 ×6). На 2.5.82 загрузка упиралась в 2.8МБ и рвалась на rekey —
+  здесь 18.5МБ непрерывно = бесшовность доказана. Демон стабилен (PID не
+  менялся, аптайм 8:28), 0 segfault/abort, 0 noise_encrypt FAILED, MemAvail 21МБ.
+
+## v2.5.82 (2026-05-30) — AWG проактивный rekey 120с (monotonic) — КОРЕНЬ коротких сессий
+
+- fix(awg): «Telegram качает 3-4 мин, потом обновление сети» — ИСПРАВЛЕНО.
+  Корень: WARP по WG-спеке RejectAfterTime=180с перестаёт принимать наш ключ.
+  Проактивного rekey не было (NOISE_REJECT_AFTER_TIME=43200 из v2.5.74 +
+  handshake_time обновлялся на приёме → rekey никогда не инициировался). Туннель
+  умирал на ~180с → reconnect storm (сотни SYN-ACK timeout, WARP ASSURED→0).
+- Фикс: `awg_tick` для ГОТОВОГО туннеля проверяет возраст ключа; при ≥120с
+  (`AWG_REKEY_AFTER_SEC`, = wireguard-go RekeyAfterTime) инициирует новый
+  handshake (noise_init + awg_send_handshake_sequence). 120 < 180 = 60с запас.
+- Таймер на CLOCK_MONOTONIC (`awg_mono_sec` + поле `last_hs_mono`), НЕ time(NULL):
+  часы EC330 прыгают, wall-clock дал бы ложный rekey → петля (как v2.5.73).
+- `awg_pool.c`: `awg_tick` теперь вызывается и для готового туннеля
+  (hs_done && handshake_done), иначе rekey-блок не выполнялся бы.
+- Компромисс: один noise_state (нет dual-key current/next как в wireguard-go) →
+  rekey деструктивен: микро-разрыв ~1 RTT раз в 120с вместо полной смерти.
+- EC330 (PID 30627, 2.5.82) ПОДТВЕРЖДЕНО (mon3.log 5.5 мин): proactive_rekey
+  сработал на ~120с (×3) и ~240с (×3); SYN-ACK timeout = 0 (было сотни);
+  WARP ASSURED держится 6-9 (было →0 на 3.5 мин). Порог 3-4 мин пройден.
+
+## v2.5.81 (2026-05-30) — AWG короткие сессии: SYN-ACK timeout 5с→15с + inner SYN-retransmit
+
+- fix(awg): reconnect storm Telegram — «качает ролики, потом отваливается →
+  обновление сети». Корень: inner TCP SYN к Telegram-серверам (149.154.167.x:
+  443/5222/80 через AWG) часто не получал SYN-ACK за 5с → relay рвался →
+  пересоздавался. 80-92 «SYN-ACK timeout» в логе. WARP туннель жив (rekey=0,
+  ASSURED стабилен) — агрессивный таймаут + потеря одиночного inner SYN на
+  anycast edge WARP при congestion.
+- FIX1 `dispatcher.c`: RELAY_AWG_WAIT `upstream_first_byte_deadline` 5с→15с
+  (обе точки: reuse-path + hs_done-wake). WARP доставляет SYN-ACK за 6-14с.
+- FIX2 `awg_ipstack.c`: `awg_streams_syn_tick(peer)` — RFC 793 SYN-retransmit.
+  Streams в SYN_SENT: повтор syn_buf каждые 3с, до 4 попыток, CLOCK_MONOTONIC
+  (`awg_mono_sec`). Вызов из awg_pool_tick для hs_done-peer'ов.
+- `awg_ipstack.h`: объявление awg_streams_syn_tick. Поля syn_* уже были (v2.5.75).
+- EC330 (PID 29460, 2.5.81): задеплоен, мониторинг дельт SYN-ACK timeout/retx.
+
+## v2.5.80 (2026-05-30) — DNS IPv6: bind к ULA (не wildcard) — iPhone DNS доходят
+
+- fix(dns): IPv6 :53 биндился на in6addr_any → ответ sendto уходил с чужим
+  source (не ULA fdc3::1) → iOS дропал. Фикс: bind к scope-global адресу
+  br-lan (getifaddrs AF_INET6, skip link-local). См. project_v2578.
+
+## v2.5.79 (2026-05-30) — DNS IPv6: routing udp6_fd/tcp6_fd в главном epoll-loop
+
+- fix(main): epoll-loop маршрутизировал DNS только при fd==udp_fd||tcp_fd →
+  события на udp6_fd/tcp6_fd не доходили до обработчика. Добавлены в условие.
+
+## v2.5.78 (2026-05-30) — DNS IPv6 listener: bind [::]:53 — корень «Telegram тщетно»
+
+- fix(dns): DNS-сервер слушал ТОЛЬКО IPv4 (0.0.0.0:53). Роутер раздаёт клиентам
+  свой ULA как IPv6 DNS (RA RDNSS через odhcpd) — iOS предпочитает IPv6 DNS и слал
+  ВСЕ запросы на [fdc3::1]:53, где никто не слушал (dnsmasq на :5353) → все DNS
+  iPhone [UNREPLIED] → 0 резолва → Telegram вечно «подключается». Это был реальный
+  корень симптома «тщетно» (НЕ AWG — туннели/MSS были исправны).
+- `dns_server.h`: +поля `udp6_fd`, `tcp6_fd`.
+- `dns_server.c`: после IPv4 listen — IPv6 UDP+TCP сокеты bind `[::]:53` с
+  `IPV6_V6ONLY=1` (не конфликтует с IPv4 на том же порту; ошибки IPv6 не фатальны).
+  `handle_udp_query(ds, listen_fd)` и `accept_tcp_client(ds, listen_fd)`
+  параметризованы по fd. `dns_reply_send`: выбор `send_fd` по семье клиента
+  (AF_INET6→udp6_fd). register_epoll + dispatch + cleanup получили ветки udp6/tcp6.
+  Handlers уже понимали AF_INET6 client_addr — менялся только листенер.
+- EC330 (PID 13898, 2.5.78): `nslookup api.telegram.org @fdc3:5255:83ae::1` →
+  149.154.167.220 (резолвится по IPv6!). DNS UNREPLIED 19→2, REPLIED=15,
+  conntrack к Telegram 0→4. IPv4 DNS тоже работает.
+
+## v2.5.77 (2026-05-30) — fix MSS=1240 в inner SYN (был 1360 при MTU=1280) + DIAG
+
+- fix(awg/ipstack): inner SYN объявлял MSS=1360 (0x0550) при MTU туннеля 1280.
+  Сервер слал downlink-сегменты ~1400B → не влезали в 1280-туннель → удалённый
+  WG-слой IP-фрагментировал → у нас нет реассемблера → дроп → bulk залипал
+  («два видео, потом обновление сети»). Setup/мелкие ≤1240 проходили → ESTABLISHED
+  был, throughput=0.
+- Исправлено: MSS=1240 (0x04d8) = MTU(1280)−IP(20)−TCP(20) = AWG_MAX_PAYLOAD.
+  Так же mihomo/gvisor выводит MSS из MTU.
+- Найдено сравнением с эталоном Flint2 config.yaml: всё совпадало кроме MSS.
+  reserved=[0,0,0] для AWG 2.0 окончательно подтверждён как НЕ блокер.
+- DIAG (LOG_INFO): AWG SYN inner hex, AWG SYN dst .. mss=1240, AWG FIRST_REPLY,
+  AWG FRAGMENT (детект frag & 0x3fff). Поле rx_count + #include <stdio.h>.
+- EC330 PID 25735: build clean, 2.5.77 запущен (:53 + :8080). Data-path не
+  верифицирован (AWG-трафик нельзя сгенерить локально — нужен реальный клиент).
+
+## v2.5.76 (2026-05-30) — reorder-буфер OOO TCP-сегментов в AWG IP-стеке
+
+- feat(awg/ipstack): bounded reorder-буфер (16 слотов) для out-of-order TCP
+  сегментов внутри WG туннеля. Корень: RFC 6479 на WG-слое (noise.c) пропускает
+  out-of-order WG-пакеты до IP-стека. Старое поведение (доставка только
+  `seq == rcv_nxt`, dup-ACK иначе) полагалось на ретрансмит сервера, но тот
+  тоже приходил OOO → дедлок → down=0. Reorder принимает сегменты вперёд
+  (`seq > rcv_nxt`) в буфер и отдаёт relay строго по порядку при заполнении
+  дырки — как реальный TCP (gvisor/wireguard-go).
+- `awg_ipstack.h`: `#define AWG_REORDER_MAX 16` + `struct awg_reorder_seg`
+  (data/len/seq); в `awg_tcp_stream_t` — `reorder[16]`, `reorder_count`,
+  `reorder_logged`.
+- `awg_ipstack.c`: `reorder_insert()` (слот + dup-check по seq + malloc),
+  `reorder_drain()` (доставка смежных d==0, drop устаревших d<0, стоп при
+  backpressure, NULL-relay guard, LOG_INFO раз/поток). DATA-хендлер:
+  `d=(int32_t)(seq-rcv_nxt)` → d==0 deliver+drain, d>0 в окне buffer (не дроп),
+  всегда send_ack. Очистка буфера в `awg_stream_free`.
+- Память: слоты malloc'ятся только под реальный OOO (обычно 0), 16×1360B worst.
+- ВАЖНО: dup-ACK уже был в v2.5.75 (send_ack вызывался всегда) — предложенный
+  «fix dup-ACK» был no-op; настоящий фикс это reorder.
+- СОХРАНЕНЫ: in-order доставка, фикс rekey v2.5.74 (CLOCK_MONOTONIC). noise.c
+  не тронут.
+- EC330 (PID 25078): ESTABLISHED=6, HS Response=6, rekey=0, errno=0, crash=0,
+  conntrack WARP ASSURED. reorder=0 в простое (нет OOO без трафика). Throughput
+  на живом Telegram не верифицирован — маркер успеха: лог `AWG reorder: восстановлен`.
+
+## v2.5.75 (2026-05-30) — откат userspace retransmit AWG: восстановление data path Telegram
+
+- revert(awg/ipstack): userspace TCP-retransmit (rtxq + RTO/srtt/rttvar по RFC 6298),
+  добавленный в v2.5.71–74 ради throughput, ломал data path AWG — Telegram не
+  подключался. Надёжность uplink и так обеспечивает TCP-стек сервера (Cloudflare
+  WARP отвечает ACK; при потере uplink-сегмента клиент ретрансмитит на своём конце).
+  Возврат к fire-and-forget модели v2.5.60 (531 КБ/с работал именно так).
+- `awg_ipstack.h`: убраны `struct awg_rtx_seg`, `rtxq[64]` + head/tail,
+  `rto_ns/srtt_ns/rttvar_ns`, поля delayed-ACK (`unacked_bytes/last_ack_ns`),
+  define `AWG_RTXQ_MAX`/`AWG_RTO_*`/`AWG_RTX_MAX_TRIES`, объявления
+  `awg_stream_txspace`/`awg_streams_rtx_tick`/`awg_streams_flush_ack`.
+- `awg_ipstack.c`: удалены `awg_now_ns`, `rtxq_free_slots`, `rtxq_push`,
+  `rtxq_ack`, `awg_retransmit_segment`, `awg_stream_rtx_tick`/`awg_streams_rtx_tick`,
+  мёртвый `awg_streams_flush_ack`. `awg_stream_send` переписан в fire-and-forget
+  (build → awg_send → snd_nxt += chunk).
+- `awg_pool.c`: убран вызов `awg_streams_rtx_tick` из `awg_pool_tick`.
+- `dispatcher.c`: оба uplink-пути читают клиента без `txspace`-backpressure.
+- СОХРАНЁН in-order guard (`seq == rcv_nxt` + dup-ACK): держит корректность
+  потока, т.к. RFC 6479 в noise.c пропускает out-of-order WG-пакеты до IP-стека
+  (в v2.5.60 их дропал WG-слой). Это не retransmit.
+- СОХРАНЁН фикс rekey v2.5.74 (CLOCK_MONOTONIC возраст ключа в noise.c).
+- EC330 (PID 24436): ESTABLISHED=3, HS Response=3, rekey=0, RTO/rtxq=0, errno=0,
+  conntrack WARP ASSURED. Throughput под нагрузкой не верифицирован (нужен клиент).
+
 ## v2.5.64 (2026-05-29) — AWG HC probe: проверка DATA path, не только SYN-ACK
 
 - fix(awg/hc): `net_spawn_awg_check` теперь двухфазный:
