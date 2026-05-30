@@ -1,3 +1,21 @@
+## v2.5.85 (2026-05-31) — AWG stream lookup O(1) hash-table + reorder early-exit
+
+- refactor(awg): find_stream O(N) линейный скан → O(1) open-addressing
+  hash-table (256 buckets, ключ src_port, Robin Hood backward-shift remove).
+  Верифицировано на 162 одновременных потоках без overflow и без краша.
+  WHY 256: load factor ~0.63 при 162 потоках → avg probe ≤ 1.6; фикс-64
+  давал бы LF > 2.5 → переполнение → дропы соединений.
+  Fallback: при гипотетическом overflow (логируется WARN) деградирует
+  в существующий linear scan — production daemon не крашится.
+- refactor(awg): reorder_drain вызывается только при reorder_count > 0
+  (Lever C). Устраняет 16 пустых итераций на каждый in-order пакет.
+- Диагностика (5 итераций, включая writev, CPU baseline, strace):
+  throughput-потолок одного потока (≤366 KB/s) — server-cwnd WARP
+  поверх туннеля, не роутер. Демон 2% CPU median, 98% idle.
+  syscalls = 1.84% wall-time; time()/clock_gettime = vDSO (бесплатны).
+  Дальнейший throughput-рост требует смены WARP-tier или иного сервера.
+- EC330 (PID 5761, v2.5.85): 0 segfault / 0 stream_ht overflow / 0 OOM.
+
 ## v2.5.84 (2026-05-30) — AWG Фаза 3 delayed ACK — bulk throughput +82%
 
 - feat(awg): T1-AWG-throughput Фаза 3 — delayed ACK по RFC 1122 §4.2.3.2.
