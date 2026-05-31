@@ -1,3 +1,14 @@
+## v2.5.89 (2026-05-31) — security(dns): IPv6 bind ULA вместо in6addr_any (audit_v53 §8)
+
+- security(dns): IPv6 DNS-листенер биндился на `in6addr_any` (`[::]:53` = ВСЕ интерфейсы
+  вкл. WAN IPv6). При публичном IPv6 + сбое firewall → open DNS resolver (amplification).
+  Асимметрия: IPv4 биндился к LAN-IP через getifaddrs, IPv6 — на `[::]`.
+  Фикс: `getifaddrs` AF_INET6 + `cfg->lan_interface` → bind к ULA (`fc00::/7`,
+  приоритет) или link-local (`fe80::/10`, fallback, со `sin6_scope_id`). При отсутствии
+  IPv6 на LAN → listener не создаётся (`udp6_fd=tcp6_fd=-1`, LOG_INFO). Симметрично IPv4.
+  iOS/Android получают ULA по RA RDNSS и шлют DNS на неё — биндим именно её.
+  audit_v53 §8 SECURITY (был firewall-mitigated → теперь hardened в коде).
+
 ## v2.5.88 (2026-05-31) — fix: CI gate — test-cdn-updater link + PKG_VERSION sync (audit_v53 §16)
 
 - fix(makefile): рецепт `test-cdn-updater` добавляет `awg_pool.c` + `awg_ipstack.c` +
