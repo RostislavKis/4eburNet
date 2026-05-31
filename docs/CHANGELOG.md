@@ -1,3 +1,15 @@
+## v2.5.97 (2026-05-31) — chore: AWG HC TEMP-DIAG cleanup + probe=1.1.1.1
+
+- chore: убраны TEMP DIAG LOG_DEBUG (диагностика AWG 1.5 HC).
+  AWG HC probe: 1.1.1.1:80 (Cloudflare, единственно консистентный
+  для всех WARP-endpoint'ов). gstatic/url-based probe откачен —
+  per-fork anycast DNS давал нестабильный IP → AWG 2.0(3) delay=0 флаки.
+- docs: задокументирован механизм инцидента TELEGRAM-outage:
+  delay=0 guard уже стоит везде (v1.5.129, 8 точек подтверждены).
+  Реальный корень: fallback_idx=first-available захватывал мёртвый AWG 1.5
+  когда ВСЕ AWG 2.0 были в HC-прогреве (конфликт ключа + рестарт-шторм).
+  Настоящий фикс: round-robin fallback — отдельная задача v2.5.98.
+
 ## v2.5.96 (2026-05-31) — fix: URI-имена url-decode в preview подписок
 
 - fix(http): `parse_proxy_uri` декодирует percent-encoding имени сервера из URI-фрагмента
