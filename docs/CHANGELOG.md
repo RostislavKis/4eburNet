@@ -1,3 +1,37 @@
+## v2.5.86 (2026-05-31) — P0-LIVE fix: AWG stale-peer runaway loop (destroy + watchdog)
+
+КРИТИЧНЫЙ баг обнаружен вживую во время Devil Audit v53 (ШАГ 16): Telegram не
+подключался ~1 час. При WARP rekey/reconnect peer с `udp_fd=-1` не вычищался из пула
+→ `handle_awg_peer` на фантомных epoll-событиях генерировал `STALE peer` WARN
+**×733/сек** → 7.1% CPU-spin → группа TELEGRAM (AWG 1/2/3) мертва. Обход = reboot.
+Полное лечение корня (A+B+C+D), без костылей:
+
+- fix(awg_pool): **КОРЕНЬ B** — пул БЕЗ компактации массоива. Старый
+  `awg_pool_destroy_peer` делал `peers[i]=peers[count-1]` (двигал живой peer в новый
+  адрес), но epoll `data.ptr=&peers[i]` не обновлялся → dangling-ptr → UB/STALE при
+  следующем событии. Фикс: in-place invalidation (`server_idx=-1`, `explicit_bzero` +
+  восстановление `ep_type`/`server_idx=-1`/`udp_fd=-1`), адрес слота стабилен на всю
+  жизнь демона. Итерация пула — по `[0..AWG_POOL_MAX_PEERS)` со skip пустых.
+- fix(awg_pool): **КОРЕНЬ A** — `awg_pool_destroy_peer(+epoll_fd)` делает
+  `EPOLL_CTL_DEL(udp_fd)` ПОКА fd валиден, ПЕРЕД `awg_close`. Без DEL фантомные
+  epoll-события продолжали срабатывать после `close(fd)`.
+- fix(dispatcher): **Шаг A** — STALE-ветка `handle_awg_peer` теперь: one-shot guard
+  лога (`stale_logged`) + полный teardown (вместо бесконечного WARN-спина).
+- fix(dispatcher): **Шаг B** — HS-watchdog (`AWG_HS_WATCHDOG_SEC=30`) в `dispatcher_tick`:
+  peer залипший в `hs_active && !hs_done` без EPOLLIN (молчащий сервер → 500-EPOLLIN
+  timeout не срабатывает) уничтожается через 30с (CLOCK_MONOTONIC). Без этого
+  `awg_pool_get_or_create` REUSE'ил залипший peer вечно (server=3 REUSE-loop).
+- fix(dispatcher): `RELAY_FAIL_OR_RETRY` (макрос с `return`) в 5 циклах по waiters
+  (teardown ×2 + wake-loop ×3) обрывал обработку на первом waiter → destroy не
+  вызывался / остальные waiters stranded. Заменён на не-возвращающуюся форму
+  (`if (relay_try_retry(ds,r)!=0) relay_free(ds,r)`). Мёртвый `continue;` после
+  макроса = доказательство исходного намерения.
+- fix(awg_pool): `awg_pool_get_or_create` при сбое `awg_init` оставлял слот с валидным
+  `server_idx` (half-init zombie) — теперь `server_idx=-1` (audit_v53 ШАГ 1).
+- EC330 v2.5.86 ПОДТВЕРЖДЕНО: 0 STALE за 4.5 мин / 12 rekey-циклов (было 733/сек),
+  CPU 7.1%→1.8%, 0 crash, Telegram-потоки ESTABLISHED стабильно. Helper
+  `dispatcher_awg_peer_teardown` единый для всех путей fail+destroy.
+
 ## v2.5.85 (2026-05-31) — AWG stream lookup O(1) hash-table + reorder early-exit
 
 - refactor(awg): find_stream O(N) линейный скан → O(1) open-addressing
