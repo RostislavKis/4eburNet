@@ -1,3 +1,15 @@
+## v2.5.90 (2026-05-31) — feat(dns): реальные DNS stats вместо заглушки (audit_v53 §3)
+
+- feat(http): `route_api_dns_stats` — заглушка с хардкод-нулями заменена чтением
+  атомарных счётчиков `g_stats` (queries / cached / blocked=ads+trackers+threats /
+  upstream_errors), hit_rate = cached/queries × 100.0%. Счётчики `dns_queries_total`,
+  `dns_cached_total`, `blocked_*` уже инкрементировались в dns_server.c (`:632`, `:826/834`,
+  `:1022-1025/1591-1594`) — заглушка их просто не читала, врала комментарием про «нет IPC».
+  audit_v53 §3 ⚠️ «0 заглушек» восстановлено.
+- feat(stats): новый счётчик `dns_upstream_errors` + inline `stats_dns_upstream_error()` —
+  инкремент при upstream timeout → SERVFAIL (после исчерпания fallback) в
+  `dns_server_check_pending_timeouts`. Атомарный, `memory_order_relaxed`.
+
 ## v2.5.89 (2026-05-31) — security(dns): IPv6 bind ULA вместо in6addr_any (audit_v53 §8)
 
 - security(dns): IPv6 DNS-листенер биндился на `in6addr_any` (`[::]:53` = ВСЕ интерфейсы
