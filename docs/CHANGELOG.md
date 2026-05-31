@@ -1,3 +1,17 @@
+## v2.5.91 (2026-05-31) — fix(dashboard): ConnectionTable tooltips + PWA manifest + i18n
+
+- fix(dashboard): ConnectionTable — `v-tooltip="tip('conn_'+header.column.id)"` на каждый
+  `<th>`. Подтягивает пояснения из `tooltips.conn_<id>` (conn_ja3/conn_ja4/conn_destination/
+  conn_source уже определены), пустые ключи директива пропускает. Без TS-аугментации
+  ColumnMeta и без правки 20 колонок. audit_v53 §50 ⚠️: JA3/JA4 = обскурные fingerprint-термины.
+- fix(i18n): `tooltips.{sshConnect,sshDisconnect,sshClear}` добавлены в ru.ts + en.ts (были
+  только root-level → `tip()` искал в `tooltips.*` и возвращал ''). Кнопки SSH-консоли получают
+  подсказки. audit_v53 §51 📝. ru/en паритет сохранён.
+- fix(pwa): `public/manifest.webmanifest` + `<link rel="manifest">` в index.html. БЕЗ
+  ServiceWorker (registerSW.js давал 404 на OpenWrt). Add-to-Home-Screen iOS/Android работает.
+  http_server whitelist уже пропускает `/manifest.webmanifest` + `/pwa-*` — C-код не менялся.
+  audit_v53 §52 ⚠️ PWA feature-regression закрыт. Бинарь функц. идентичен v2.5.90 (только версия).
+
 ## v2.5.90 (2026-05-31) — feat(dns): реальные DNS stats вместо заглушки (audit_v53 §3)
 
 - feat(http): `route_api_dns_stats` — заглушка с хардкод-нулями заменена чтением
