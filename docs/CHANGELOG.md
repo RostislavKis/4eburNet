@@ -1,3 +1,18 @@
+## v2.5.95 (2026-05-31) — fix: subscription fetch redirect-follow + 64KB буфер
+
+- fix(net): `net_http_fetch_ex` (bypass path) → `net_http_fetch_ip_h` — следует
+  редиректам (301/302, до 3 hop) + direct DNS. WHY: CDN-hosted подписки редиректят
+  (short URL → bucket); `_ip` без follow → `-2` → 502.
+- fix(http): subscribe parse/import буферы `8K/16K` → **64KB** (data/decoded/result).
+  WHY: реальные подписки 36-42KB (xrayext, sing-box) обрезались на 8KB → битый парсинг.
+- НАХОДКА (структура захвачена с роутера, НЕ угадана): `?fmt=xrayext` (Happ/INCY
+  «universal») — это **base64-подписка** (`#profile-*` метаданные + URI-list), а НЕ
+  xray JSON (outbounds/streamSettings, как предполагал шаблон). Уже обрабатывается
+  base64+URI-list парсером (v2.5.93). Сбой был в FETCH: неверный параметр `xray-ext`
+  (502) vs `xrayext` (200) + redirect + 8KB-обрезка. ПОДТВЕРЖДЕНО EC330: xrayext 42KB →
+  реальные vless-серверы (Reality/WS/XHTTP). Ненужный сложный xray-парсер НЕ написан.
+- Регресс: 5 URI-схем + sing-box/clash/base64 — без изменений; make test 1391 PASS.
+
 ## v2.5.94 (2026-05-31) — fix: url-fetch fake-IP bypass + sing-box/SIP008 форматы
 
 - fix(net): `net_http_fetch_ex(url, dest, flags)` + флаг `NET_FETCH_BYPASS_FAKEIP` —
