@@ -1,3 +1,18 @@
+## v2.5.93 (2026-05-31) — feat(sub): Base64-подписки + URI-схемы vmess/hy2/tuic
+
+- feat(net_utils): `net_base64_decode()` — публичная RFC 4648 base64 + base64url (-_)
+  декодер (length-возврат, padding опционален). WHY: подписки v2rayN/Hiddify/Shadowrocket
+  отдают base64url.
+- feat(http): `route_api_subscribe_parse` — авто-детект Base64-подписки: если тело не Clash/
+  JSON/URI-scheme, но декодируется в `://`-список или `proxies:` → декод in-place → дальше
+  обычным путём (URI-list / Clash). Закрывает главный реальный пробел (большинство подписок).
+- feat(http): `parse_proxy_uri` += схемы `vmess://` (base64-JSON → ps/add/port через
+  `http_json_get_str`), `hy2://`, `hysteria2://`, `tuic://`. Было только vless/trojan/ss.
+- ОБЪЁМ: preview-парсинг (name/protocol/server/port). Полный struct-парсер sing-box JSON /
+  SIP008 / wg-URI + import-расширение → v2.5.94 (нужен JSON-обход массивов в C, отдельный блок).
+  Шаблоны исходной задачи были под несуществующую enum-структуру; адаптировано под строковый
+  ServerConfig.
+
 ## v2.5.92 (2026-05-31) — chore: tech-debt cleanup (audit_v53 📝 замечания)
 
 - fix(http_server): 6× `strcpy` копир. литералов "vless"/"trojan"/"ss" → `snprintf`+`sizeof`
