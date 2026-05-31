@@ -1,3 +1,19 @@
+## v2.5.94 (2026-05-31) — fix: url-fetch fake-IP bypass + sing-box/SIP008 форматы
+
+- fix(net): `net_http_fetch_ex(url, dest, flags)` + флаг `NET_FETCH_BYPASS_FAKEIP` —
+  резолв hostname через прямой UDP DNS (1.1.1.1/8.8.8.8, `net_resolve_host_direct`),
+  минуя fake-IP стек. WHY: демон резолвил subscription URL через getaddrinfo→127.0.0.1
+  → 198.18.x.x (fake-IP) → connect fail → 502. С bypass — реальный IP. `net_http_fetch`
+  стал тонкой обёрткой (flags=0; geo/CDN не затронуты). route_api_subscribe_parse/import →
+  bypass. ПОДТВЕРЖДЕНО EC330: реальные подписки v2b64/clash/sing **502→200**.
+- feat(http): sing-box JSON (`outbounds[]`) preview — SFA/SFI/sing-box. balance-braces
+  обход массива объектов (с пропуском строк), type/tag/server/server_port, пропуск
+  service-типов (direct/block/dns/selector/urltest). ПОДТВЕРЖДЕНО на реальном `?fmt=sing`.
+- feat(http): SIP008 JSON (`servers[]`) preview — ShadowSocks Android/Outline
+  (protocol=ss, remarks→name; тот же обход массива).
+- ИЗВЕСТНО: xray-ext (universal JSON Happ/INCY) — иная структура (`configs`/routing), 502
+  при fetch у эндпоинта; полная struct-экстракция всех форматов при импорте → v2.5.95.
+
 ## v2.5.93 (2026-05-31) — feat(sub): Base64-подписки + URI-схемы vmess/hy2/tuic
 
 - feat(net_utils): `net_base64_decode()` — публичная RFC 4648 base64 + base64url (-_)
