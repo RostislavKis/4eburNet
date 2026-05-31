@@ -1,3 +1,14 @@
+## v2.5.96 (2026-05-31) — fix: URI-имена url-decode в preview подписок
+
+- fix(http): `parse_proxy_uri` декодирует percent-encoding имени сервера из URI-фрагмента
+  (`#%F0%9F%87%B3%F0%9F%87%B1...` → `🇳🇱 Нидерланды • Reality`) через существующий
+  `url_pct_decode`. Раньше dashboard-preview показывал сырой `%XX`. ПОДТВЕРЖДЕНО EC330.
+- НЕ сделано (AWG 1.5 HC delay=0): гипотеза задачи «junk инфлейтит RTT» **неверна** — RTT
+  (`ms`) клампится `[1,9999]`, никогда не 0 (net_utils.c:1435). delay=0 = HC возвращает ERR
+  (двухфазный inner-probe 1.1.1.1:80 фейлит для AWG 1.5) ИЛИ HC при jc=120 медленнее →
+  killed batch-deadline. Сдвиг `t1` после junk симптом не устранит + ломает awg_handshake_start.
+  Требует live-диагностики HC-форка — отдельно (минор: AWG 2.0 ранжируется, url-test работает).
+
 ## v2.5.95 (2026-05-31) — fix: subscription fetch redirect-follow + 64KB буфер
 
 - fix(net): `net_http_fetch_ex` (bypass path) → `net_http_fetch_ip_h` — следует
