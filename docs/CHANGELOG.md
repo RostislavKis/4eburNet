@@ -1,3 +1,14 @@
+## v2.5.87 (2026-05-31) — fix: стек-блокеры pkt[65536]+pkt[1500] → static (audit_v53 §1)
+
+- fix(dispatcher): `uint8_t pkt[65536]` в SOCKS5 UDP_ASSOC handler →
+  `static uint8_t s_socks5_udp_pkt[65536]` (BSS). 64KB на стеке главного epoll-цикла
+  = MIPS stack overflow × 8 (8KB limit). Latent CRASH при первой реальной UDP-датаграмме
+  SOCKS5-клиента (на EC330 не триггерился — трафик через TPROXY). audit_v53 §1 🔴 БЛОКЕР.
+  Single-threaded epoll → static безопасен (datagram обрабатывается полностью до следующего).
+- fix(hc_tuic): `uint8_t pkt[1500]` → `static uint8_t s_hc_tuic_pkt[1500]`. >512B MIPS
+  stack rule в форк-ребёнке HC (single-threaded). Консистентно с hy2/muxcool фиксами.
+  audit_v53 §1 ⚠️ ПРОБЛЕМА.
+
 ## v2.5.86 (2026-05-31) — P0-LIVE fix: AWG stale-peer runaway loop (destroy + watchdog)
 
 КРИТИЧНЫЙ баг обнаружен вживую во время Devil Audit v53 (ШАГ 16): Telegram не
