@@ -1,3 +1,18 @@
+## v2.5.88 (2026-05-31) — fix: CI gate — test-cdn-updater link + PKG_VERSION sync (audit_v53 §16)
+
+- fix(makefile): рецепт `test-cdn-updater` добавляет `awg_pool.c` + `awg_ipstack.c` +
+  `tests/stub_awg_relay.c`. `net_utils.c::child_do_awg_handshake` ссылается на
+  `awg_stream_*`/`awg_port_pool_init`/`awg_ip_dispatch` (awg_ipstack.c), а awg_ipstack
+  на `relay_awg_stream_*` (callbacks, прод — в dispatcher.c). Без них undefined reference
+  → `make` stop-on-error → агрегатный `make test` обрывался → CI-gate сломан.
+  Stub отдаёт пустые callbacks (в HC-probe relay==NULL → не вызываются рантаймом).
+  audit_v53 §16 ПРОБЛЕМА 1. Теперь `make test` проходит ПОЛНОСТЬЮ (1155 PASS, 0 FAIL,
+  достигает последнего таргета test-tproxy).
+- fix(makefile): `PKG_VERSION` в корневом Makefile синхронизирован с `EBURNET_VERSION`
+  через `$(shell grep … core/Makefile.dev | sed …)` — был захардкожен `2.5.18`
+  (отставание 70 патчей → IPK рапортовал устаревшую версию). audit_v53 §16 ПРОБЛЕМА 2.
+  Бинарник НЕ изменён (CI-gate фиксы — только test/packaging инфраструктура).
+
 ## v2.5.87 (2026-05-31) — fix: стек-блокеры pkt[65536]+pkt[1500] → static (audit_v53 §1)
 
 - fix(dispatcher): `uint8_t pkt[65536]` в SOCKS5 UDP_ASSOC handler →
