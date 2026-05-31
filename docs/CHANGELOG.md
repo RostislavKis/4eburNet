@@ -1,3 +1,20 @@
+## v2.5.92 (2026-05-31) — chore: tech-debt cleanup (audit_v53 📝 замечания)
+
+- fix(http_server): 6× `strcpy` копир. литералов "vless"/"trojan"/"ss" → `snprintf`+`sizeof`
+  (parse_proxy_uri + base64-list parser). Безопасны (≤6Б в buf[16]), но нарушали букву
+  production-grade правила. audit_v53 §1 📝.
+- refactor(constants): `HTTP_PORT 8080` перенесён из http_server.h в constants.h —
+  однородность с DNS_PORT/DNSMASQ_PORT/NFT_TPROXY_PORT (http_server.h уже включал constants.h).
+  audit_v53 §3 📝.
+- chore(4eburnet.h): fallback `EBURNET_VERSION` → "2.5.92" (был "2.0.7"; закрыт бампами
+  v2.5.89-92). audit_v53 §15 📝.
+- НЕ сделано §5 (iface-валидация → valid_ifname): осознанно оставлено inline. valid_ifname
+  живёт в net_utils.c вместе с AWG HC-probe (awg_close/awg_stream_free) → линковка в
+  standalone test-config-parsing тянет весь AWG-стек. Дублирование 6 строк дешевле связывания
+  config-парсинга с AWG. audit_v53 §5 📝 — закрыто как WONTFIX с обоснованием в коде.
+- Уже закрыто ранее: §1 awg_pool partial-init guard (server_idx ставится только после
+  успешного awg_init — фикс v2.5.86, правка не требовалась).
+
 ## v2.5.91 (2026-05-31) — fix(dashboard): ConnectionTable tooltips + PWA manifest + i18n
 
 - fix(dashboard): ConnectionTable — `v-tooltip="tip('conn_'+header.column.id)"` на каждый
