@@ -1,3 +1,20 @@
+## v2.5.102 (2026-06-01) — fix(awg/rekey): dual-key окно prev_until 20с→180с
+
+- fix(awg/rekey) v2.5.102: `prev_until` (awg.c) при проактивном rekey 20с→180с.
+  WHY: dual-key снимок старого ключа (`noise_prev`) держал send/decrypt только
+  20с после rekey. На быстром пути новый handshake встаёт <1с — бесшовно. Но на
+  деградированном/ненадёжном пути (потери пакетов, как WARP-egress ключа Kxy1)
+  новый rekey-handshake занимал >20с → `noise_prev` истекал → `awg_send` -1 →
+  `relay_free` → активная загрузка рвалась каждые ~120с (reconnect-storm,
+  iOS «обновление сети»; Telegram «качает немного и встаёт»). 180с = WARP
+  RejectAfterTime: старый ключ WARP принимает до возраста 180с, за это время
+  новый HS гарантированно встаёт. Двойной ключ активен ТОЛЬКО в GAP rekey
+  (`use_prev` при `!handshake_done`), не постоянно → оверхеда нет.
+  Диагноз подтверждён вживую (EC330, swap Kxy1→NEW_PRIV): на здоровом ключе
+  NEW_PRIV один relay вытянул 7.07МБ сквозь rekey при CPU 4%; на Kxy1 — стопор.
+  Фикс снимает зависимость от «удачного» ключа — dual-key переживает rekey и
+  на путях с потерями.
+
 ## v2.5.99–v2.5.101 (2026-06-01) — fix(awg): rekey-abort + stream-error + reorder (стабильность Telegram)
 
 - fix(awg/rekey) v2.5.99: `awg_process_incoming` (awg.c) на невалидном пакете в
