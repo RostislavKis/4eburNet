@@ -1,3 +1,34 @@
+## v2.5.99–v2.5.101 (2026-06-01) — fix(awg): rekey-abort + stream-error + reorder (стабильность Telegram)
+
+- fix(awg/rekey) v2.5.99: `awg_process_incoming` (awg.c) на невалидном пакете в
+  h2-диапазоне делал `return -1` → рвал drain UDP → реальный rekey-Response не
+  доходил → новая сессия не вставала → после prev_until(20с) туннель умирал
+  («маршрутизация в WG туннеле нарушена», SYN-ACK timeout). Под трафиком Telegram
+  junk/stale пакеты в h2-диапазоне = постоянный обрыв на 120с-rekey. Фикс:
+  `return -1`→`continue` (дрейним до валидного Response). + noise.c:
+  `remote_index` пишется только ПОСЛЕ проверки recv_idx (junk не затирает индекс
+  отправки). ПОДТВЕРЖДЕНО: каждый rekey теперь завершается в ту же секунду.
+- fix(awg/stream) v2.5.100: `relay_awg_stream_error` (dispatcher.c) на ошибку
+  ОДНОГО inner-TCP потока (RST от Telegram/YouTube — норма при стриминге/seek)
+  вызывал `RELAY_FAIL_OR_RETRY` → помечал AWG-сервер failed → исключал из группы
+  → ВСЕ соединения на нём рвались (видео качалось и вставало). Фикс: `relay_free`
+  (рвём только это соединение, WG-туннель жив), симметрично stream_closed.
+- perf(awg/reorder) v2.5.101: `AWG_REORDER_MAX` 16→64 (awg_ipstack.h) — запас под
+  тяжёлый packet-reorder пути WARP. Память on-demand. (NB: throughput-стопор
+  «качает немного и встаёт» этим НЕ устранён — открытая 4-я проблема, см. ниже.)
+- config(EC330): AWG 2.0 `awg_reserved` 205,3,170→0,0,0 (Kxy1/warp-common-v2
+  требует 0,0,0; чужой reserved от wgcf-эксперимента ломал inner-TCP routing →
+  no SYN-ACK, персистило через ребут). Это конфиг, не код.
+
+## v2.5.98 (2026-05-31) — fix(proxy_group): round-robin fallback (не first-available)
+
+- fix(proxy_group): fallback при all-delay=0 теперь round-robin по всем
+  кандидатам (не first-available). Массив fallback_arr[16] в url-test выборе.
+  WHY: first-available монополизировал мёртвый сервер когда все живые были
+  в HC-прогреве. Round-robin раздаёт попытки → живые получат connections →
+  retry обходит мёртвый. Инцидент EC330 2026-05-31: AWG 1.5 перехватил
+  весь TELEGRAM через first-available fallback.
+
 ## v2.5.97 (2026-05-31) — chore: AWG HC TEMP-DIAG cleanup + probe=1.1.1.1
 
 - chore: убраны TEMP DIAG LOG_DEBUG (диагностика AWG 1.5 HC).
