@@ -1,3 +1,16 @@
+## v2.5.103 (2026-06-01) — fix(awg): SIGSEGV use-after-free при SIGHUP reload
+
+- fix(awg/awg_init): strdup строк awg_i[]/awg_j1 вместо копирования указателей.
+  awg_init копировал указатели на ServerConfig (не владея памятью) → SIGHUP
+  освобождал старый ServerConfig → висячие указатели → SIGSEGV при rekey.
+  addr2line 0x42e8ec → awg_send_handshake_sequence. Повторялось ×2 (=кол-во SIGHUP).
+  Найдено вживую: после двух SIGHUP (деплой YT-группы) демон падал 4229→6464→7188.
+- fix(awg/awg_close): free + NULL для i[]/j1 при закрытии (+ j1 const char*→char*).
+- fix(net_utils/child_do_awg_handshake): после `memcpy(&pp->awg,&awg)` зануляем awg.cfg.i[]/j1
+  (передача владения pp->awg) — иначе `awg_close(&pp->awg)` + `awg_close(&awg)` = double-free
+  strdup-указателей → SIGSEGV в musl `free()` в HC-форке. Симметрично существующему awg.udp_fd=-1.
+  Найдено инспекцией (addr2line ra→__libc_free, free.c:105).
+
 ## v2.5.102 (2026-06-01) — fix(awg/rekey): dual-key окно prev_until 20с→180с
 
 - fix(awg/rekey) v2.5.102: `prev_until` (awg.c) при проактивном rekey 20с→180с.
