@@ -1493,7 +1493,10 @@ def generate_uci(servers: list,
     # DNS опции из Clash dns: секции
     # P9-01: записывать как UCI options в секцию dns, не как комментарии
     # G15-4: nameserver-policy → dns_policy (правильная семантика, не dns_rule)
-    _skip_keys = {'dns_rule', 'dns_policy', 'dns_static_host'}
+    # WHY proxy_server_nameserver исключён: DNS-резолв доменов прокси-серверов ЧЕРЕЗ
+    # сам прокси = циклический deadlock на EC330 (прокси ждёт DNS, DNS ждёт прокси —
+    # ломал Telegram/api.telegram.org timeout). upstream_bypass=1.1.1.1 резолвит напрямую.
+    _skip_keys = {'dns_rule', 'dns_policy', 'dns_static_host', 'proxy_server_nameserver'}
     # Ключи, которые должны записываться как UCI list (множественные значения)
     _list_dns_keys = {
         'upstream_doh_alt', 'upstream_dot_fallback_alt',
