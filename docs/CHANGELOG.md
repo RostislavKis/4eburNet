@@ -1,3 +1,35 @@
+## v2.5.105 (2026-06-04) — fix(grpc): upload фото Telegram рвался на ~49КБ — stream send-окно не пополнялось
+
+- КОРЕНЬ «не отправляются фото в Telegram»: в multiplex-режиме gRPC (CONFIG_EBURNET_GRPC_MULTIPLEX)
+  `grpc_stream_feed_frame` НЕ обрабатывал stream-level WINDOW_UPDATE — он падал в `default` и
+  просто сливался (`grpc_drain`). `stream_send_window` стартовал с 65535 и только убывал, никогда
+  не восстанавливаясь. После ~3 кадров по 16КБ окна не хватало → `grpc_stream_send` отдавал ENOBUFS
+  → relay закрывался (`RELAY_CLOSING`). Симптом: `up=~49725 down=182 lifetime=0-1s`, retry-шторм на
+  смену серверов, фото никогда не доходило. Download работал (recv-окно растим МЫ: порог 32КБ + expand 1МБ).
+- fix(grpc/feed_frame): добавлен `case H2_WINDOW_UPDATE` — читает 4 байта инкремента в `ctrl_buf`
+  (EAGAIN-safe через ctrl_buf_len) и пополняет `s->stream_send_window` (RFC 7540 §6.9).
+- fix(grpc/grpc_stream_send): теперь проверяет И пополняет `conn->conn_send_window` тоже — иначе
+  upload >64КБ превышал connection-level flow control → сервер слал RST.
+- fix(dispatcher/relay_transfer): чтение client→upstream для multiplex gRPC клампится под доступное
+  HTTP/2 send-окно и GRPC_SEND_CHUNK — кадр всегда влезает целиком (без потери хвоста, без ENOBUFS).
+  Окно исчерпано → backpressure `relay_grpc_uplink_pause` (снять EPOLLIN с client_fd, данные остаются
+  в сокете), а НЕ закрытие relay. Зеркало существующего `upstream_fd_paused` для обратного направления.
+- fix(dispatcher): re-drive uplink — после обработки WINDOW_UPDATE в `dispatcher_tick` (persistent
+  conn watcher) приостановленные relay'и этого соединения возобновляются (`relay_grpc_uplink_resume`).
+  Добавлен `grpc_stream.owner` (back-ptr на relay) + `relay_conn.grpc_uplink_paused`.
+- Это убирает потребность гнать медиа Telegram через AWG/WARP (троттл ключа при полном объёме):
+  чат/медиа/upload идут через лучший VLESS(MAIN), звонки/FaceTime/Discord — через AWG. make test 0 fail.
+
+## v2.5.104 (2026-06-02) — feat(proxy_provider): filter/exclude_filter — RAM-экономия загрузки
+
+- feat(proxy_provider): провайдер грузил ВСЕ серверы подписки (PrivateVPN+WL ~457) → RAM-голод
+  на 128МБ EC330 (MemAvailable 7-10МБ) → relay'и Telegram-media (фото/аудио) рвались (up=49КБ down=0).
+  Добавлены `filter` (include, POSIX ERE по имени) + `exclude_filter` (exclude) у proxy_provider:
+  фильтрация при загрузке в `provider_parse_file` (до сохранения в provider_servers). config.h
+  +filter[256]/exclude_filter[256]; config.c парсинг; proxy_provider.c regcomp/regexec.
+  EC330: PrivateVPN filter='gRPC|WS' exclude='Germany|Bulgaria|Russia|Kazakhstan' + WL off
+  → меньше загруженных серверов, RAM освобождён, Telegram media стабилен.
+
 ## v2.5.103 (2026-06-01) — fix(awg): SIGSEGV use-after-free при SIGHUP reload
 
 - fix(awg/awg_init): strdup строк awg_i[]/awg_j1 вместо копирования указателей.
